@@ -96,8 +96,10 @@ agentic-harness/
     arnes-ui/
       .claude-plugin/plugin.json         # solo interfaz: banda, panel, status, toasts (§6.5b)
       hooks/hooks.json                   # { "modules": ["./register.tsx"] }
-      hooks/register.tsx
-      types/index.d.ts
+      hooks/register.tsx                 # hooks y dibujo (≤ 300 líneas)
+      hooks/lib.ts                       # lo puro: rutas, globs, formatos, comandos y git
+      types/index.d.ts                   # contrato de $.state
+      tests/arnes-ui.test.ts             # claude plugin test
     arnes-mod/
       .claude-plugin/plugin.json         # comportamiento: depende de arnes
       hooks/hooks.json                   # { "modules": ["./register.ts"] }
