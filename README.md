@@ -1,4 +1,4 @@
-# claude-harness
+# agentic-harness
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
@@ -18,29 +18,29 @@ Estado: fase 1. Ya existen los manifiestos (uno por repo y una composición por 
 El repo vive en GitLab. El formato corto `owner/repo` siempre apunta a github.com, así que se instala con la URL completa y el tag al final:
 
 ```
-claude plugin install arnes --marketplace https://gitlab.com/<grupo>/claude-harness.git#vX.Y.Z
-claude plugin install arnes-ui@claude-harness
-claude plugin install arnes-mod@claude-harness
+claude plugin install arnes --marketplace https://gitlab.com/preupdv/apps/agentic-harness.git#vX.Y.Z
+claude plugin install arnes-ui@agentic-harness
+claude plugin install arnes-mod@agentic-harness
 ```
 
-El primer comando añade el marketplace `claude-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:<grupo>/claude-harness.git#vX.Y.Z` con la clave cargada en el agente.
+El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:<grupo>/agentic-harness.git#vX.Y.Z` con la clave cargada en el agente.
 
 Para fijar la versión en un repo de proyecto, en `.claude/settings.json`:
 
 ```json
 {
   "extraKnownMarketplaces": {
-    "claude-harness": {
-      "source": { "source": "git", "url": "https://gitlab.com/<grupo>/claude-harness.git", "ref": "vX.Y.Z" }
+    "agentic-harness": {
+      "source": { "source": "git", "url": "https://gitlab.com/preupdv/apps/agentic-harness.git", "ref": "vX.Y.Z" }
     }
   },
-  "enabledPlugins": { "arnes@claude-harness": true }
+  "enabledPlugins": { "arnes@agentic-harness": true }
 }
 ```
 
 El auto-update de un marketplace de terceros viene apagado y se deja así.
 
-Cambiar de tag, para subir o para volver atrás, es quitar el marketplace y añadirlo en el otro tag. `claude plugin marketplace remove claude-harness` desinstala los plugins que vinieron de él, así que después se reinstalan con los comandos de arriba. Desinstalar un plugin suelto: `claude plugin uninstall <nombre>@claude-harness`.
+Cambiar de tag, para subir o para volver atrás, es quitar el marketplace y añadirlo en el otro tag. `claude plugin marketplace remove agentic-harness` desinstala los plugins que vinieron de él, así que después se reinstalan con los comandos de arriba. Desinstalar un plugin suelto: `claude plugin uninstall <nombre>@agentic-harness`.
 
 Probar sin instalar, desde la raíz del repo:
 

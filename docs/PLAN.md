@@ -21,7 +21,7 @@ Un plugin de Claude Code, versionado en su propio repo, que haga que cualquier s
 
 | Capa | Dónde vive | Qué contiene |
 |---|---|---|
-| Transversal | repo `claude-harness` (marketplace + plugins) | skills, agentes, scripts genéricos, hooks clásicos, mod |
+| Transversal | repo `agentic-harness` (marketplace + plugins) | skills, agentes, scripts genéricos, hooks clásicos, mod |
 | Proyecto | cada repo: `.claude/harness.json`, `CLAUDE.md`, `.claude/rules/`, lint y tests mecánicos | manifiesto, convenciones del stack, reglas con `paths:` |
 | Carpeta multi-repo | repo-workspace diminuto por carpeta (`<carpeta>-workspace`) | `CLAUDE.md` raíz, `.claude/harness.json` como composición de los repos (§5.2), `.gitignore` de los repos, `setup` (fase 6) |
 | Fuera de Claude | GitLab / Bitbucket | CI que corre los mismos scripts del gate; aprobación obligatoria en rutas de riesgo; main protegida |
@@ -36,10 +36,10 @@ Hechos verificados que condicionan el diseño (docs oficiales 2026-10):
 - El hook `Stop` recibe `stop_hook_active: true` cuando el turno ya continúa por un bloqueo anterior: esa es la condición de salida documentada, no un contador propio. `SubagentStop` es un evento distinto y no se engancha: el gate es del hilo principal.
 - Verificado en la fase 0 (2026-10-19): el CLI carga como agente cualquier `.md` dentro de `agents/`, así que esa carpeta no lleva `README.md` (se usa `README.txt`); la forma corta `owner/repo#ref` del comando de instalación siempre apunta a github.com, y en GitLab va la URL completa de clonado; `git mv` solo se registra como rename y el MR solo tiene base si existe un commit inicial en `main` antes de ramificar. Además, los usuarios reciben una versión nueva solo cuando cambia `version` en `plugin.json`: pushear sin subirla no llega a nadie, y `version` no se declara también en la entrada del marketplace porque `plugin.json` gana y `validate` avisa del desfase.
 
-## 4. Estructura del repo `claude-harness`
+## 4. Estructura del repo `agentic-harness`
 
 ```
-claude-harness/
+agentic-harness/
   .claude-plugin/marketplace.json        # lista tres plugins: arnes, arnes-ui, arnes-mod
   README.md                              # principios, instalación, permisos recomendados, matriz de compatibilidad
   CHANGELOG.md
@@ -278,8 +278,8 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 
 ## 9. Versionado y compatibilidad
 
-- Tags semver en `claude-harness`; un tag cubre los tres plugins (`arnes`, `arnes-ui`, `arnes-mod`). `CHANGELOG.md`.
-- Instalación: `claude plugin install arnes --marketplace <fuente>#vX.Y.Z` (user scope), donde `<fuente>` depende del host: la forma corta `owner/repo` es solo para GitHub; en GitLab u otro host va la URL completa de clonado, `https://gitlab.com/<grupo>/claude-harness.git#vX.Y.Z` (o `git@gitlab.com:<grupo>/claude-harness.git`). `arnes-ui` y `arnes-mod` se instalan aparte, por nombre, desde el mismo marketplace. El host se elige donde el equipo que lo va a instalar ya tiene credenciales: para academico, GitLab (`preupdv`), y el CI es `.gitlab-ci.yml`. Auto-update apagado. Rollback = re-añadir el marketplace en el tag anterior. Desinstalar: `claude plugin uninstall <nombre>@claude-harness`.
+- Tags semver en `agentic-harness`; un tag cubre los tres plugins (`arnes`, `arnes-ui`, `arnes-mod`). `CHANGELOG.md`.
+- Instalación: `claude plugin install arnes --marketplace <fuente>#vX.Y.Z` (user scope), donde `<fuente>` depende del host: la forma corta `owner/repo` es solo para GitHub; en GitLab u otro host va la URL completa de clonado, `https://gitlab.com/preupdv/apps/agentic-harness.git#vX.Y.Z` (o `git@gitlab.com:<grupo>/agentic-harness.git`). `arnes-ui` y `arnes-mod` se instalan aparte, por nombre, desde el mismo marketplace. El host se elige donde el equipo que lo va a instalar ya tiene credenciales: para academico, GitLab (`preupdv`), y el CI es `.gitlab-ci.yml`. Auto-update apagado. Rollback = re-añadir el marketplace en el tag anterior. Desinstalar: `claude plugin uninstall <nombre>@agentic-harness`.
 - README con matriz tag ↔ versiones de Claude Code probadas. CI del arnés: `claude plugin validate` sobre los tres, tests de scripts con repos de juguete (`node --test`), `claude plugin test` para los mods, y más adelante `claude plugin eval`.
 - El equipo sube CLI y arnés juntos, nunca uno solo.
 

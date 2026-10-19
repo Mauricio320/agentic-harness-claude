@@ -16,13 +16,14 @@ Fase 1: manifiesto y scripts. Probado con Claude Code 2.1.303 y Node 24, en acad
 
 ### Cambiado
 - `docs/PLAN.md` §5: la unidad del manifiesto pasa a ser el repo, porque el CI de cada repo no veía el manifiesto de la carpeta. La carpeta pasa a ser una composición.
+- El marketplace pasa de `claude-harness` a `agentic-harness`, para coincidir con el repo de GitLab.
 
 ## [0.1.0] - 2026-10-19
 
 Fase 0: esqueleto. Probado con Claude Code 2.1.303.
 
 ### Añadido
-- Marketplace `claude-harness` en `.claude-plugin/marketplace.json` con los plugins `arnes`, `arnes-ui` y `arnes-mod`.
+- Marketplace `agentic-harness` en `.claude-plugin/marketplace.json` con los plugins `arnes`, `arnes-ui` y `arnes-mod`.
 - Plugin `arnes` con las carpetas `skills`, `agents`, `hooks`, `scripts` y `tests`, y la skill `/arnes:init` solo como esqueleto.
 - Plugins `arnes-ui` y `arnes-mod` con solo su `plugin.json`; `arnes-mod` declara `arnes` como dependencia.
 - README con principios, instalación, versionado en dos capas y matriz de compatibilidad.

@@ -24,7 +24,7 @@ const { git, help, die } = require('./lib/exec.js');
 
 const MAX_CLAUDE_MD = 200;
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
-const MARKETPLACE = 'claude-harness';
+const MARKETPLACE = 'agentic-harness';
 
 function exists(p) {
   return fs.existsSync(p);

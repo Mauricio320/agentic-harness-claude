@@ -1,5 +1,5 @@
 {
-  "name": "claude-harness",
+  "name": "agentic-harness",
   "owner": { "name": "Mauricio Triana" },
   "description": "Arnés multi-proyecto para Claude Code: el plugin arnes y sus dos mods opcionales, arnes-ui y arnes-mod.",
   "plugins": [

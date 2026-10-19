@@ -7,7 +7,7 @@ const path = require('path');
 const h = require('./helpers.js');
 
 const PINNED = h.manifestJson({
-  extraKnownMarketplaces: { 'claude-harness': { source: { source: 'git', url: 'https://gitlab.com/g/claude-harness.git', ref: 'v0.2.0' } } },
+  extraKnownMarketplaces: { 'agentic-harness': { source: { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'v0.2.0' } } },
 });
 
 // Repo que cumple las seis comprobaciones; cada test le quita una pieza.
@@ -64,7 +64,7 @@ test('cada pieza que falta es una FALTA con su motivo, y el exit pasa a 1', () =
     /FALTA\s+.*no corre ci-gate/,
     /FALTA\s+.*detección de secretos no incluida/,
     /FALTA\s+api: sin riskPaths/,
-    /FALTA\s+marketplace claude-harness no declarado/,
+    /FALTA\s+marketplace agentic-harness no declarado/,
   ]) {
     assert.match(r.stdout, re);
   }
