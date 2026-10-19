@@ -5,7 +5,8 @@
 //
 // Uso: node timeline.js start <etapa> [--ws <nombre>] [--detail <texto>]
 //      node timeline.js end <etapa> [--result <ok|fail|texto>] [--ws <nombre>] [--detail <texto>]
-// Línea: { "at": ISO-8601, "event": "start" | "end", "stage", "ws"?, "result"?, "detail"? }
+// Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"? }
+// "note" lo escriben los hooks (por ejemplo, el Stop que deja pasar un turno sin verificar).
 // Exit: 0 anotado · 2 uso inválido o sin manifiesto
 
 'use strict';
