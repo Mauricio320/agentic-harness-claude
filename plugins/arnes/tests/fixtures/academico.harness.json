@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "academico",
+  "repos": [
+    {
+      "path": "academico-front"
+    },
+    {
+      "path": "academicoBitbuckett"
+    },
+    {
+      "path": "api-academico"
+    }
+  ]
+}

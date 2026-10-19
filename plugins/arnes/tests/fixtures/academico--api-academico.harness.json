@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "api-academico",
+  "workspaces": [
+    {
+      "name": "api-academico",
+      "path": ".",
+      "git": ".",
+      "remote": "gitlab.com/preupdv/apps/api-academico",
+      "defaultBranch": "main",
+      "stack": "nestjs-prisma",
+      "commands": {
+        "typecheck": [
+          "npx tsc --noEmit"
+        ],
+        "lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored",
+        "test": "npx jest {specs} --runTestsByPath --verbose",
+        "testAll": "npx jest",
+        "build": "npm run build"
+      },
+      "specPattern": "{dir}/{name}.spec.ts",
+      "forbidden": [
+        "npm run format",
+        "npm run lint"
+      ]
+    }
+  ]
+}

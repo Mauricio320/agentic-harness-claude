@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "academico-front",
+  "workspaces": [
+    {
+      "name": "academico-front",
+      "path": ".",
+      "git": ".",
+      "remote": "gitlab.com/preupdv/apps/academico-front",
+      "defaultBranch": "main",
+      "stack": "nextjs",
+      "commands": {
+        "typecheck": [
+          "npx tsc --noEmit"
+        ],
+        "lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored",
+        "test": "npx jest {specs} --runTestsByPath --verbose",
+        "testAll": "npx jest",
+        "build": "pnpm run build"
+      },
+      "specPattern": [
+        "{dir}/{name}.test.ts",
+        "{dir}/{name}.test.tsx"
+      ]
+    }
+  ]
+}
