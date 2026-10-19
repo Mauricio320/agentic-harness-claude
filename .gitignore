@@ -1,0 +1,28 @@
+# Proyectos clonados en esta carpeta: cada uno es su propio repo, no entran aquí
+/academico-front/
+/academicoBitbuckett/
+/api-academico/
+
+# Estado local del arnés y de las sesiones
+/.tmp/
+/.claude/worktrees/
+/.claude/settings.local.json
+/.engram/
+**/graphify-out/graph.json
+
+# Dependencias y artefactos
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secretos y entorno
+.env
+.env.*
+!.env.example
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
