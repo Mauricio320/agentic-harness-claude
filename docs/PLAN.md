@@ -23,7 +23,7 @@ Un plugin de Claude Code, versionado en su propio repo, que haga que cualquier s
 |---|---|---|
 | Transversal | repo `claude-harness` (marketplace + plugins) | skills, agentes, scripts genéricos, hooks clásicos, mod |
 | Proyecto | cada repo: `.claude/harness.json`, `CLAUDE.md`, `.claude/rules/`, lint y tests mecánicos | manifiesto, convenciones del stack, reglas con `paths:` |
-| Carpeta multi-repo | repo-workspace diminuto por carpeta (`<carpeta>-workspace`) | `CLAUDE.md` raíz, `.claude/harness.json` con N workspaces, `.gitignore` de los repos, `setup` (fase 6) |
+| Carpeta multi-repo | repo-workspace diminuto por carpeta (`<carpeta>-workspace`) | `CLAUDE.md` raíz, `.claude/harness.json` como composición de los repos (§5.2), `.gitignore` de los repos, `setup` (fase 6) |
 | Fuera de Claude | GitLab / Bitbucket | CI que corre los mismos scripts del gate; aprobación obligatoria en rutas de riesgo; main protegida |
 
 Hechos verificados que condicionan el diseño (docs oficiales 2026-10):
@@ -50,7 +50,7 @@ claude-harness/
   plugins/
     arnes/
       .claude-plugin/plugin.json         # name: arnes, version semver
-      schema/harness.schema.json         # JSON Schema del manifiesto; lo usa init --check y lib/manifest.js
+      schema/harness.schema.json         # JSON Schema de los dos niveles del manifiesto (repo y carpeta); lo usan init, adoption-check y lib/manifest.js
       skills/
         init/SKILL.md                    # genera y valida .claude/harness.json; --check = mínimo de adopción
         plan/SKILL.md                    # criterios + contrato + riesgo → .tmp/harness/plan.md
@@ -69,8 +69,11 @@ claude-harness/
         test-runner.md                   # haiku; corre y reporta; separa preexistentes
       hooks/hooks.json                   # hooks clásicos, todos `node "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/<x>.js"` (ruta entre comillas: en Windows la caché puede tener espacios)
       scripts/
-        lib/manifest.js                  # busca harness.json subiendo desde el `cwd` del hook; valida contra el schema; resuelve workspace por ruta
+        lib/manifest.js                  # busca harness.json subiendo desde el `cwd` del hook; compone repo + carpeta (§5); valida contra el schema; resuelve workspace por ruta
         lib/timeline.js                  # append de etapas a .tmp/harness/timeline.jsonl (inicio, fin, resultado)
+        lib/glob.js                      # globs → RegExp, sin dependencias
+        lib/exec.js                      # git y comandos del manifiesto, con {files}/{specs} citados y partidos si exceden la línea
+        init-draft.js                    # detección determinista de arnes:init: repos, stack, comandos, specPattern; escribe los dos niveles de §5
         touched-files.js                 # modificados + untracked por workspace
         typecheck-baseline.js            # foto y diff por diagnóstico (parser tsc; interfaz para otros)
         test-select.js                   # deriva specs de archivos tocados según specPattern
@@ -98,60 +101,71 @@ Todo en Node (sin bash, sin jq): el equipo está en Windows y los hooks tienen q
 
 Política de invocación de las skills (es el mecanismo de "se comporta sin invocarlo"): `plan`, `verify`, `review`, `memory` y `timeline` quedan invocables por el modelo (sin `disable-model-invocation`), con descripciones que empiezan por las palabras de un pedido real ("implementar", "corregir", "revisar"); `init`, `ship`, `worktree` y `sync` llevan `disable-model-invocation: true` porque mueven ramas o crean archivos y las dispara solo la persona. Los agentes del plugin ignoran `hooks`, `mcpServers` y `permissionMode` en su frontmatter (restricción documentada de los plugins), así que todo control sobre ellos va por los hooks del plugin, no por el agente.
 
-## 5. Manifiesto por proyecto: `.claude/harness.json`
+## 5. Manifiestos: uno por repo, y una composición por carpeta multi-repo
+
+Cambio de la fase 1 (2026-10-19): la unidad del manifiesto es el repo. Antes había un solo `.claude/harness.json` por carpeta con todos los comandos, y el CI de cada repo (que clona solo ese repo) no podía verlo. Ahora cada repo lleva el suyo con sus comandos, que es el que lee `ci-gate` en el pipeline, y el de la carpeta es una composición que apunta a ellos y agrega solo lo que existe entre repos. Nada se duplica.
+
+### 5.1 Manifiesto de repo: `<repo>/.claude/harness.json`
 
 ```json
 {
   "version": 1,
-  "name": "academico",
+  "name": "api-academico",
   "workspaces": [
     {
       "name": "api",
-      "path": "api-academico",
+      "path": ".",
       "git": ".",
       "remote": "gitlab.com/preupdv/apps/api-academico",
       "defaultBranch": "main",
       "stack": "nestjs-prisma",
       "commands": {
         "typecheck": ["npx tsc --noEmit"],
-        "lint": "npx eslint {files} --max-warnings=0",
+        "lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored",
         "test": "npx jest {specs} --runTestsByPath --verbose",
         "testAll": "npx jest",
         "build": "npm run build"
       },
-      "specPattern": "{dir}/__test__/{name}.spec.ts",
-      "contract": { "provides": ["src/**/dto/**", "src/**/*.controller.ts"] },
+      "specPattern": "{dir}/{name}.spec.ts",
       "riskPaths": ["prisma/migrations/**", "src/auth/**", "src/acl/**"],
       "forbidden": ["npm run lint", "npm run format", "prisma migrate reset"]
-    },
-    {
-      "name": "front",
-      "path": "academico-front",
-      "git": ".",
-      "stack": "nextjs",
-      "commands": { "typecheck": ["npx tsc --noEmit"], "lint": "npx next lint --file {files}", "test": "npx jest {specs}" },
-      "specPattern": "{dir}/{name}.test.tsx",
-      "contract": { "consumes": ["src/**/types/**", "src/**/api/**"] }
-    },
-    {
-      "name": "legacy",
-      "path": "academicoBitbuckett",
-      "git": ".",
-      "stack": "php",
-      "commands": { "lint": "php -l {files}", "test": "vendor/bin/codecept run" },
-      "riskPaths": ["**/migrations/**"]
     }
   ],
-  "integration": { "branchPrefix": "feature/", "sameBranchAcrossWorkspaces": true },
   "memory": { "notes": "docs/decisions", "gotchas": "docs/gotchas.md", "graphify": true }
 }
 ```
 
-Reglas: `git: "."` significa que el workspace es su propio repo; `git: ".."` para monorepos de un solo repo con varios paquetes. Un proyecto de un repo tiene un solo workspace con `path: "."`. Las rutas son relativas al archivo del manifiesto, no al cwd: así una sesión abierta dentro de `api-academico/` encuentra el manifiesto subiendo y sigue viendo a sus hermanos. `{files}` y `{specs}` se sustituyen por listas citadas. `stack` es etiqueta informativa, nunca rama de código. `commands.typecheck` es lista porque Angular necesita dos tsconfig. Todo comando es opcional salvo `typecheck` o `test` (al menos uno): `client` de renova365 no tiene eslint y no se inventa.
+El front lleva el suyo con `"lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored"` (Next 16 ya no trae `next lint`) y `"specPattern": ["{dir}/{name}.test.tsx", "{dir}/{name}.test.ts", "{dir}/__tests__/{name}.test.tsx"]`.
+
+### 5.2 Composición de carpeta: `<carpeta>/.claude/harness.json`
+
+```json
+{
+  "version": 1,
+  "name": "academico",
+  "repos": [
+    { "path": "api-academico", "contract": { "provides": ["src/**/dto/**", "src/**/*.controller.ts"] } },
+    { "path": "academico-front", "contract": { "consumes": ["src/**/types/**", "src/**/api/**"] } },
+    { "path": "academicoBitbuckett" }
+  ],
+  "integration": { "branchPrefix": "feature/", "sameBranchAcrossWorkspaces": true }
+}
+```
+
+### 5.3 Reglas
+
+- Un manifiesto con `workspaces` es de repo; uno con `repos` es una composición. El schema acepta exactamente una de las dos formas.
+- Manifiesto de repo: en una carpeta multi-repo lleva un solo workspace con `path: "."` y `git: "."`. Un monorepo de un solo repo con varios paquetes lleva varios workspaces, y `git` es la ruta del paquete a la raíz del repo (`".."`, `"../.."`). Un proyecto de un repo es solo esto, sin composición.
+- Composición: lista los repos por `path`, relativo a la carpeta. Cada uno se lee de `<path>/.claude/harness.json` por convención. Solo agrega lo que existe entre repos: `integration` (la misma rama en todos) y `contract` (globs que cada repo provee o consume). El nombre y los comandos de cada workspace vienen del manifiesto del repo y no se repiten en la carpeta.
+- Un repo listado sin manifiesto propio (hoy, el PHP de academico) es un workspace no adoptable todavía. Se declara solo con su repo y sin comandos. Los scripts lo ven, pero no lo verifican, y `adoption-check` lo reporta como no adoptable sin bloquear.
+- Resolución: `lib/manifest.js` sube desde el `cwd` hasta el primer `.claude/harness.json`. Si es de repo, sigue subiendo por si una composición lo lista, y entonces la raíz del proyecto (donde vive `.tmp/harness/`) es la carpeta. Así una sesión abierta dentro de `api-academico/` sigue viendo a sus hermanos, y el pipeline, que no tiene carpeta encima, ve solo su repo.
+- Rutas: el `path` de un workspace es relativo a la raíz de su repo. El `path` de un repo es relativo a la carpeta. Los globs (`riskPaths`, `sharedPaths`, `codeGlobs`, `contract`) son relativos al workspace. "Relativo al manifiesto" significa relativo a la carpeta que contiene `.claude/`, nunca al cwd.
+- `{files}` y `{specs}` se sustituyen por listas citadas. `stack` es etiqueta informativa, nunca rama de código. `commands.typecheck` es lista porque Angular necesita dos tsconfig. Todo comando es opcional salvo `typecheck` o `test` (al menos uno): `client` de renova365 no tiene eslint y no se inventa.
+- `specPattern` es un string o una lista, porque los repos reales mezclan formatos (renova api: `__test__/` y junto al archivo; front: `.test.tsx`, `.test.ts` y `__tests__/`). Placeholders: `{dir}`, la carpeta del archivo relativa al workspace, y `{name}`, el nombre sin la última extensión.
 
 Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio de código" para el gate del `Stop`; por defecto `**/*.{ts,tsx,js,jsx,php,sql}` y nunca `*.md`), `sharedPaths` (rutas cuyo cambio obliga a suite completa), `commands.typecheckFast` (variante incremental para el hook de después de editar; si no existe, ese hook solo lintea el archivo y el typecheck completo corre en `verify`).
 
-`arnes:init` genera el borrador detectando `package.json`, `composer.json`, repos anidados y tsconfigs, lo valida contra `schema/harness.schema.json` y el humano corrige. `arnes:init --check` corre `adoption-check.js`.
+`arnes:init` (con `scripts/init-draft.js`) genera los dos niveles. Primero, el manifiesto de cada repo detectado, a partir de `package.json`, los tsconfigs, la configuración de eslint y los formatos de spec que aparecen en `git ls-files`. Un repo que solo tiene `composer.json` se declara sin manifiesto propio. Después, si la carpeta no es un repo y contiene repos anidados, la composición. Todo se valida contra `schema/harness.schema.json`, y el humano completa lo que no se infiere (`riskPaths`, `contract`, `sharedPaths`, `integration`, `memory`). `arnes:init --check` corre `adoption-check.js`. En academico la carpeta es a la vez el repo del arnés, así que su composición queda en `.gitignore`.
 
 ## 6. Componentes
 
@@ -161,7 +175,8 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 - `test-select.js`: de archivos tocados a specs usando `specPattern`; excepción "código compartido → suite completa" configurable por `sharedPaths`.
 - `worktree-ledger.js`: ver §7.
 - `gate-flag.js write <ws>` escribe `.tmp/harness/gate/<ws>.json` = `{ head, touchedHash, result, at }`; `check <ws>` valida vigencia (mismo HEAD, mismo hash de la lista de tocados, < 30 min). Sin huella del contenido del árbol: el CI es quien garantiza la honestidad, no el marcador.
-- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada.
+- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
+- `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cachear la foto por SHA del merge-base queda como mejora posterior, fuera de la fase 1.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
 | Evento | Script | Hace |
