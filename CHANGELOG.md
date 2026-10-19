@@ -23,7 +23,7 @@ Fase 1: manifiesto y scripts. Probado con Claude Code 2.1.303 y Node 24, en acad
 Fase 0: esqueleto. Probado con Claude Code 2.1.303.
 
 ### Añadido
-- Marketplace `agentic-harness` en `.claude-plugin/marketplace.json` con los plugins `arnes`, `arnes-ui` y `arnes-mod`.
+- Marketplace `claude-harness` en `.claude-plugin/marketplace.json` con los plugins `arnes`, `arnes-ui` y `arnes-mod`.
 - Plugin `arnes` con las carpetas `skills`, `agents`, `hooks`, `scripts` y `tests`, y la skill `/arnes:init` solo como esqueleto.
 - Plugins `arnes-ui` y `arnes-mod` con solo su `plugin.json`; `arnes-mod` declara `arnes` como dependencia.
 - README con principios, instalación, versionado en dos capas y matriz de compatibilidad.
