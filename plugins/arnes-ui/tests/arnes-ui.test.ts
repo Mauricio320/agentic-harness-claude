@@ -3,7 +3,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { bandText, classify, parseStatus } from '../hooks/lib'
+import { bandText, classify, parseStatus, timelineLines } from '../hooks/lib'
 import type { Ws } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
@@ -144,4 +144,6 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   expect(classify('npm run lint', both, ROOT)).toBe(undefined)
   expect(parseStatus(STATUS, both[1]!)).toEqual({ branch: 'feature/x', head: 'abc123', changed: 2, code: 1 })
   expect(bandText(null, true, [], [], 0)).toBe('arnes ▸ Pensando…')
+  const note = '{"at":"2026-10-19T20:51:39.290Z","event":"note","stage":"stop-gate","result":"pendiente","detail":"turno cerrado sin verificar: api"}'
+  expect(timelineLines(`${note}\n{"at": "cortada`)).toEqual([{ at: Date.parse('2026-10-19T20:51:39.290Z'), text: 'stop-gate nota pendiente · turno cerrado sin verificar: api' }])
 })

@@ -86,12 +86,14 @@ export function classify(cmd: string, wss: Ws[], cwd: string): Probe | undefined
   return hit && { label: `${hit.tool} ${hit.w.name}`, ws: hit.w.name, col: hit.col }
 }
 
-// Las últimas líneas de timeline.jsonl como texto; una línea cortada se salta.
+// Las últimas líneas de timeline.jsonl como texto, con las palabras de `timeline.js print`; una
+// línea cortada se salta.
+const EVENT: Record<string, string> = { start: 'inicio', end: 'fin', note: 'nota' }
 export function timelineLines(text: string, n = 5): { at: number; text: string }[] {
   return text.split('\n').filter((l) => l.trim()).slice(-n).flatMap((l) => {
     try {
       const x = JSON.parse(l)
-      return [{ at: Date.parse(x.at), text: [x.stage, x.event, x.result, x.ws && `· ${x.ws}`].filter(Boolean).join(' ') }]
+      return [{ at: Date.parse(x.at), text: [x.stage, EVENT[x.event] ?? x.event, x.result, x.ws && `· ${x.ws}`, x.detail && `· ${x.detail}`].filter(Boolean).join(' ') }]
     } catch {
       return []
     }
