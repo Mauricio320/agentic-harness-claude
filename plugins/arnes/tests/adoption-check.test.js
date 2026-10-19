@@ -82,6 +82,37 @@ test('marketplace declarado sin tag vX.Y.Z es FALTA', () => {
   assert.match(check(dir).stdout, /declarado sin tag vX\.Y\.Z/);
 });
 
+// La forma de api-academico y renova365: el git-guard del arnés anterior en PreToolUse.
+const OLD_GUARD = { matcher: 'Bash|PowerShell', hooks: [{ type: 'command', command: 'node', args: ['.claude/hooks/git-guard.js'], timeout: 15 }] };
+
+test('un hook de .claude/settings.json que corre .claude/hooks/ propio es FALTA; los demás hooks no', () => {
+  const settings = JSON.parse(PINNED);
+  settings.hooks = {
+    PreToolUse: [OLD_GUARD],
+    Stop: [{ hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR"\\.claude\\hooks\\stop.js' }] }],
+    Notification: [{ matcher: '', hooks: [{ type: 'command', command: 'powershell -c "[console]::beep()"' }] }],
+  };
+  const r = check(adopted({}, { '.claude/settings.json': h.manifestJson(settings) }));
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALTA\s+\S+: \.claude\/settings\.json engancha \.claude\/hooks\/git-guard\.js en PreToolUse; quítalo/);
+  assert.match(r.stdout, /FALTA\s+\S+: \.claude\/settings\.json engancha \.claude\/hooks\/stop\.js en Stop/);
+  assert.doesNotMatch(r.stdout, /Notification/);
+  assert.match(r.stdout, /resultado: 2 falta\(s\)/);
+});
+
+test('en una carpeta cuenta también el .claude/settings.json de la raíz; uno ilegible es FALTA', () => {
+  const root = h.tmp('adopt-hooks');
+  fs.renameSync(adopted({}, { '.claude/settings.json': '{ "hooks": ' }), path.join(root, 'api'));
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
+  h.write(root, '.claude/settings.json', h.manifestJson({ ...JSON.parse(PINNED), hooks: { PreToolUse: [OLD_GUARD] } }));
+  h.write(root, 'CLAUDE.md', '# carpeta\n');
+  const r = check(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALTA\s+carpeta: \.claude\/settings\.json engancha \.claude\/hooks\/git-guard\.js en PreToolUse/);
+  assert.match(r.stdout, /FALTA\s+api: \.claude\/settings\.json no es JSON válido/);
+  assert.match(r.stdout, /resultado: 2 falta\(s\)/);
+});
+
 test('en una carpeta, el repo sin manifiesto propio es NO ADOPTABLE y no bloquea', () => {
   const root = h.tmp('adopt-folder');
   fs.renameSync(adopted(), path.join(root, 'api'));

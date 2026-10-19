@@ -6,6 +6,8 @@
 //   4. CI que corre ci-gate; detección de secretos (GitLab); el resto de la configuración del host, a mano
 //   5. riskPaths declaradas; regla de aprobación en el host (CODEOWNERS o a mano)
 //   6. plugin fijado a un tag en .claude/settings.json del proyecto o de un repo, o en el de usuario
+//   7. ningún hook del .claude/settings.json de un repo o de la carpeta corre scripts propios de
+//      .claude/hooks/: son del arnés anterior, corren además de los del plugin y pelean con ellos
 // Un repo de la composición sin manifiesto propio sale como NO ADOPTABLE y no bloquea.
 //
 // Uso: node adoption-check.js [--ws <nombre>]...
@@ -95,6 +97,22 @@ function pinnedRef(file) {
   } catch {
     return null;
   }
+}
+
+// Hooks del settings.json que corren un script de .claude/hooks/, como `{ command: "node", args:
+// [".claude/hooks/git-guard.js"] }`; devuelve "<script> en <evento>". Lanza si el JSON no es válido.
+function ownHooks(file) {
+  const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const out = [];
+  for (const [event, groups] of Object.entries(s.hooks || {})) {
+    for (const g of [].concat(groups || [])) {
+      for (const hk of [].concat((g && g.hooks) || [])) {
+        const m = [hk.command, ...[].concat(hk.args || [])].join(' ').match(/\.claude[\\/]+hooks[\\/]+([^\s"'`]+)/);
+        if (m) out.push(`.claude/hooks/${m[1].replace(/\\/g, '/')} en ${event}`);
+      }
+    }
+  }
+  return out;
 }
 
 function main() {
@@ -204,6 +222,20 @@ function main() {
   if (tagged) say('ok', `marketplace ${MARKETPLACE} fijado en ${tagged.pin.ref} (${tagged.f})`);
   else if (pins.length) say('FALTA', `marketplace ${MARKETPLACE} declarado sin tag vX.Y.Z (${pins.map((x) => x.f).join(', ')})`);
   else say('FALTA', `marketplace ${MARKETPLACE} no declarado en extraKnownMarketplaces de ningún settings.json`);
+
+  console.log('\n7. Hooks del arnés anterior');
+  for (const { dir, label } of claudeDirs) {
+    const f = path.join(dir, '.claude', 'settings.json');
+    let found;
+    try {
+      found = exists(f) ? ownHooks(f) : [];
+    } catch (e) {
+      say('FALTA', `${label}: .claude/settings.json no es JSON válido (${e.message})`);
+      continue;
+    }
+    if (!found.length) say('ok', `${label}: ningún hook de .claude/settings.json corre .claude/hooks/`);
+    for (const hk of found) say('FALTA', `${label}: .claude/settings.json engancha ${hk}; quítalo: corre además de los hooks del plugin y puede negar lo que el arnés deja pasar`);
+  }
 
   finish();
 }
