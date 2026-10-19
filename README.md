@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 1. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas con sus tests y `/arnes:init`. Todavía no hay hooks, agentes ni el resto de las skills.
+Estado: fase 2. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas, `/arnes:init` y los hooks clásicos: una sesión normal lintea al editar, no deja commitear sin bandera de verificación y no cierra un turno con código sin verificar sin avisar una vez. Todavía no hay agentes ni el resto de las skills.
 
 ## Principios
 
@@ -49,6 +49,44 @@ claude plugin validate --strict plugins/arnes
 claude --plugin-dir ./plugins/arnes
 ```
 
+## Permisos recomendados
+
+Los hooks no piden permiso: corren fuera del sistema de permisos. Lo que sí pide confirmación son los comandos que el modelo lanza por Bash o PowerShell: los scripts del plugin que invocan las skills, git de lectura y los comandos de test del manifiesto. Sin estas reglas el arnés funciona igual, pero pregunta. Van en `~/.claude/settings.json`, o en `settings.json` del directorio que indique `CLAUDE_CONFIG_DIR`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(node \"C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/*)",
+      "PowerShell(node \"C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/*)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files *)",
+      "Bash(git merge-base *)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(npx tsc -p *)",
+      "Bash(npx jest *)",
+      "Bash(npx eslint *)",
+      "PowerShell(npx jest *)",
+      "PowerShell(npx eslint *)"
+    ],
+    "ask": [
+      "Bash(npx eslint *--fix*)",
+      "PowerShell(npx eslint *--fix*)"
+    ]
+  }
+}
+```
+
+Cómo leerlas (sintaxis de code.claude.com/docs/en/permissions):
+- **El `*` admite cualquier texto, espacios incluidos, y lo que va antes se compara tal cual.** La ruta del plugin es la de la caché (`<config>/plugins/cache/<marketplace>/<plugin>/<versión>/`), con barras normales, porque Claude Code sustituye `${CLAUDE_PLUGIN_ROOT}` así también en Windows. El `*` después de `arnes/` cubre la versión y el script; un `..` dentro de la ruta escaparía de esa carpeta, así que la regla confía en que los comandos sean los de las skills. Con `CLAUDE_CONFIG_DIR` la raíz cambia (por ejemplo `.claude-pdv`), y con `claude --plugin-dir` la ruta es la del repo del arnés.
+- **Las formas de git de lectura sin `cd` ni `-C` ya corren sin preguntar.** Estas reglas cubren las que no: `git -C <ruta> status` no las cumple, porque el patrón compara el texto desde el inicio.
+- **`Bash(npx eslint *)` también dejaría pasar un `--fix`.** Por eso va la regla `ask`, que se evalúa antes que `allow` y obliga a preguntar.
+- **Los comandos de test son los de los manifiestos de academico.** Ajústalos a los `commands` de cada repo y no agregues comodines más amplios que el comando real.
+
 ## Versionado en dos capas
 
 1. **Tag del repo `vX.Y.Z`** (semver). Es lo que el equipo fija: `#vX.Y.Z` en la instalación o `ref` en settings. Un tag cubre los tres plugins, y cada tag tiene su entrada en `CHANGELOG.md`.
@@ -64,3 +102,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 |---|---|---|---|
 | v0.1.0 | 2.1.303 | 24 | Fase 0: marketplace y tres plugins vacíos; `/arnes:init` es un esqueleto |
 | v0.2.0 (sin etiquetar) | 2.1.303 | 24 | Fase 1: schema de los dos niveles de manifiesto, scripts deterministas con tests (`node --test`) y `/arnes:init` completa; probado en academico (3 repos) y renova365 (2 repos) |
+| v0.3.0 (sin etiquetar) | 2.1.303 | 24 | Fase 2: hooks clásicos (guard, after-edit, session-start, prompt-context, stop-gate, worktree-remove) con tests por stdin; la prueba manual en una sesión interactiva está en `docs/PRUEBA-FASE-2.md` y está pendiente |
