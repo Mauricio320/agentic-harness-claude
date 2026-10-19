@@ -73,9 +73,19 @@ function run(script, args = [], opts = {}) {
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, script), ...args], {
     cwd: opts.cwd,
     encoding: 'utf8',
+    input: opts.input,
     env: { ...process.env, ...(opts.env || {}) },
   });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+}
+
+// Corre un hook con el JSON del evento por stdin, desde un cwd distinto del del evento para que
+// el test pruebe que el hook usa input.cwd. Devuelve { status, out (JSON o null), stderr }.
+function hook(name, event, opts = {}) {
+  const r = run(`hooks/${name}.js`, [], { cwd: opts.cwd || SCRIPTS, env: opts.env, input: JSON.stringify(event) });
+  let out = null;
+  if (r.stdout.trim()) out = JSON.parse(r.stdout);
+  return { status: r.status, out, stderr: r.stderr };
 }
 
 function lines(text) {
@@ -113,6 +123,7 @@ module.exports = {
   workspace,
   repoManifest,
   run,
+  hook,
   lines,
   fakeBin,
   withPath,
