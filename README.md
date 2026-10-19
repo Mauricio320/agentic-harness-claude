@@ -52,9 +52,9 @@ claude --plugin-dir ./plugins/arnes
 ## Versionado en dos capas
 
 1. **Tag del repo `vX.Y.Z`** (semver). Es lo que el equipo fija: `#vX.Y.Z` en la instalación o `ref` en settings. Un tag cubre los tres plugins, y cada tag tiene su entrada en `CHANGELOG.md`.
-2. **`version` en el `plugin.json` de cada plugin**, igual al tag en los tres. Claude Code compara este campo para decidir si hay versión nueva: si el código cambia y el campo no, nadie recibe el cambio. `marketplace.json` no lleva `version`; si la llevara, ganaría `plugin.json` y `validate` avisaría.
+2. **`version` en el `plugin.json` de cada plugin**, igual al tag en los tres. Claude Code compara este campo para decidir si hay versión nueva: si el código cambia y el campo no, nadie recibe el cambio. Las entradas de `marketplace.json` no llevan `version`; si la llevaran, ganaría `plugin.json` y `validate` avisaría del desfase. Pushear código sin subir `version` no llega a nadie: Claude Code compara ese campo, no los commits.
 
-No se usan los tags por plugin `<nombre>--v<versión>` que crea `claude plugin tag`. Solo hacen falta para resolver rangos de versión entre dependencias, y `arnes-mod` depende de `arnes` sin rango.
+No se usan los tags por plugin `<nombre>--v<versión>`: solo hacen falta para resolver rangos de versión entre dependencias, y `arnes-mod` depende de `arnes` sin rango.
 
 ## Matriz de compatibilidad
 

@@ -34,6 +34,7 @@ Hechos verificados que condicionan el diseño (docs oficiales 2026-10):
 - Worktrees: los de subagentes nacen del branch por defecto salvo `worktree.baseRef: "head"`; se borran solos si no hay cambios y se quedan si los hay; nadie mergea de vuelta automáticamente. En Windows, borrar un worktree no borra lo que apuntan los links. Plugins a nivel de proyecto cargan también en los worktrees.
 - Dentro de un worktree, `${CLAUDE_PROJECT_DIR}` de los hooks sigue apuntando al checkout principal; el campo `cwd` del JSON de entrada del hook es el que sigue a Claude. Por eso `lib/manifest.js` resuelve el manifiesto subiendo desde `cwd`, nunca desde `CLAUDE_PROJECT_DIR`.
 - El hook `Stop` recibe `stop_hook_active: true` cuando el turno ya continúa por un bloqueo anterior: esa es la condición de salida documentada, no un contador propio. `SubagentStop` es un evento distinto y no se engancha: el gate es del hilo principal.
+- Verificado en la fase 0 (2026-10-19): el CLI carga como agente cualquier `.md` dentro de `agents/`, así que esa carpeta no lleva `README.md` (se usa `README.txt`); la forma corta `owner/repo#ref` del comando de instalación siempre apunta a github.com, y en GitLab va la URL completa de clonado; `git mv` solo se registra como rename y el MR solo tiene base si existe un commit inicial en `main` antes de ramificar. Además, los usuarios reciben una versión nueva solo cuando cambia `version` en `plugin.json`: pushear sin subirla no llega a nadie, y `version` no se declara también en la entrada del marketplace porque `plugin.json` gana y `validate` avisa del desfase.
 
 ## 4. Estructura del repo `claude-harness`
 
@@ -61,7 +62,7 @@ claude-harness/
         memory/SKILL.md                  # escribe decisión/gotcha en docs/ del repo; consulta graphify
         sync/SKILL.md                    # traer main a la rama, por workspace, con respaldo (versión corta del sync-branch actual)
         timeline/SKILL.md                # imprime .tmp/harness/timeline.jsonl como texto; funciona sin el mod
-      agents/
+      agents/                            # ojo: el CLI carga como agente TODO .md de esta carpeta; nada de README.md aquí (README.txt o nada)
         dev.md                           # sonnet; lee CLAUDE.md del workspace; no escribe tests
         reviewer.md                      # opus; solo lectura; lista cerrada + cumplimiento de criterios + riesgo
         test-writer.md                   # sonnet; contra el estándar de tests del repo
@@ -260,7 +261,7 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 ## 9. Versionado y compatibilidad
 
 - Tags semver en `claude-harness`; un tag cubre los tres plugins (`arnes`, `arnes-ui`, `arnes-mod`). `CHANGELOG.md`.
-- Instalación: `claude plugin install arnes --marketplace <owner>/claude-harness#vX.Y.Z` (user scope); `arnes-ui` y `arnes-mod` se instalan aparte, por nombre, desde el mismo marketplace. Auto-update apagado. Rollback = re-añadir el marketplace en el tag anterior. Desinstalar: `claude plugin uninstall <nombre>@claude-harness`.
+- Instalación: `claude plugin install arnes --marketplace <fuente>#vX.Y.Z` (user scope), donde `<fuente>` depende del host: la forma corta `owner/repo` es solo para GitHub; en GitLab u otro host va la URL completa de clonado, `https://gitlab.com/<grupo>/claude-harness.git#vX.Y.Z` (o `git@gitlab.com:<grupo>/claude-harness.git`). `arnes-ui` y `arnes-mod` se instalan aparte, por nombre, desde el mismo marketplace. El host se elige donde el equipo que lo va a instalar ya tiene credenciales: para academico, GitLab (`preupdv`), y el CI es `.gitlab-ci.yml`. Auto-update apagado. Rollback = re-añadir el marketplace en el tag anterior. Desinstalar: `claude plugin uninstall <nombre>@claude-harness`.
 - README con matriz tag ↔ versiones de Claude Code probadas. CI del arnés: `claude plugin validate` sobre los tres, tests de scripts con repos de juguete (`node --test`), `claude plugin test` para los mods, y más adelante `claude plugin eval`.
 - El equipo sube CLI y arnés juntos, nunca uno solo.
 
