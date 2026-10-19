@@ -1,14 +1,8 @@
-# Proyectos clonados en esta carpeta: cada uno es su propio repo, no entran aquí
-/academico-front/
-/academicoBitbuckett/
-/api-academico/
 
 # Estado local del arnés y de las sesiones
 /.tmp/
 /.claude/worktrees/
 /.claude/settings.local.json
-# Composición de la carpeta academico: específica de esta carpeta, no del repo del arnés
-/.claude/harness.json
 /.engram/
 **/graphify-out/graph.json
 

@@ -9,13 +9,14 @@ La fase 2 se cierra cuando los pasos 1 a 5 salen como están escritos y lo confi
 En PowerShell:
 
 ```powershell
-cd C:\Users\MauricioTriana\Desktop\PDV\academico
+cd C:\Users\MauricioTriana\Desktop\PDV\agentic-harness
 git branch --show-current                        # feature/fase-2-hooks
+cd C:\Users\MauricioTriana\Desktop\PDV\academico
 Test-Path .claude\harness.json                    # True: la composición de academico
 Test-Path .tmp\harness\gate\api-academico.json    # False: no hay bandera previa
 cd api-academico
 git status --short                                # ?? .claude/harness.json, y nada más
-claude --plugin-dir "C:\Users\MauricioTriana\Desktop\PDV\academico\plugins\arnes"
+claude --plugin-dir "C:\Users\MauricioTriana\Desktop\PDV\agentic-harness\plugins\arnes"
 ```
 
 Si `api-academico` muestra otros cambios, anótalos antes de seguir: van a aparecer en los conteos de los pasos 1 y 3.
@@ -44,7 +45,7 @@ Protocolo del arnés:
 1. Manda el manifiesto de cada repo: …
 …
 6. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Repórtalo así.
-Scripts: node "C:/Users/MauricioTriana/Desktop/PDV/academico/plugins/arnes/scripts/<script>.js" --help
+Scripts: node "C:/Users/MauricioTriana/Desktop/PDV/agentic-harness/plugins/arnes/scripts/<script>.js" --help
 ```
 
 Las ramas y los conteos son los del momento de la prueba. Al terminar este turno no hay código tocado, así que el Stop no dice nada.
@@ -83,7 +84,7 @@ Prompt:
 > Ejecuta exactamente `git commit -m "prueba arnes"`, sin `git add` y sin intentar rodear el bloqueo.
 
 Esperado:
-- **La llamada se deniega antes de correr**, con el motivo `arnes guard: git commit en api-academico sin bandera de verificación vigente: sin bandera de verificación para api-academico. Verifica (typecheck, lint de los tocados, specs de test-select) y escribe la bandera con node "C:/Users/MauricioTriana/Desktop/PDV/academico/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass|fail.`
+- **La llamada se deniega antes de correr**, con el motivo `arnes guard: git commit en api-academico sin bandera de verificación vigente: sin bandera de verificación para api-academico. Verifica (typecheck, lint de los tocados, specs de test-select) y escribe la bandera con node "C:/Users/MauricioTriana/Desktop/PDV/agentic-harness/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass|fail.`
 - **`git log -1` no cambia.**
 
 Opcional, para ver que el guard no mira texto libre:
@@ -97,7 +98,7 @@ Esperado: corre e imprime el texto, sin denegación.
 Escribe la bandera a mano: es la persona quien la escribe, no la verificación. Después pide a Claude un commit en seco, que no crea nada:
 
 ```powershell
-node "C:/Users/MauricioTriana/Desktop/PDV/academico/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass
+node "C:/Users/MauricioTriana/Desktop/PDV/agentic-harness/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass
 ```
 
 Prompt:
