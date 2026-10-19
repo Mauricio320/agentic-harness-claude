@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, harnessDir } = require('./lib/manifest.js');
 const { git, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 
@@ -28,16 +28,14 @@ function flagPath(project, ws) {
   return path.join(harnessDir(project), 'gate', `${ws.name}.json`);
 }
 
-// En un proyecto de un solo repo, .tmp/harness/ vive dentro del workspace: si no está ignorado,
-// escribir la bandera cambiaría la lista de tocados y la dejaría vencida al instante.
+// touched() con el proyecto excluye .tmp/harness/: si no, escribir la bandera dentro del
+// workspace cambiaría la lista de tocados y la dejaría vencida al instante.
 function stateOf(project, ws) {
   const head = git(ws.gitRoot, ['rev-parse', 'HEAD']);
   if (head.status !== 0) return { error: `git rev-parse HEAD falló en ${ws.name}: ${firstLine(head.stderr)}` };
-  const t = touched(ws, 'HEAD');
+  const t = touched(ws, 'HEAD', project);
   if (t.error) return { error: t.error };
-  const own = posix(path.relative(ws.dir, harnessDir(project))) + '/';
-  const files = t.files.filter((f) => !f.startsWith(own));
-  const touchedHash = crypto.createHash('sha256').update(files.join('\n')).digest('hex');
+  const touchedHash = crypto.createHash('sha256').update(t.files.join('\n')).digest('hex');
   return { head: head.stdout.trim(), touchedHash };
 }
 

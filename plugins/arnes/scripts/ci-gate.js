@@ -167,7 +167,7 @@ function main() {
       red = true;
       continue;
     }
-    const t = touched(ws, base.hash);
+    const t = touched(ws, base.hash, project);
     if (t.error) {
       console.log(`  FALLA      ${t.error}`);
       red = true;

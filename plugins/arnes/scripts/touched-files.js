@@ -16,17 +16,21 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 
 // Rutas relativas al workspace. `--relative` en el diff y ls-files corrido desde la carpeta del
 // workspace limitan ambos a su subárbol, que es lo que necesita un monorepo con varios paquetes.
-function touched(ws, base = 'HEAD') {
+// Con el proyecto, se excluye su .tmp/harness/: en un proyecto de un solo repo cae dentro del
+// workspace y, si no está ignorado, la propia bandera contaría como archivo tocado.
+function touched(ws, base = 'HEAD', project = null) {
   const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=d', '--relative', base, '--']);
   if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
   const untracked = git(ws.dir, ['ls-files', '--others', '--exclude-standard']);
   if (untracked.status !== 0) return { error: `git ls-files falló en ${ws.name}: ${firstLine(untracked.stderr)}` };
-  return { files: [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])].sort() };
+  const own = project ? `${posix(path.relative(ws.dir, harnessDir(project)))}/` : null;
+  const files = [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])].filter((f) => !own || !f.startsWith(own));
+  return { files: files.sort() };
 }
 
 function withExt(ws, files, exts) {
@@ -60,7 +64,7 @@ function main() {
   const project = requireProject();
   const out = [];
   for (const ws of selectWorkspaces(project, o.ws)) {
-    const r = touched(ws, o.base);
+    const r = touched(ws, o.base, project);
     if (r.error) die(`touched-files: ${r.error}`);
     for (const f of withExt(ws, r.files, exts)) out.push(o.relative || !ws.rel ? f : `${ws.rel}/${f}`);
   }

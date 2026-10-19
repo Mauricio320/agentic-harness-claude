@@ -101,7 +101,7 @@ function main() {
 
   let files = args.positionals.map((f) => (path.isAbsolute(f) ? posix(path.relative(ws.dir, f)) : f.replace(/\\/g, '/')));
   if (!files.length) {
-    const r = touched(ws, o.base);
+    const r = touched(ws, o.base, project);
     if (r.error) die(`test-select: ${r.error}`);
     files = r.files;
   }
