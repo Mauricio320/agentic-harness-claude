@@ -1,0 +1,10 @@
+{
+  "name": "claude-harness",
+  "owner": { "name": "Mauricio Triana" },
+  "description": "Arnés multi-proyecto para Claude Code: el plugin arnes y sus dos mods opcionales, arnes-ui y arnes-mod.",
+  "plugins": [
+    { "name": "arnes", "source": "./plugins/arnes" },
+    { "name": "arnes-ui", "source": "./plugins/arnes-ui" },
+    { "name": "arnes-mod", "source": "./plugins/arnes-mod" }
+  ]
+}
