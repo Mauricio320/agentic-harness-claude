@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). V
 
 ## [0.3.0] - sin etiquetar
 
-Fase 2: hooks clásicos. Probado con Claude Code 2.1.303 y Node 24 con tests por stdin. La prueba manual en una sesión interactiva (`docs/PRUEBA-FASE-2.md`) está pendiente.
+Fase 2: hooks clásicos. Probado con Claude Code 2.1.303 y Node 24 con tests por stdin. La prueba manual en una sesión interactiva se hizo el 2026-10-19 en api-academico; su resultado está al final de `docs/PRUEBA-FASE-2.md`.
 
 ### Añadido
 - `hooks/hooks.json` con `SessionStart`, `UserPromptSubmit`, `PreToolUse` (`Bash|PowerShell` y `ExitWorktree`), `PostToolUse` (`Edit|Write`) y `Stop`. Cada hook corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/<x>.js"` con su timeout y su statusMessage.
@@ -18,11 +18,13 @@ Fase 2: hooks clásicos. Probado con Claude Code 2.1.303 y Node 24 con tests por
 - Tests por stdin para cada hook, incluidos el cwd dentro de un worktree, `stop_hook_active`, un archivo fuera de todo workspace y el falso positivo del heredoc; casos portados del git-guard de renova365.
 - Permisos recomendados en el README.
 - `docs/PRUEBA-FASE-2.md` con la prueba manual.
+- `adoption-check` comprobación 7: un hook del `.claude/settings.json` de un repo o de la carpeta que corre un script propio de `.claude/hooks/` es una falta, porque corre además de los del plugin y pelea con ellos.
 
 ### Cambiado
 - `docs/PLAN.md` §6.2: el rechazo de borrar worktrees pasa de `WorktreeRemove` a `PreToolUse` sobre `ExitWorktree` y al guard, porque `WorktreeRemove` solo se dispara para worktrees creados por un hook `WorktreeCreate`. Las reglas destructivas de git del guard valen también sin manifiesto.
 - `touched-files` excluye el `.tmp/harness/` del proyecto, para que la propia bandera no cuente como archivo tocado en un proyecto de un solo repo.
 - La timeline admite el evento `note`, que escriben los hooks.
+- `docs/PLAN.md` §3 y §8: adoptar un repo empieza por quitar los hooks del arnés anterior de su `.claude/settings.json`; api-academico y renova365 los tienen.
 
 ## [0.2.0] - sin etiquetar
 

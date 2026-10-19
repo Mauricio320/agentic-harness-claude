@@ -35,6 +35,7 @@ Hechos verificados que condicionan el diseño (docs oficiales 2026-10):
 - Dentro de un worktree, `${CLAUDE_PROJECT_DIR}` de los hooks sigue apuntando al checkout principal; el campo `cwd` del JSON de entrada del hook es el que sigue a Claude. Por eso `lib/manifest.js` resuelve el manifiesto subiendo desde `cwd`, nunca desde `CLAUDE_PROJECT_DIR`.
 - El hook `Stop` recibe `stop_hook_active: true` cuando el turno ya continúa por un bloqueo anterior: esa es la condición de salida documentada, no un contador propio. `SubagentStop` es un evento distinto y no se engancha: el gate es del hilo principal.
 - Verificado en la fase 0 (2026-10-19): el CLI carga como agente cualquier `.md` dentro de `agents/`, así que esa carpeta no lleva `README.md` (se usa `README.txt`); la forma corta `owner/repo#ref` del comando de instalación siempre apunta a github.com, y en GitLab va la URL completa de clonado; `git mv` solo se registra como rename y el MR solo tiene base si existe un commit inicial en `main` antes de ramificar. Además, los usuarios reciben una versión nueva solo cuando cambia `version` en `plugin.json`: pushear sin subirla no llega a nadie, y `version` no se declara también en la entrada del marketplace porque `plugin.json` gana y `validate` avisa del desfase.
+- Verificado en la prueba manual de la fase 2 (2026-10-19): los hooks del `.claude/settings.json` de un repo corren además de los del plugin, y basta que uno deniegue para que la llamada no corra. Un repo que conserva hooks del arnés anterior en su `.claude/settings.json` tiene dos guardias peleando. En `api-academico`, con bandera vigente, el guard del plugin dejó pasar `git commit --dry-run`, y el `.claude/hooks/git-guard.js` viejo lo negó porque exige un `gate-status.json` que ya no existe. Por eso adoptar un repo empieza por quitarlos (§8). Están en ese caso `api-academico`, en el `.claude/settings.json` del repo, y renova365, en el `.claude/settings.json` de la carpeta, que no es repo.
 
 ## 4. Estructura del repo `agentic-harness`
 
@@ -83,7 +84,7 @@ agentic-harness/
         merged-files.js                  # intersección real tras un merge
         worktree-ledger.js               # registro de worktrees por issue; pendientes de integrar
         gate-flag.js                     # escribe/valida la bandera de verificación
-        adoption-check.js                # las 6 comprobaciones del mínimo
+        adoption-check.js                # las 7 comprobaciones del mínimo
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
         hooks/{session-start,prompt-context,after-edit,guard,stop-gate,worktree-remove}.js
       tests/                             # repos de juguete + node --test; corre en CI del arnés
@@ -181,7 +182,7 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 - `test-select.js`: de archivos tocados a specs usando `specPattern`; excepción "código compartido → suite completa" configurable por `sharedPaths`.
 - `worktree-ledger.js`: ver §7.
 - `gate-flag.js write <ws>` escribe `.tmp/harness/gate/<ws>.json` = `{ head, touchedHash, result, at }`; `check <ws>` valida vigencia (mismo HEAD, mismo hash de la lista de tocados, < 30 min). Sin huella del contenido del árbol: el CI es quien garantiza la honestidad, no el marcador.
-- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
+- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada; ningún hook del `.claude/settings.json` de un repo o de la carpeta que corra scripts propios de `.claude/hooks/`. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
 - `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cachear la foto por SHA del merge-base queda como mejora posterior, fuera de la fase 1.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
@@ -272,12 +273,15 @@ Nota: Claude Code trae `/batch`, donde cada subagente trabaja en su worktree y a
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
 
+Adoptar un repo empieza por quitar los hooks del arnés anterior de su `.claude/settings.json`, y del de la carpeta si lo tiene. Esos hooks corren además de los del plugin, y un guard viejo niega lo que el arnés deja pasar (§3). Hoy están en ese caso `api-academico` y renova365.
+
 1. `.claude/harness.json` válido contra el schema.
 2. `CLAUDE.md` con reglas duras del stack (≤ 200 líneas) y `.claude/rules/` con `paths:`.
 3. Typecheck y lint ejecutables sin `--fix`.
 4. Job de CI que corre `ci-gate.js` (los mismos scripts) y bloquea el MR si falla; el host git configurado con "merge solo si el pipeline pasa", squash al mergear a `main`, y detección de secretos activada (GitLab Secret Detection o equivalente en Bitbucket).
 5. `riskPaths` declaradas y regla de aprobación en el host git: GitLab, approval rules por patrón de archivo o `CODEOWNERS` (según plan; en Free: rama protegida + pipeline obligatorio + plantilla de MR con el revisor); Bitbucket, default reviewers + restricciones de rama.
 6. Plugin fijado a un tag en `~/.claude/settings.json` o en `.claude/settings.json` del repo.
+7. Ningún hook del `.claude/settings.json` del repo o de la carpeta corre scripts propios de `.claude/hooks/`.
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 

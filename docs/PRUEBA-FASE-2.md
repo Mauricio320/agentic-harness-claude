@@ -132,3 +132,18 @@ Remove-Item ..\.tmp\harness\gate\api-academico.json -ErrorAction SilentlyContinu
 ## Qué reportar
 
 Por cada paso: si salió como está escrito, y si no, el texto exacto que viste. Una diferencia en ramas o en conteos de archivos por cambios previos no es un fallo. Sí lo es que falte un bloqueo, que el Stop bloquee dos veces en el mismo turno, o que el commit sin bandera no se deniegue.
+
+## Resultado
+
+2026-10-19, en `api-academico`, con el plugin cargado por `--plugin-dir`.
+
+Los pasos 1 a 4 salieron exactamente como están escritos:
+- El `SessionStart` inyectó el contexto completo.
+- El lint automático devolvió los dos errores esperados.
+- El `Stop` bloqueó una sola vez por turno y soltó con el aviso.
+- El estado del gate llegó con cada prompt.
+- El guard denegó `git commit` sin bandera.
+
+En el paso 5, con la bandera escrita a mano, el estado dijo bandera vigente y el `Stop` no bloqueó. El commit en seco lo negó otro hook: el `git-guard.js` del arnés anterior, que `api-academico` engancha en su propio `.claude/settings.json` y que exige un `gate-status.json` que ya no existe. No es un fallo del arnés, sino un conflicto de adopción: los hooks del repo corren además de los del plugin. Queda registrado en `docs/PLAN.md` §3 y §8, y `adoption-check` lo reporta como falta (comprobación 7).
+
+Con este resultado se cierra la fase 2.
