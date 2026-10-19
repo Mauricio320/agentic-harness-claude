@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 0. Los plugins existen y validan, pero todavía no hacen nada.
+Estado: fase 1. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas con sus tests y `/arnes:init`. Todavía no hay hooks, agentes ni el resto de las skills.
 
 ## Principios
 
@@ -62,4 +62,5 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 
 | Tag del arnés | Claude Code probado | Node probado | Notas |
 |---|---|---|---|
-| v0.1.0 (sin etiquetar) | 2.1.303 | 24 | Fase 0: marketplace y tres plugins vacíos; `/arnes:init` es un esqueleto |
+| v0.1.0 | 2.1.303 | 24 | Fase 0: marketplace y tres plugins vacíos; `/arnes:init` es un esqueleto |
+| v0.2.0 (sin etiquetar) | 2.1.303 | 24 | Fase 1: schema de los dos niveles de manifiesto, scripts deterministas con tests (`node --test`) y `/arnes:init` completa; probado en academico (3 repos) y renova365 (2 repos) |
