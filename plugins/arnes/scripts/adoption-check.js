@@ -8,6 +8,8 @@
 //   6. plugin fijado a un tag en .claude/settings.json del proyecto o de un repo, o en el de usuario
 //   7. ningún hook del .claude/settings.json de un repo o de la carpeta corre scripts propios de
 //      .claude/hooks/: son del arnés anterior, corren además de los del plugin y pelean con ellos
+//   8. línea base de tests (tests/baseline.json, o testBaseline del manifiesto) válida contra el
+//      schema y commiteada; los saltos van declarados por nombre en ella
 // Un repo de la composición sin manifiesto propio sale como NO ADOPTABLE y no bloquea.
 //
 // Uso: node adoption-check.js [--ws <nombre>]...
@@ -23,6 +25,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, selectWorkspaces, MANIFEST, posix } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
+const { readBaseline } = require('./test-baseline.js');
 
 const MAX_CLAUDE_MD = 200;
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
@@ -235,6 +238,16 @@ function main() {
     }
     if (!found.length) say('ok', `${label}: ningún hook de .claude/settings.json corre .claude/hooks/`);
     for (const hk of found) say('FALTA', `${label}: .claude/settings.json engancha ${hk}; quítalo: corre además de los hooks del plugin y puede negar lo que el arnés deja pasar`);
+  }
+
+  console.log('\n8. Línea base de tests');
+  for (const ws of wss) {
+    const b = readBaseline(ws);
+    const rel = posix(path.relative(ws.dir, b.file));
+    if (b.error) say('FALTA', `${ws.name}: ${b.error}`);
+    else if (!b.data) say('FALTA', `${ws.name}: sin ${rel}; créala con test-baseline.js capture ${ws.name} y commitéala con gates: en el asunto`);
+    else if (git(ws.dir, ['ls-files', '--error-unmatch', '--', rel]).status !== 0) say('FALTA', `${ws.name}: ${rel} existe pero no está commiteada`);
+    else say('ok', `${ws.name}: ${rel} con ${Object.keys(b.data.specs).length} spec(s) y ${b.data.skipped.length} salto(s) declarado(s)`);
   }
 
   finish();

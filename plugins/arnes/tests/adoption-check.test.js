@@ -10,7 +10,15 @@ const PINNED = h.manifestJson({
   extraKnownMarketplaces: { 'agentic-harness': { source: { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'v0.2.0' } } },
 });
 
-// Repo que cumple las seis comprobaciones; cada test le quita una pieza.
+const BASELINE = h.manifestJson({
+  version: 1,
+  capturedAt: '2026-10-19T00:00:00.000Z',
+  head: 'a'.repeat(40),
+  specs: { 'src/a.spec.ts': { pass: 2, fail: 0, skip: 1 } },
+  skipped: [{ spec: 'src/a.spec.ts', name: 'A › debe esperar' }],
+});
+
+// Repo que cumple las ocho comprobaciones; cada test le quita una pieza.
 function adopted(over = {}, files = {}) {
   const dir = h.tmp('adopt');
   h.repo(dir, {
@@ -30,6 +38,7 @@ function adopted(over = {}, files = {}) {
     CODEOWNERS: '/prisma/migrations/ @lider\n',
     'node_modules/.bin/tsc': '',
     'node_modules/.bin/eslint': '',
+    'tests/baseline.json': BASELINE,
     ...files,
   });
   return dir;
@@ -123,6 +132,23 @@ test('en una carpeta, el repo sin manifiesto propio es NO ADOPTABLE y no bloquea
   assert.match(r.stdout, /NO ADOPTABLE\s+legacy \(legacy\): sin \.claude\/harness\.json propio/);
   assert.equal(r.status, 0, r.stdout);
   assert.match(r.stdout, /1 no adoptable/);
+});
+
+test('línea base de tests: sin ella, sin commitear o inválida es FALTA; testBaseline cambia la ruta', () => {
+  assert.match(check(adopted()).stdout, /ok\s+api: tests\/baseline\.json con 1 spec\(s\) y 1 salto\(s\) declarado\(s\)/);
+  const missing = adopted();
+  h.git(missing, 'rm', '-q', 'tests/baseline.json');
+  h.git(missing, 'commit', '-q', '-m', 'sin base');
+  assert.match(check(missing).stdout, /FALTA\s+api: sin tests\/baseline\.json; créala con test-baseline\.js capture api y commitéala con gates:/);
+  const untracked = adopted();
+  h.git(untracked, 'rm', '-q', '--cached', 'tests/baseline.json');
+  h.git(untracked, 'commit', '-q', '-m', 'base fuera del índice');
+  assert.match(check(untracked).stdout, /FALTA\s+api: tests\/baseline\.json existe pero no está commiteada/);
+  const bad = check(adopted({}, { 'tests/baseline.json': '{"version": 1, "specs": {"a": {"pass": -1}}}' }));
+  assert.equal(bad.status, 1);
+  assert.match(bad.stdout, /FALTA\s+api: línea base inválida \(tests\/baseline\.json\)/);
+  const moved = check(adopted({ testBaseline: 'qa/base.json' }, { 'qa/base.json': BASELINE }));
+  assert.match(moved.stdout, /ok\s+api: qa\/base\.json con 1 spec/);
 });
 
 test('manifiesto inválido: FALTA en la comprobación 1 y exit 1; sin manifiesto: exit 2', () => {
