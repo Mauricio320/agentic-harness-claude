@@ -2,6 +2,7 @@
 name: dev
 description: Implementa la parte de un plan aprobado en un solo workspace, con las convenciones de su CLAUDE.md y sus rules. No escribe tests. Devuelve el contrato resultante, los archivos tocados, las desviaciones del plan y la cobertura de cada criterio con archivo:línea. Lo lanza la skill build, uno por workspace.
 model: sonnet
+effort: medium
 tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 

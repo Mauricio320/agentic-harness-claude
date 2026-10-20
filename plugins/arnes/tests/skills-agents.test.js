@@ -27,14 +27,18 @@ test('presupuesto de §2: ninguna skill pasa de 80 líneas y ningún agente de 1
   for (const a of agents) assert.ok(frontmatter(path.join(PLUGIN, 'agents', a)).lines <= 120, `agente ${a}`);
 });
 
-test('política de invocación de §4: init y ship solo por la persona; verify, review y timeline también por el modelo', () => {
+test('política de invocación de §4: init, ship, worktree y sync solo por la persona; el resto también por el modelo', () => {
   const dmi = (s) => frontmatter(path.join(PLUGIN, 'skills', s, 'SKILL.md')).fm['disable-model-invocation'] === 'true';
-  for (const s of ['init', 'ship']) assert.ok(dmi(s), `${s} debe llevar disable-model-invocation: true`);
-  for (const s of ['verify', 'review', 'timeline']) assert.ok(!dmi(s), `${s} debe ser invocable por el modelo`);
+  const person = ['init', 'ship', 'worktree', 'sync'];
+  const model = ['plan', 'build', 'verify', 'review', 'memory', 'timeline'];
+  assert.deepEqual([...person, ...model].sort(), [...skills].sort(), 'cada skill está en una de las dos listas');
+  for (const s of person) assert.ok(dmi(s), `${s} debe llevar disable-model-invocation: true`);
+  for (const s of model) assert.ok(!dmi(s), `${s} debe ser invocable por el modelo`);
 });
 
 test('agentes de §6.4 con su model y su effort; el reviewer sin herramientas de escritura ni Bash', () => {
-  const want = { reviewer: 'opus', 'test-writer': 'sonnet', 'test-runner': 'haiku' };
+  const want = { dev: 'sonnet', reviewer: 'opus', 'test-writer': 'sonnet', 'test-runner': 'haiku' };
+  assert.deepEqual(agents.map((a) => a.replace(/\.md$/, '')).sort(), Object.keys(want).sort());
   for (const [name, model] of Object.entries(want)) {
     const { fm } = frontmatter(path.join(PLUGIN, 'agents', `${name}.md`));
     assert.equal(fm.name, name);
