@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). V
 
 ## [0.4.0] - sin etiquetar
 
-Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude Code 2.1.303. `claude plugin validate` y `claude plugin test` corrieron con 2.1.304, porque el CLI se actualizó solo durante la sesión. La prueba manual (`docs/PRUEBA-FASE-2B.md`) está pendiente.
+Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude Code 2.1.303. `claude plugin validate` y `claude plugin test` corrieron con 2.1.304, porque el CLI se actualizó solo durante la sesión. La prueba manual (`docs/PRUEBA-FASE-2B.md`) se hizo el 2026-10-19 con 2.1.304; su resultado está al final de la guía. Faltan repetir los pasos 2 y 4 y hacer el 7.3.
 
 ### Añadido
 - `arnes-ui`: `hooks/register.tsx` con los hooks y el dibujo, `hooks/lib.ts` con lo puro (rutas, globs, formatos, lectura de comandos y de git) y el contrato de `$.state` en `types/index.d.ts`.
@@ -12,8 +12,10 @@ Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude C
   - `skill.prompt` de las skills `arnes:`.
   - `agent.spawn` y `turn.complete` de `arnes:dev`, `arnes:reviewer` y `arnes:test-writer`.
   - `tool.call` de los Bash que corren `ci-gate`, `typecheck-baseline`, `test-select`, o un segmento que empieza por un typecheck o un test del manifiesto.
-  - `turn.step` muestra "Pensando…" y `session.compact` avisa con un toast.
-- Banda de una línea sobre el prompt, entrada en la status line y toasts en cambio de etapa, gate en rojo, Stop bloqueado (por `classic.Stop`) y zona de riesgo tocada.
+  - `turn.step` muestra "Pensando…" y `session.compact` avisa.
+- Banda de una línea sobre el prompt y entrada en la status line. Toast en cambio de etapa. Aviso en gate en rojo, Stop bloqueado, zona de riesgo tocada y compactación: va como toast y además como línea en el transcript (`$.ui.log`).
+- El aviso de Stop bloqueado sale de la nota `bloqueado` que el `stop-gate` deja en la timeline, leída con el reloj del mod, y no de un hook en `classic.Stop`.
+- La bandera se ve vencida si un archivo cambiado se modificó después de escribirla, por cualquier vía: el mod compara la fecha de modificación de lo que lista git, que se relee cada 15 s.
 - Panel con la cronología (duración y costo por etapa), el promedio de las últimas corridas, los agentes con su botón "ver", el gate por workspace, el plan, la timeline y lo que sigue. `/arnes-panel` lo abre o lo cierra.
 - Las últimas 20 corridas quedan en `$.store`. Cada corrida cierra con un resumen por etapa que marca la más lenta y la más cara.
 - Tests del mod con `claude plugin test plugins/arnes-ui`.
@@ -21,6 +23,9 @@ Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude C
 - `docs/PRUEBA-FASE-2B.md` con la prueba manual.
 
 ### Cambiado
+- `gate-flag`: la bandera lleva `contentHash`, el hash del contenido de cada tocado, trackeado o no. Editar un archivo ya tocado la vence. Una bandera escrita antes, sin ese campo, ya no vale.
+- `stop-gate` anota cada bloqueo en la timeline (nota `bloqueado`), además del pase con `stop_hook_active`.
+- `docs/PLAN.md` §3 registra tres hechos de la prueba manual con 2.1.304: un plugin interno salta el `classic.Stop` de los mods, que un toast se vea depende de la superficie, y el motor pone el prefijo de la status line de un mod.
 - `docs/PLAN.md` §3 registra cuatro hechos de la API de mods 2.1.303: `process.spawn` no ve el Bash del modelo, el costo por etapa sale de `$.session.usage()`, un comando registrado no lleva prefijo de plugin y un mod no puede calcular la vigencia exacta de la bandera. §6.5b y §10 se ajustan a ellos.
 
 ## [0.3.0] - sin etiquetar

@@ -15,6 +15,8 @@ La fase 2b se cierra cuando los pasos 1 a 7 salen como están escritos y lo conf
 
 Para ver cuántas columnas tienes, en PowerShell: `$Host.UI.RawUI.WindowSize.Width`.
 
+Los toasts dependen de la terminal: en la terminal embebida de Muxentra dentro de VS Code no se dibujan (ver Resultado). Haz los pasos 2 y 4 en una terminal normal fuera de VS Code, como Windows Terminal. Los avisos que importan salen además como línea tenue en el transcript, así que esa línea se ve en cualquier terminal.
+
 ## 0. Antes de abrir la sesión
 
 En PowerShell, con la terminal a 144 columnas o más:
@@ -36,7 +38,7 @@ Dentro de la sesión, `/plugin` tiene que listar `arnes` y `arnes-ui` sin errore
 
 Sin escribir nada todavía:
 - **La banda sobre el prompt** dice, en gris: `arnes ▸ listo · academico-front · api-academico`. `academicoBitbuckett` no aparece porque no tiene manifiesto propio.
-- **La status line** dice `arnes · listo`.
+- **La status line** dice `⚠arnes-ui: listo`: el triángulo y el nombre del plugin los pone el motor.
 - **El panel** se abre solo, con el título `arnes`. Su contenido es el del paso 3.
 
 Mientras Claude responde cualquier prompt, la banda cambia `listo` por `Pensando…`, y vuelve a `listo` al terminar.
@@ -49,7 +51,7 @@ Prompt:
 
 Esperado:
 1. **Después del Write** la banda termina en `api-academico ✎1`: un archivo editado en ese workspace.
-2. **Al cerrar el turno, el Stop bloquea**, y arriba a la derecha aparece durante 8 segundos un toast de `arnes-ui`. El texto empieza con `arnes: el Stop bloqueó el turno · arnes: hay cambios de código sin verificación vigente en api-academico (1 archivo(s) de código: src/prueba-arnes.ts; sin bandera de verificación para api-academico)`. Si el transcript se imprime en el scrollback, el toast es una línea en la barra de notificaciones.
+2. **Al cerrar el turno, el Stop bloquea**, y en menos de 3 segundos aparece el aviso `arnes: el Stop bloqueó el turno · turno bloqueado sin verificar: api-academico (1 archivo(s) de código: src/prueba-arnes.ts; sin bandera de verificación para api-academico)`. Sale dos veces: como toast de `arnes-ui` arriba a la derecha durante 8 segundos, y como línea tenue en el transcript. Si el transcript se imprime en el scrollback, el toast es una línea en la barra de notificaciones. El aviso sale de la nota `bloqueado` que el stop-gate deja en la timeline, no de un hook en el Stop.
 3. **El Stop suelta en el segundo intento** con su aviso, igual que en la fase 2. El mod no cambia nada de eso.
 
 No hay toast de cambio de etapa: editar un archivo no es una etapa, solo suma al contador.
@@ -86,10 +88,10 @@ Prompt:
 Esperado:
 1. **Al lanzar el comando:**
    - Toast `arnes ▸ Verificando (tsc api-academico)`.
-   - La status line dice `arnes · Verificando (tsc api-academico)`.
+   - La status line dice `⚠arnes-ui: Verificando (tsc api-academico)`.
    - La banda dice `arnes ▸ Verificando (tsc api-academico) 00:03 · academico-front · api-academico ⏳tsc ✎1`. El tiempo avanza cada 3 segundos mientras tsc corre.
-2. **Al terminar tsc**, la marca pasa a `✓tsc` o `✗tsc`, según el resultado. Con errores aparece además el toast `arnes: gate en rojo: ✗ tsc api-academico`.
-3. **Al cerrar el turno**, el transcript muestra una línea tenue como `arnes · corrida: Verificando 1m · más lenta: Verificando · más cara: Verificando ($0.04)`, con los minutos y el costo reales. El Stop vuelve a bloquear una vez, con su toast.
+2. **Al terminar tsc**, la marca pasa a `✓tsc` o `✗tsc`, según el resultado. Con errores aparece además el aviso `arnes: gate en rojo: ✗ tsc api-academico`, como toast y como línea en el transcript.
+3. **Al cerrar el turno**, el transcript muestra una línea tenue como `arnes · corrida: Verificando 1m · más lenta: Verificando · más cara: Verificando ($0.04)`, con los minutos y el costo reales. El Stop vuelve a bloquear una vez, con su aviso.
 4. **En el panel**, la cronología vuelve a `sin etapas en esta corrida`, y debajo aparece `promedio de 1 corrida(s): Verificando 1m $0.04`. La fila de api-academico dice `tsc ✓` o `tsc ✗`.
 
 ## 5. La bandera, leída del archivo
@@ -105,7 +107,11 @@ Esperado, en 3 segundos y sin escribir nada en la sesión:
 - En el panel la fila dice `bandera pass hace 3s`.
 - `Lo que sigue` pasa a `verificado: listo para commit`. Si tsc falló, dice `corregir y volver a verificar api-academico`.
 
-Lo que el mod llama vigente es "menos de 30 minutos, mismo HEAD y sin ediciones después". La vigencia exacta, con la lista de tocados, la siguen juzgando el guard y el Stop (`docs/PLAN.md` §3).
+Después, cambia a mano el contenido de `src/prueba-arnes.ts` (por ejemplo, agrega una línea en blanco):
+- En 15 segundos como máximo la banda pasa de `✓flag` a `flag vencida`, aunque el cambio no haya pasado por Claude.
+- `node ".../gate-flag.js" check api-academico` sale con 1 y dice `el contenido de un archivo tocado cambió desde la verificación`.
+
+Lo que el mod llama vigente es "menos de 30 minutos, mismo HEAD y ningún archivo cambiado modificado después". La vigencia exacta, con la lista de tocados, la siguen juzgando el guard y el Stop (`docs/PLAN.md` §3).
 
 ## 6. Un agente vivo y el botón ver
 
@@ -167,6 +173,31 @@ Por cada paso, di si salió como está escrito, y si no, copia el texto exacto q
 
 Sí son fallos:
 - que falte la banda o el panel;
-- que un toast de los pasos 2 y 4 no aparezca;
+- que un aviso de los pasos 2 y 4 no aparezca en el transcript; si se ve en el transcript y no como toast, di en qué terminal;
 - que el botón ver no cambie la vista;
 - que con el mod desactivado cambie algo del plugin base.
+
+## Resultado
+
+2026-10-19, con Claude Code 2.1.304, en `api-academico` y también desde la raíz de academico.
+
+Salieron como están escritos:
+- El paso 1: banda, status y panel al arrancar.
+- El paso 3: `/arnes-panel` cierra y abre.
+- El paso 4: la etapa Verificando con su tiempo y `✓tsc`, la línea de resumen de la corrida (54 segundos y 0,07 dólares) y el promedio en el panel.
+- El paso 5: la bandera leída del archivo en 3 segundos, con `✓flag` y `Lo que sigue` en listo para commit.
+- El paso 6: el agente Explore en la banda y en el panel, con su herramienta y sus tokens. El botón ver cambió la vista al agente, y volvió.
+- El paso 7: en terminal angosta, la banda cortada y el panel encima del prompt, y el panel no se abre solo por debajo de 144 columnas.
+- Desde la raíz, `git -C api-academico commit --dry-run` con bandera vigente pasó el guard.
+
+Fallos y hallazgos, por orden de importancia:
+1. **No se vio ningún toast** en la terminal embebida de Muxentra dentro de VS Code: ni el del Stop ni el de Verificando.
+   - El del Stop no se levantó nunca. El transcript dijo `arnes-ui: its classic.Stop hook was skipped. "cc-plugin-sec-default" runs first and sent the event on past it.`
+   - El de Verificando sale del mismo `tool.call` que sí movió la banda: el hook corrió, y lo que no se dibuja es el toast.
+   - Corregido sin depender del orden de la cadena: el stop-gate anota cada bloqueo en la timeline (nota `bloqueado`), y el mod levanta el aviso al leerla con su reloj. Los avisos importantes van además al transcript con `$.ui.log`. No pude comprobar el toast en una terminal normal desde la sesión de desarrollo: queda para la repetición del paso 2.
+2. **Brecha de la bandera.** Tras cambiar el contenido de `src/prueba-arnes.ts`, ya tocado al escribir la bandera, `gate-flag check` seguía diciendo vigente. `touchedHash` cubría la lista de tocados pero no su contenido. Corregido con `contentHash`: el hash del contenido de cada tocado, trackeado o no. No es la huella del árbol entero (§11).
+3. **Desde la raíz**, tras esa edición la banda no mostró `✎1` ni soltó el `✓flag`. Con un Edit o un Write por ruta absoluta o relativa desde la raíz, el test cuenta la edición en su workspace. La causa más probable es que la edición no pasó por Edit ni por Write. Corregido: cualquier modificación de un archivo cambiado después de la bandera la vence, porque el mod compara la fecha de modificación de lo que lista git, y git se relee cada 15 segundos. Una ruta relativa ahora se resuelve contra el cwd.
+4. **La timeline mostró `hace 0s`** en todas las notas en el primer dibujo. Corregido: `now` se fija con la primera lectura, no en la primera vuelta del reloj.
+5. **La status line mostraba `⚠arnes-ui: arnes · listo`.** El triángulo y `arnes-ui:` los pone el motor al dibujar el estado de un plugin; el mod solo pasaba `arnes · listo`. Ahora pasa `listo`, que se ve como `⚠arnes-ui: listo`. Queda en `docs/PLAN.md` §3.
+
+Pendiente: repetir los pasos 2 y 4 por los avisos, y el paso 7.3, con el plugin base solo, que no se hizo. La fase 2b no se cierra hasta esa repetición.
