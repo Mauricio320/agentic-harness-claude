@@ -504,6 +504,28 @@ Segunda ronda antes del piloto (2026-10-20, rama `feature/pre-piloto-2`, versió
 
 Medidas de la corrida, para el piloto (fase 4) y para decidir después: plan 3m27s, build 13m41s, verify 8m30s, review 5m06s y ship 1m55s. La etapa más cara fue review, con dos revisiones completas en opus. La segunda solo revisaba las sugerencias aplicadas, que es lo que ahora va acotado y en sonnet (§6.3).
 
+Tercera ronda antes del piloto (2026-10-20, rama `feature/pre-piloto-3`, versión 0.5.3), por la corrida de un compañero de front. Instaló la 0.5.2 desde `feature/pre-piloto-2` en su Mac y corrió el mismo issue de talleres sobre la carpeta academico, con los repos en `fix/adopcion-arnes`. Funcionó lo nuevo de la 0.5.2: la cronología con costo por etapa, la espera de la persona, el reloj y el costo de la sesión, el aviso "verificado, falta review", los diagnósticos de `.next` descartados por estar ignorados, y la ronda 2 de review acotada en sonnet, que dejó 10 bloqueantes en 0. Salieron cuatro huecos y tres mejoras, cada uno en su sección:
+- el plan es obligatorio, en tres capas, y la aprobación la anota `plan-state.js` (§6.2);
+- el aviso de un agente en segundo plano no abre turno, así que el Stop ve lo que escribieron los devs, y build encadena a verify (§3 y §6.2);
+- init dice en qué rama está un repo sin manifiesto y qué rama remota lo trae (§8);
+- los comandos que tocan una base van a `forbidden` y los corre la persona (§8);
+- las convenciones mecánicas en el gate, antes del lint y del reviewer (§6.1);
+- la guía de probadores y el README: la rama antes de init, la base, opus en la sesión principal y el mod solo en terminal (§6.5b).
+
+Medidas de las dos corridas del mismo issue:
+
+| Etapa | La del compañero (0.5.2, Mac, sin grafo, devs en sonnet, modelo principal por confirmar) | La primera (0.5.1, Windows, con grafo y opus) |
+|---|---|---|
+| plan | 2m · $0.58 | 3m27s |
+| build | 3m y 4m · $1.89 | 13m41s |
+| verify | 2m · $0.82, más dos reverificaciones de 27s y 21s | 8m30s |
+| review | 4m · $1.73 con 10 bloqueantes; ronda 2 acotada 1m · $0.46 con 0 | 5m06s, en dos revisiones completas en opus |
+| ship | después de la medición | 1m55s |
+| espera de la persona | 27m en 13 respuestas | sin medir |
+| sesión antes del ship | 38m · $8.65 | sin medir |
+
+En la 0.5.2, el aviso de un agente en segundo plano contaba como una respuesta de la persona (§6.2). Las 13 respuestas, y con ellas los 27 minutos de espera, pueden incluir algunos de esos avisos.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
