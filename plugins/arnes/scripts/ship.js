@@ -2,10 +2,11 @@
 // Lo determinista de /arnes:ship (docs/PLAN.md §6.3), sobre los workspaces adoptables con tocados
 // respecto de HEAD.
 //   check   por cada uno: bandera vigente (gate-flag), revisión hecha y sin bloqueantes (review.js)
-//           y ningún archivo que no deba entrar (.env, logs); del proyecto, ningún worktree del issue
-//           abierto. El ledger llega en la segunda mitad de la fase 3, así que hoy esa lista sale
-//           vacía. Imprime además el orden de commit (los que proveen contrato antes que los que lo
-//           consumen), el prefijo de rama del manifiesto y la rama propuesta, las riskPaths tocadas,
+//           y ningún archivo que no deba entrar (.env, logs); del proyecto, ningún worktree abierto
+//           en worktree-ledger.js cuyo destino sea la rama del issue (la actual de cada workspace),
+//           con las mismas líneas que `pending --target`. Imprime además el orden de commit (los que
+//           proveen contrato antes que los que lo consumen), el prefijo de rama del manifiesto y la
+//           rama propuesta, las riskPaths tocadas,
 //           si la línea base de tests cambia (entonces el asunto lleva gates:) y lo que el repo dice
 //           de su convención de commits: archivos de commitlint, CLAUDE.md y los últimos asuntos de
 //           la rama por defecto
@@ -32,7 +33,7 @@ const { checkFlag } = require('./gate-flag.js');
 const { checkReview, RISK } = require('./review.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
-const { pendingWorktrees } = require('./hooks/stop-gate.js');
+const ledger = require('./worktree-ledger.js');
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
@@ -107,9 +108,12 @@ function check(project) {
     console.log(`    últimos asuntos de ${conv.ref}:`);
     for (const s of conv.subjects) console.log(`      ${s}`);
   }
-  const open = pendingWorktrees(project);
-  if (open.length) problems.push(`hay ${open.length} worktree(s) del issue sin integrar`);
-  console.log(`worktrees abiertos del issue: ${open.length ? open.join(', ') : 'ninguno (el ledger de worktrees llega en la segunda mitad de la fase 3)'}`);
+  // La rama del issue es la actual de cada workspace: los worktrees del registro apuntan a ella.
+  const targets = [...new Set(list.map((x) => branchOf(x.ws)).filter((b) => b && b !== 'HEAD'))];
+  const open = targets.flatMap((target) => ledger.pendingEntries(project, ledger.readLedger(project), { target }));
+  if (open.length) problems.push(`hay ${open.length} worktree(s) del issue sin integrar en ${targets.join(', ')}`);
+  console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);
+  for (const p of open) console.log(`    ${ledger.describe(p)}`);
   console.log(`orden de commit: ${list.map((x) => x.ws.name).join(' → ')}`);
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);

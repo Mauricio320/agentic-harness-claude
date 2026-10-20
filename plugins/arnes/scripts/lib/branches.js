@@ -1,7 +1,9 @@
 'use strict';
-// Commits de una rama que no están integrados en la rama por defecto. Lo usan el guard
-// (branch -D, git worktree remove) y worktree-remove.js (ExitWorktree). Cuando exista el ledger
-// de worktrees (fase 3), el destino pasa a ser la rama registrada en él.
+// Commits de una rama que no están integrados en sus ramas destino. Lo usan el guard (branch -D,
+// git worktree remove) y worktree-remove.js (ExitWorktree). Este módulo no elige el destino: si
+// la rama o la carpeta están abiertas en worktree-ledger.js, worktree-remove.js (targetsOf) y el
+// guard miden contra la rama del issue registrada ahí; si no, contra la rama por defecto de
+// mergeTargets.
 
 const { git, lines } = require('./exec.js');
 

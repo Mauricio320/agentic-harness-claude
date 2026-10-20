@@ -15,7 +15,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 1. Anota el inicio: `node "S/lib/timeline.js" start ship`.
 2. Corre `node "S/ship.js" check`. Muestra su salida tal cual.
-   - **Si sale con 1:** anota `end ship --result fail --detail "<motivo>"` y termina. Di qué falta: `/arnes:verify` si es la bandera, `/arnes:review` si es la revisión o tiene bloqueantes, integrar si son worktrees, o sacar del árbol un archivo que no debe entrar.
+   - **Si sale con 1:** anota `end ship --result fail --detail "<motivo>"` y termina. Di qué falta: `/arnes:verify` si es la bandera, `/arnes:review` si es la revisión o tiene bloqueantes, `/arnes:worktree integrate <slug>` si son worktrees, o sacar del árbol un archivo que no debe entrar.
    - **Nunca verifiques ni revises desde aquí.**
 
 ## 2. Rama
@@ -24,8 +24,9 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - la rama de `$ARGUMENTS`, si viene;
    - la "rama propuesta" del check;
    - una corta en kebab-case a partir del título de `.tmp/harness/plan.md` o del pedido de la persona.
-2. Corre `node "S/ship.js" branch <rama>`. El prefijo del manifiesto se agrega solo.
-3. Si sale con 1, muestra el motivo y termina. Nunca muevas un HEAD a mano.
+2. Corre `node "S/worktree-ledger.js" pending --target <rama>`, con el prefijo incluido. Si sale con 1, muestra su salida tal cual, anota `end ship --result fail --detail "worktrees sin integrar"` y termina: falta `/arnes:worktree integrate <slug>`.
+3. Corre `node "S/ship.js" branch <rama>`. El prefijo del manifiesto se agrega solo.
+4. Si sale con 1, muestra el motivo y termina. Nunca muevas un HEAD a mano.
 
 ## 3. Commits, uno por workspace, en el orden del check (back antes que front)
 

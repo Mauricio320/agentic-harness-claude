@@ -45,7 +45,7 @@ test('check sin bandera ni revisión → NO LISTO con cada motivo', () => {
   assert.match(r.stdout, /resultado: NO LISTO/);
 });
 
-test('check listo: orden back → front, prefijo, convención, worktrees preparados y riskPaths', () => {
+test('check listo: orden back → front, prefijo, convención, sin worktrees abiertos y riskPaths', () => {
   const { root, api } = folder();
   h.write(api, 'src/auth/login.ts', 'riesgo\n');
   ready(root);
@@ -57,7 +57,7 @@ test('check listo: orden back → front, prefijo, convención, worktrees prepara
   assert.match(r.stdout, /riskPaths tocadas: src\/auth\/login\.ts → REVISIÓN HUMANA OBLIGATORIA en el MR/);
   assert.match(r.stdout, /convención: commitlint en \.commitlintrc\.json/);
   assert.match(r.stdout, /feature\(api\): asunto con la convención del repo/);
-  assert.match(r.stdout, /worktrees abiertos del issue: ninguno \(el ledger de worktrees llega en la segunda mitad/);
+  assert.match(r.stdout, /worktrees abiertos del issue: ninguno\n/);
   assert.match(r.stdout, /línea base de tests: no cambia/);
   assert.match(r.stdout, /resultado: LISTO/);
 });
@@ -75,6 +75,23 @@ test('check: la revisión con bloqueantes, un .env o la base de tests tocada', (
   h.write(api, '.env', 'SECRETO=1\n');
   r = ship(root, ['check']);
   assert.match(r.stdout, /api: archivos que no deben entrar: \.env/);
+});
+
+test('check se niega con un worktree del registro abierto hacia la rama del issue, con las líneas de pending', () => {
+  const { root, api, front } = folder();
+  for (const dir of [api, front]) h.git(dir, 'switch', '-q', '-c', 'feature/cobros');
+  const o = h.run('worktree-ledger.js', ['open', 'tarifas', '--ws', 'api'], { cwd: root });
+  assert.equal(o.status, 0, o.stderr);
+  ready(root);
+  const r = ship(root, ['check']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /worktrees abiertos del issue: 1\n    api wt\/feature\/cobros\/tarifas → feature\/cobros · 0 commit\(s\) sin integrar/);
+  assert.match(r.stdout, /hay 1 worktree\(s\) del issue sin integrar en feature\/cobros/);
+  const p = h.run('worktree-ledger.js', ['pending', '--target', 'feature/cobros'], { cwd: root });
+  assert.equal(p.status, 1);
+  assert.match(r.stdout, new RegExp(p.stdout.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(h.run('worktree-ledger.js', ['close', 'tarifas'], { cwd: root }).status, 0);
+  assert.equal(ship(root, ['check']).status, 0);
 });
 
 test('branch crea la misma rama con el prefijo en cada workspace sin mover el HEAD; la bandera sigue vigente', () => {
