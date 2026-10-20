@@ -261,6 +261,48 @@ main > section:first-of-type { border-top: 0; }
   .term .pane { border-left: 0; border-top: 1px solid #333840; }
 }
 
+/* mapa del ciclo */
+.loop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
+.loop .node { flex: 1 1 120px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: .88rem; box-shadow: var(--shadow); }
+.loop .node b { display: block; font-size: .92rem; margin-bottom: 4px; }
+.loop .arrow { flex: 0 0 auto; align-self: center; color: var(--muted); font-size: 1.2rem; }
+.loop .tools { flex: 2 1 260px; border: 2px dashed var(--accent); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.loop .tools .cap { font-size: .74rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+.loop .tools .row3 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.loop .tools .node { flex: 1 1 90px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.filters button { font: inherit; font-size: .82rem; cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--fg); border-radius: 999px; padding: 4px 12px; }
+.filters button.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.cycle { margin: 12px 0 18px; }
+.cycle .head, .cycle .stage { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cycle .head { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; padding: 0 10px 6px; }
+.cycle .stage { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-top: 18px; font-size: .88rem; box-shadow: var(--shadow); }
+.cycle .stage::before { content: "↓"; position: absolute; top: -19px; left: 52px; color: var(--muted); font-size: .95rem; line-height: 1; }
+.cycle .stage.first { margin-top: 0; }
+.cycle .stage.first::before { content: none; }
+.cycle .stage > div { min-width: 0; overflow-wrap: anywhere; }
+.cycle .stage .name { font-weight: 700; }
+.cycle .stage .name small { display: block; font-weight: 400; color: var(--muted); font-size: .8rem; }
+.cycle .chip { display: inline-block; margin: 2px 4px 2px 0; padding: 1px 7px; border-radius: 6px; font-size: .78rem; font-family: ui-monospace, Consolas, monospace; transition: opacity .15s; }
+.cycle .chip.persona { background: var(--persona-soft); color: var(--persona); }
+.cycle .chip.claude { background: var(--claude-soft); color: var(--claude); }
+.cycle .chip.ayudante { background: var(--ayudante-soft); color: var(--ayudante); }
+.cycle .chip.script { background: var(--script-soft); color: var(--script); }
+.cycle .chip.hook { background: transparent; color: var(--bad); border: 1px solid currentColor; }
+.cycle .chip.file { background: var(--code-bg); color: var(--fg); }
+.cycle.dim .chip { opacity: .2; }
+.cycle.dim .chip.lit { opacity: 1; }
+.cycle .back { margin-top: 18px; border: 2px dashed var(--wait); border-radius: 10px; padding: 10px 12px; font-size: .9rem; position: relative; }
+.cycle .back::before { content: "↺"; position: absolute; top: -21px; left: 46px; color: var(--wait); font-size: 1.15rem; line-height: 1; }
+.cycle .back b { color: var(--wait); }
+.cycle .lbl { display: none; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; margin-top: 6px; }
+@media (max-width: 760px) {
+  .cycle .head { display: none; }
+  .cycle .stage { grid-template-columns: 1fr; gap: 2px; }
+  .cycle .lbl { display: block; }
+  .loop .arrow { transform: rotate(90deg); width: 100%; text-align: center; }
+}
+
 /* fases */
 .phases { list-style: none; padding: 0; margin: 16px 0; border-left: 2px solid var(--border); }
 .phases li { position: relative; padding: 4px 0 14px 22px; margin: 0; }
@@ -309,19 +351,20 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
     <ol>
       <li><a href="#problema"><span class="n">1</span>Qué problema resuelve</a></li>
       <li><a href="#piezas"><span class="n">2</span>Las piezas de Claude Code</a></li>
-      <li><a href="#manifiesto"><span class="n">3</span>El manifiesto</a></li>
-      <li><a href="#historia"><span class="n">4</span>La historia de un issue</a></li>
-      <li><a href="#guardias"><span class="n">5</span>Los guardias (hooks)</a></li>
-      <li><a href="#bandera"><span class="n">6</span>La bandera</a></li>
-      <li><a href="#verificacion"><span class="n">7</span>Verificar sin trampas</a></li>
-      <li><a href="#worktrees"><span class="n">8</span>Los worktrees</a></li>
-      <li><a href="#memoria"><span class="n">9</span>La memoria y el mapa</a></li>
-      <li><a href="#pantalla"><span class="n">10</span>Lo que ves en pantalla</a></li>
-      <li><a href="#persona"><span class="n">11</span>Lo que haces tú</a></li>
-      <li><a href="#instalar"><span class="n">12</span>Instalar y adoptar</a></li>
-      <li><a href="#estado"><span class="n">13</span>En qué va el proyecto</a></li>
-      <li><a href="#esceptico"><span class="n">14</span>Preguntas escépticas</a></li>
-      <li><a href="#glosario"><span class="n">15</span>Glosario</a></li>
+      <li><a href="#ciclo"><span class="n">3</span>El mapa del ciclo</a></li>
+      <li><a href="#manifiesto"><span class="n">4</span>El manifiesto</a></li>
+      <li><a href="#historia"><span class="n">5</span>La historia de un issue</a></li>
+      <li><a href="#guardias"><span class="n">6</span>Los guardias (hooks)</a></li>
+      <li><a href="#bandera"><span class="n">7</span>La bandera</a></li>
+      <li><a href="#verificacion"><span class="n">8</span>Verificar sin trampas</a></li>
+      <li><a href="#worktrees"><span class="n">9</span>Los worktrees</a></li>
+      <li><a href="#memoria"><span class="n">10</span>La memoria y el mapa</a></li>
+      <li><a href="#pantalla"><span class="n">11</span>Lo que ves en pantalla</a></li>
+      <li><a href="#persona"><span class="n">12</span>Lo que haces tú</a></li>
+      <li><a href="#instalar"><span class="n">13</span>Instalar y adoptar</a></li>
+      <li><a href="#estado"><span class="n">14</span>En qué va el proyecto</a></li>
+      <li><a href="#esceptico"><span class="n">15</span>Preguntas escépticas</a></li>
+      <li><a href="#glosario"><span class="n">16</span>Glosario</a></li>
     </ol>
   </nav>
 
@@ -348,7 +391,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
         <li>No sabe si tu cambio es correcto para el negocio. Sabe si compila, si pasa el lint, si los tests siguen en verde y si se respetaron las reglas escritas del repo.</li>
         <li>No hace push ni abre merge requests por su cuenta: eso solo pasa si tú lo pides y dices que sí.</li>
         <li>No reemplaza al CI ni a la aprobación en GitLab: las usa como garantía de verdad.</li>
-        <li>No trae nada del stack cableado: los comandos de cada proyecto los lee de un archivo del propio proyecto (el manifiesto, sección 3).</li>
+        <li>No trae nada del stack cableado: los comandos de cada proyecto los lee de un archivo del propio proyecto (el manifiesto, sección 4).</li>
       </ul>
       <div class="callout">
         <strong>La frase que va en cada reporte:</strong> verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.
@@ -428,7 +471,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
         <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".<br><span class="badge b-script">stop-gate.js</span> Bloquea una vez por turno si quedó código sin verificar o worktrees con commits sin integrar.</div></div>
         <div class="ev"><code>SessionEnd</code><div>Cuando cierras la sesión.<br><span class="badge b-script">session-start.js</span> El mismo script del arranque: aquí borra el candado de la sesión.</div></div>
       </div>
-      <p>El detalle de cada uno (qué mira, qué bloquea y qué nunca bloquea) está en la <a href="#guardias">sección 5</a>.</p>
+      <p>El detalle de cada uno (qué mira, qué bloquea y qué nunca bloquea) está en la <a href="#guardias">sección 6</a>.</p>
       <p>Un <dfn>turno</dfn> es todo lo que pasa entre que mandas un mensaje y Claude te devuelve el control: pueden ser muchos pasos con herramientas en medio. Los hooks no piden permiso: corren fuera del sistema de permisos.</p>
 
       <h3>Mod</h3>
@@ -442,9 +485,131 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       <div class="callout quiet">Esto no es teoría. En las pruebas, un plugin interno de Claude Code (<code>cc-plugin-sec-default</code>) se saltó dos enganches del mod: el del <code>Stop</code> y el de carga de skills. La banda dejó de mostrar algunas etapas, y el arnés siguió igual. La corrección fue sacar esas etapas de la timeline, que ya existía.</div>
     </section>
 
+    <section id="ciclo">
+      <p class="kicker">3</p>
+      <h2>El mapa del ciclo: qué corre, cuándo y quién lo dispara</h2>
+      <p>Ya están las piezas sueltas. Ahora, cómo encajan. El ciclo tiene dos niveles: el de un <strong>turno</strong>, que se repite en cada mensaje, y el de un <strong>issue</strong>, que va de tu pedido al commit en varios turnos.</p>
+
+      <h3>El ciclo de un turno</h3>
+      <p>Esto pasa cada vez que mandas un mensaje, sea en la etapa que sea. Lo que está dentro del recuadro se repite en cada herramienta que usa Claude o un ayudante.</p>
+      <div class="loop" role="img" aria-label="Ciclo de un turno: tu mensaje, prompt-context, Claude piensa, por cada herramienta los guardias de antes y después, el Stop y te devuelve el turno">
+        <div class="node"><b>Tu mensaje</b><span class="badge b-persona">la persona</span></div>
+        <div class="arrow">→</div>
+        <div class="node"><b>UserPromptSubmit</b><code>prompt-context.js</code> adjunta el estado y saca la foto del turno</div>
+        <div class="arrow">→</div>
+        <div class="node"><b>Claude piensa</b>y carga la skill que encaja con el pedido</div>
+        <div class="arrow">→</div>
+        <div class="tools">
+          <span class="cap">↻ por cada herramienta</span>
+          <div class="row3">
+            <div class="node"><b>PreToolUse</b><code>guard.js</code>, <code>read-guard.js</code> o <code>worktree-remove.js</code>: pasa o se niega</div>
+            <div class="arrow">→</div>
+            <div class="node"><b>La herramienta</b>un comando, una lectura, una edición, un ayudante</div>
+            <div class="arrow">→</div>
+            <div class="node"><b>PostToolUse</b><code>after-edit.js</code> si editó: el lint vuelve como contexto</div>
+          </div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="node"><b>Stop</b><code>stop-gate.js</code>: ¿quedó algo sin verificar? Bloquea una vez</div>
+        <div class="arrow">→</div>
+        <div class="node"><b>Te devuelve el turno</b><span class="badge b-persona">la persona</span></div>
+      </div>
+      <p class="small">Las skills anotan sus inicios y fines en <code>.tmp/harness/timeline.jsonl</code>, y el Stop anota ahí sus bloqueos. Si <code>arnes-ui</code> está instalado, mira todo esto y lo dibuja, sin cambiar nada.</p>
+
+      <h3>El ciclo de un issue</h3>
+      <p>Cada fila es una etapa, de arriba hacia abajo. Toca un filtro para ver solo lo que hace cada quién.</p>
+      <div class="filters" id="cycle-filters">
+        <button type="button" class="on" data-f="">Todo</button>
+        <button type="button" data-f="persona">La persona</button>
+        <button type="button" data-f="claude">Claude (skills)</button>
+        <button type="button" data-f="ayudante">Ayudantes</button>
+        <button type="button" data-f="script">Scripts</button>
+        <button type="button" data-f="hook">Guardias</button>
+        <button type="button" data-f="file">Archivos</button>
+      </div>
+      <div class="cycle" id="cycle">
+        <div class="head"><div>Etapa</div><div>Quién lo dispara</div><div>Qué corre</div><div>Guardias que actúan</div><div>Qué queda escrito</div></div>
+
+        <div class="stage first">
+          <div class="name">1. Arranque<small>al abrir la sesión</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip persona">abres claude</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">lee .claude/harness.json</span><span class="chip script">lee el registro de worktrees</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">SessionStart · session-start.js</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">sessions/&lt;sesión&gt;.json</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">2. Pedido<small>un mensaje</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip persona">escribes el issue</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip claude">Claude reconoce la skill plan</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">UserPromptSubmit · prompt-context.js</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">turn.json</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">3. Plan<small>Claude solo</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip claude">skill plan</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">timeline.js start plan</span><span class="chip script">manifest.js show</span><span class="chip script">graphify query</span><span class="chip claude">lee CLAUDE.md y rules</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">guard.js en cada comando</span><span class="chip hook">read-guard.js en cada lectura</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">plan.md</span><span class="chip file">timeline.jsonl</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">4. Aprobación<small>espera de la persona</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip persona">apruebas o pides cambios</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">timeline.js note esperando</span><span class="chip claude">plan escribe Aprobado: y Decisiones</span><span class="chip script">timeline.js note aprobado</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">UserPromptSubmit · prompt-context.js</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">plan.md aprobado</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">5. Build<small>Claude y el dev</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip claude">skill build</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip ayudante">dev · sonnet, uno por workspace</span><span class="chip script">timeline.js start/end build --ws</span><span class="chip script">typecheck y lint del manifiesto</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">after-edit.js tras cada edición</span><span class="chip hook">guard.js</span><span class="chip hook">read-guard.js</span><span class="chip hook">Stop · stop-gate.js</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">tu código, sin commitear</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">6. Verify<small>Claude y scripts</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip claude">skill verify</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">touched-files.js</span><span class="chip script">test-select.js --missing</span><span class="chip ayudante">test-writer · sonnet, si falta spec</span><span class="chip script">ci-gate.js --base HEAD</span><span class="chip script">gate-flag.js write</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">guard.js</span><span class="chip hook">after-edit.js en los specs nuevos</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">gate/&lt;ws&gt;.json (la bandera)</span><span class="chip file">typecheck/&lt;ws&gt;.txt</span><span class="chip file">specs nuevos</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">7. Review<small>Claude y el revisor</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip claude">skill review</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">review.js input</span><span class="chip ayudante">reviewer · opus, solo lectura</span><span class="chip script">review.js mark</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">read-guard.js en cada lectura</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">review/input.md</span><span class="chip file">review.json</span></div>
+        </div>
+
+        <div class="back"><b>Si el revisor deja BLOQUEANTES &gt; 0:</b> Claude corrige con el dev (código) o el test-writer (specs) y vuelve a <b>Verify</b> y a <b>Review</b>, sin que se lo pidas, hasta <code>BLOQUEANTES: 0</code>. <code>review.js</code> se niega después de la tercera ronda con bloqueantes.</div>
+
+        <div class="stage">
+          <div class="name">8. Ship<small>tú lo pides</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip persona">/arnes:ship</span><span class="chip persona">sí antes del push</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">ship.js check</span><span class="chip script">worktree-ledger.js pending</span><span class="chip script">ship.js branch</span><span class="chip script">ship.js stage</span><span class="chip claude">git commit</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">guard.js: commit solo con bandera vigente</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">un commit por workspace</span><span class="chip file">MR, con la marca si tocó riesgo</span></div>
+        </div>
+
+        <div class="stage">
+          <div class="name">9. Cierre<small>al salir</small></div>
+          <div><span class="lbl">Quién lo dispara</span><span class="chip persona">/exit</span></div>
+          <div><span class="lbl">Qué corre</span><span class="chip script">borra el candado de la sesión</span></div>
+          <div><span class="lbl">Guardias</span><span class="chip hook">SessionEnd · session-start.js</span></div>
+          <div><span class="lbl">Queda escrito</span><span class="chip file">sessions/ sin esta sesión</span></div>
+        </div>
+      </div>
+      <p class="small">Todos los archivos de la columna derecha, salvo el código, los specs y el commit, viven en <code>.tmp/harness/</code> en la raíz del proyecto. Las skills que corres tú fuera de este camino (<code>/arnes:worktree</code>, <code>/arnes:sync</code> e <code>/arnes:init</code>) se explican en las secciones 9 y 13. El recorrido con el ejemplo real está en la <a href="#historia">sección 5</a>.</p>
+    </section>
+
     <!-- 3 -->
     <section id="manifiesto">
-      <p class="kicker">3</p>
+      <p class="kicker">4</p>
       <h2>El manifiesto: <code>.claude/harness.json</code></h2>
       <p>El <dfn>manifiesto</dfn> es un archivo JSON que le dice al arnés cómo es tu proyecto: qué comandos corre para revisar tipos, lint y tests, dónde están las zonas de riesgo y qué comandos están prohibidos. El arnés no adivina nada del stack: si algo no está en el manifiesto (o en el <code>CLAUDE.md</code> del repo, que es el archivo de reglas que Claude lee al trabajar ahí), no existe.</p>
       <p>Hay dos tipos, y el schema acepta exactamente uno de los dos en cada archivo:</p>
@@ -481,7 +646,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 "integration": { "branchPrefix": "feature/" },</code><div>El prefijo de las ramas que crea ship.</div></div>
         <div class="row"><code>"memory": { "notes": "docs/decisions",
   "gotchas": "docs/gotchas.md",
-  "graphify": true }</code><div>Dónde se escriben las decisiones y las trampas conocidas, y si el repo tiene mapa de graphify (sección 9).</div></div>
+  "graphify": true }</code><div>Dónde se escriben las decisiones y las trampas conocidas, y si el repo tiene mapa de graphify (sección 10).</div></div>
       </div>
       <p>Hay campos opcionales que también leen los guardias: <code>codeGlobs</code> (qué cuenta como código; por defecto <code>.ts</code>, <code>.tsx</code>, <code>.js</code>, <code>.jsx</code>, <code>.php</code> y <code>.sql</code>, nunca <code>.md</code>), <code>sharedPaths</code> (código compartido que obliga a correr todos los tests), <code>secretPaths</code> (más archivos de secretos) y <code>commands.typecheckFast</code> (un typecheck rápido para después de cada edición).</p>
 
@@ -505,12 +670,12 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
       <h3>Adoptado y no adoptado</h3>
       <p>En el ejemplo, <code>academicoBitbuckett</code> (un repo PHP) aparece sin <code>contract</code> y no tiene manifiesto propio. Eso lo deja como <dfn>no adoptable todavía</dfn>: los scripts lo ven, lo muestran al arrancar ("no adoptable todavía: sin manifiesto propio, no se verifica"), pero no lo verifican ni lo bloquean. No es un error.</p>
-      <p>Un repo <dfn>adoptado</dfn> es uno que tiene su manifiesto y cumple el mínimo de adopción: ocho comprobaciones que corre <code>/arnes:init --check</code> (sección 12).</p>
+      <p>Un repo <dfn>adoptado</dfn> es uno que tiene su manifiesto y cumple el mínimo de adopción: ocho comprobaciones que corre <code>/arnes:init --check</code> (sección 13).</p>
     </section>
 
     <!-- 4 -->
     <section id="historia">
-      <p class="kicker">4</p>
+      <p class="kicker">5</p>
       <h2>La historia completa de un issue</h2>
       <p>Un <dfn>issue</dfn> es un pedido de trabajo (en GitLab o GitHub, o escrito a mano). Este es el recorrido real del CRUD de talleres de <code>docs/PRUEBA-FASE-3.md</code>, hecho sobre un clon de api-academico el 2026-10-20. Los tiempos son los de la prueba manual en una sesión interactiva; donde sirve, se cuenta también lo que pasó en la corrida automática de ese mismo día.</p>
       <p>Cada paso dice quién lo hizo:
@@ -538,7 +703,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 5 -->
     <section id="guardias">
-      <p class="kicker">5</p>
+      <p class="kicker">6</p>
       <h2>Los guardias, que son los hooks</h2>
       <p>Una tarjeta por cada entrada de <code>plugins/arnes/hooks/hooks.json</code>, sacada de los scripts de <code>scripts/hooks/</code>. Dos reglas valen para todos:</p>
       <ul>
@@ -632,7 +797,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 6 -->
     <section id="bandera">
-      <p class="kicker">6</p>
+      <p class="kicker">7</p>
       <h2>La bandera</h2>
       <p>La <dfn>bandera</dfn> (o bandera de verificación) es un archivito que dice "este workspace, tal como está ahora, pasó la verificación". Es lo que pide el guardia antes de dejarte commitear.</p>
       <div class="grid">
@@ -657,7 +822,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 7 -->
     <section id="verificacion">
-      <p class="kicker">7</p>
+      <p class="kicker">8</p>
       <h2>La verificación sin trampas</h2>
       <p>El problema típico: el repo ya tiene errores viejos de tipos o tests rojos de antes. Si verificar es "todo en verde", nunca pasa; si es "más o menos verde", cualquier cosa pasa. El arnés compara contra lo que había antes, con tres piezas.</p>
 
@@ -694,7 +859,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 8 -->
     <section id="worktrees">
-      <p class="kicker">8</p>
+      <p class="kicker">9</p>
       <h2>Los worktrees</h2>
       <p>Un <dfn>worktree</dfn> es una segunda carpeta de trabajo del mismo repo, en otra rama, sin clonar de nuevo. Sirve cuando dos ayudantes del mismo issue tocarían los mismos archivos a la vez, o cuando ya hay otra sesión trabajando en tu árbol: cada uno trabaja en su carpeta y después se junta.</p>
       <p>El problema que se vio antes del arnés: en renova365 había 12 worktrees huérfanos en <code>api/</code>. Cada ayudante deja su rama y nadie se acuerda de integrarla.</p>
@@ -724,7 +889,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 9 -->
     <section id="memoria">
-      <p class="kicker">9</p>
+      <p class="kicker">10</p>
       <h2>La memoria y el mapa</h2>
       <h3>El mapa: graphify</h3>
       <p><dfn>graphify</dfn> es una herramienta externa que arma un <dfn>grafo</dfn> del código: un mapa de qué archivo, clase o función se relaciona con cuál. Vive en <code>graphify-out/graph.json</code> de cada repo.</p>
@@ -747,7 +912,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 10 -->
     <section id="pantalla">
-      <p class="kicker">10</p>
+      <p class="kicker">11</p>
       <h2>Lo que ves en pantalla con el mod de interfaz</h2>
       <p>Con <code>arnes-ui</code> instalado, la terminal muestra en qué va el arnés. Esto es una maqueta dibujada en HTML, con los formatos de texto que arma <code>hooks/lib.ts</code> y los números de la prueba, no una captura:</p>
 
@@ -813,7 +978,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 11 -->
     <section id="persona">
-      <p class="kicker">11</p>
+      <p class="kicker">12</p>
       <h2>Lo que haces tú, y lo que ya no tienes que hacer</h2>
       <div class="grid">
         <div class="card">
@@ -846,7 +1011,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
     <!-- 12 -->
     <section id="instalar">
-      <p class="kicker">12</p>
+      <p class="kicker">13</p>
       <h2>Cómo instalar y cómo adoptar un repo</h2>
       <h3>Instalar</h3>
       <p>El repo vive en GitLab. La forma corta <code>owner/repo</code> siempre apunta a github.com, así que va la URL completa con el tag al final:</p>
@@ -897,7 +1062,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 13 -->
     <section id="estado">
-      <p class="kicker">13</p>
+      <p class="kicker">14</p>
       <h2>En qué va el proyecto</h2>
       <ul class="phases">
         <li class="done"><span class="ph">Fase 0</span><span class="tag">cerrada · v0.1.0</span><br>El repo con el marketplace, los tres plugins vacíos, el README y el CI que valida.</li>
@@ -940,7 +1105,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 14 -->
     <section id="esceptico">
-      <p class="kicker">14</p>
+      <p class="kicker">15</p>
       <h2>Preguntas de alguien escéptico, con respuestas honestas</h2>
       <details class="faq">
         <summary>¿Me va a cambiar código sin avisar?</summary>
@@ -986,7 +1151,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 15 -->
     <section id="glosario">
-      <p class="kicker">15</p>
+      <p class="kicker">16</p>
       <h2>Glosario</h2>
       <dl class="gloss">
         <dt>Adoptado</dt><dd>Un repo con su propio manifiesto que cumple el mínimo de adopción que revisa <code>/arnes:init --check</code>.</dd>
@@ -1075,6 +1240,18 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
   }
   window.addEventListener('scroll', mark, { passive: true });
   mark();
+
+  // Filtros del mapa del ciclo.
+  var cycle = document.getElementById('cycle');
+  var filterBtns = Array.prototype.slice.call(document.querySelectorAll('#cycle-filters button'));
+  filterBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = b.getAttribute('data-f');
+      filterBtns.forEach(function (x) { x.classList.toggle('on', x === b); });
+      cycle.classList.toggle('dim', !!f);
+      Array.prototype.forEach.call(cycle.querySelectorAll('.chip'), function (c) { c.classList.toggle('lit', !!f && c.classList.contains(f)); });
+    });
+  });
 
   // La historia del issue.
   var WHO = {
