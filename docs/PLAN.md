@@ -288,6 +288,12 @@ Cambio antes del piloto (2026-10-20): las rondas acotadas de review (§6.3) van 
 1. `prompt.compose`: sección `arnes:protocol` (≤ 25 líneas) en el system prompt, `scope: session`.
 2. Al cerrar un turno con diff y sin revisión (`classic.Stop` + ledger): `$.agent.spawn({ subagentType: 'arnes:reviewer' })` y el resultado se adjunta al turno. El modelo no decide si se revisa.
 
+Nota para la fase 5 (2026-10-20): la pieza 2 no puede colgarse de `classic.Stop`. En las pruebas de las fases 2b y 3, con 2.1.304, `cc-plugin-sec-default`, un plugin interno del CLI, corre antes y pasa el evento por encima de los hooks de los mods (§3). Un reviewer colgado ahí no corre nunca. Las alternativas:
+- **`turn.complete` con `$.agent.spawn`.** Al cerrar el turno del hilo principal con diff y sin revisión vigente, el mod lanza el reviewer y devuelve su reporte en el `{ text }` del turno. `turn.complete` sí corre: `arnes-ui` cierra ahí cada corrida. Pero no bloquea, así que el modelo no ve el reporte hasta el turno siguiente y nadie corrige en ese turno. Además el mod no conoce la carpeta del plugin base (§3): no puede correr `review.js input` ni `mark`. Tendría que repetir la entrada y la huella, y ship no vería esa revisión.
+- **El `Stop` clásico exige la revisión, y el mod solo la muestra.** `stop-gate.js` suma una condición (c): un turno que cambió código, con la bandera vigente y sin una revisión del árbol actual (`review.js check`), se bloquea una vez con `falta revisar: /arnes:review`. Es un hook de comando del plugin base, que sí corre, y no depende del orden de la cadena de los mods. Funciona sin el mod (principio 5), y la revisión sigue pasando por la skill, con su entrada, su marca y sus rondas, que es lo que ship comprueba. Como (a) y (b), es un solo bloqueo por turno, y con varias condiciones el motivo las nombra todas. El mod solo pinta `review` pendiente en la banda, como ya pinta el gate.
+
+Recomendación: la segunda. Así `arnes-mod` queda con una sola pieza, el protocolo en `prompt.compose`, y la condición (c) va al plugin base. Se decide al empezar la fase 5, con un dato del piloto: cuánto cuesta revisar cada turno que cambió código, ya con las rondas acotadas (§6.3).
+
 Lo visual no va aquí: vive en `arnes-ui` (§6.5b), que no cambia comportamiento y se puede desactivar sin tocar el flujo.
 
 ### 6.5b Mod de interfaz `arnes-ui` (solo muestra, nunca cambia el comportamiento)
@@ -410,6 +416,12 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 | 7 | Publicación: licencia MIT; README en español e inglés (qué problema resuelve, qué no hace, instalación, el manifiesto con un ejemplo de repo y uno de carpeta, y una comparación honesta con gentle-ai, coding-agent-harness, harness-template y Superpowers); limpieza de todo lo personal en docs y tests (rutas con nombre de usuario, nombres de repos privados y de personas, reemplazados por ejemplos genéricos; los manifiestos reales de academico y renova365 fuera del repo, con fixtures anónimos en su lugar); `CONTRIBUTING` y `SECURITY` cortos; CI público con validate, tests y `plugin test`; espejo en GitHub con el marketplace apuntando a él, porque el atajo `owner/repo` de instalación y la mayoría de los usuarios de plugins están ahí | El CI público está en verde, el espejo instala con `owner/repo` y no queda nada personal en el repo. El tag 1.0.0 sale solo cuando el piloto de la fase 4 haya pasado y las tres carpetas corran el mismo tag |
 
 Cambio de la fase 3 (2026-10-19 y 20): se construyó en dos mitades, en paralelo y desde `feature/fase-2b-ui`. La 3a hizo verify, review, ship, los agentes reviewer, test-writer y test-runner, la línea base de tests y el punto 8 de `adoption-check`. La 3b hizo plan, build, worktree, memory, sync, el agente dev, los cercos de §7 y el aviso de sesión concurrente. Las dos se integraron en `feature/fase-3` con `merge --no-ff`, y el cierre cableó lo que cruzaba de una a otra: ship con el ledger, `arnes-ui` con los worktrees, los textos de los hooks con las skills y la foto de typecheck reutilizada. Salió con la versión 0.5.0 (tag `v0.5.0`) el 2026-10-20, cuando la persona confirmó la prueba de `docs/PRUEBA-FASE-3.md` en una sesión interactiva.
+
+Ronda de correcciones antes del piloto (2026-10-20, rama `feature/pre-piloto`), por la prueba manual y la corrida automática de la fase 3. Cada cambio está en su sección:
+- la etapa de arnes-ui sale de la timeline, el rojo lo dice el gate, la línea `Plan:` se limpia y cada agente muestra su costo (§3 y §6.5b);
+- plan cierra su etapa al escribir el plan y la espera de la aprobación se mide aparte, y plan y build corren cada comando solo (§6.3);
+- las rondas de corrección de review van acotadas, con tope y en sonnet (§6.3 y §6.4);
+- la nota para la fase 5 sobre el reviewer determinista (§6.5).
 
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
