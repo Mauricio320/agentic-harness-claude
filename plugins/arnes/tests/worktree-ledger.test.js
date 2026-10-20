@@ -167,6 +167,12 @@ test('close cierra un worktree sin commits propios y se niega si los tiene', () 
   assert.equal(r.status, 1);
   assert.match(r.stderr, /tiene 1 commit\(s\) sin integrar en feature\/x; intégralo, o bórralo tú desde tu terminal/);
   assert.ok(fs.existsSync(wtDir(dir, 'api', 'lleno')));
+  h.git(dir, 'worktree', 'remove', '--force', wtDir(dir, 'api', 'lleno'));
+  h.git(dir, 'branch', '-D', 'wt/feature/x/lleno');
+  assert.match(ledger(dir, 'pending').stdout, /wt\/feature\/x\/lleno → feature\/x · destino o rama ausente/);
+  const gone = ledger(dir, 'close', 'lleno');
+  assert.equal(gone.status, 0, gone.stderr);
+  assert.match(gone.stdout, /cerrado api: wt\/feature\/x\/lleno, el worktree y la rama ya no existían/);
 });
 
 test('el estado del arnés que dejó una sesión dentro del worktree no lo ensucia ni impide borrarlo', () => {

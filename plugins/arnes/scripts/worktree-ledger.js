@@ -34,6 +34,9 @@ const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
 // ---------- dónde vive el registro ----------
 
+// Clave de comparación de rutas: en Windows, sin distinguir mayúsculas.
+const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+
 // true si dir está dentro de un worktree enlazado (no el checkout principal).
 function linkedWorktree(dir) {
   const own = git(dir, ['rev-parse', '--path-format=absolute', '--git-dir']);
@@ -106,9 +109,7 @@ function pendingEntries(project, entries, { target } = {}) {
 function targetOf(dir, { branch, wtPath } = {}) {
   const project = projectFor(dir);
   if (!project) return null;
-  const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
-  const same = (a, b) => norm(a) === norm(b);
-  const e = readLedger(project).find((x) => x.status === 'abierto' && ((branch && x.branch === branch) || (wtPath && same(x.path, wtPath))));
+  const e = readLedger(project).find((x) => x.status === 'abierto' && ((branch && x.branch === branch) || (wtPath && norm(x.path) === norm(wtPath))));
   return e ? e.target : null;
 }
 
@@ -138,8 +139,8 @@ function ok(r, what) {
 function perRepo(workspaces) {
   const byRoot = new Map();
   for (const ws of workspaces) {
-    const k = path.resolve(ws.gitRoot).toLowerCase();
-    if (!byRoot.has(k) || path.resolve(ws.dir) === path.resolve(ws.gitRoot)) byRoot.set(k, ws);
+    const k = norm(ws.gitRoot);
+    if (!byRoot.has(k) || norm(ws.dir) === k) byRoot.set(k, ws);
   }
   return [...byRoot.values()];
 }
@@ -246,10 +247,12 @@ function close(project, slug, { ws: names } = {}, now = new Date()) {
     checkClean(e);
   }
   return set.map((e) => {
-    removeWorktree(wsOf(project, e), e);
+    const ws = wsOf(project, e);
+    const gone = !refExists(ws.gitRoot, e.branch) && !fs.existsSync(e.path);
+    removeWorktree(ws, e);
     Object.assign(e, { status: 'cerrado', closedAt: now.toISOString() });
     writeLedger(project, entries);
-    return `cerrado ${e.ws}: ${e.branch}, sin commits propios; worktree y rama borrados`;
+    return `cerrado ${e.ws}: ${e.branch}, ${gone ? 'el worktree y la rama ya no existían' : 'sin commits propios; worktree y rama borrados'}`;
   });
 }
 
