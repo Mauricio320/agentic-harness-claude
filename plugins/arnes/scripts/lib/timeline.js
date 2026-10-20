@@ -7,13 +7,18 @@
 //      node timeline.js end <etapa> [--result <ok|fail|texto>] [--ws <nombre>] [--detail <texto>]
 //      node timeline.js note <etapa> [--result <texto>] [--ws <nombre>] [--detail <texto>]
 //      node timeline.js print
-// Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"? }
-// "note" lo escriben los hooks (por ejemplo, el Stop que deja pasar un turno sin verificar) y las
-// skills: plan anota "esperando" al pedir la aprobación, ya fuera de su etapa, para que la
-// medición no le cargue el tiempo de la persona.
+// Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"?, "usd"? }
+// "note" lo escriben los hooks y las skills:
+//   - el Stop anota { stage: "turno", result: "cerrado" } cuando el turno cierra, y UserPromptSubmit
+//     { stage: "turno", result: "respuesta" } cuando la persona escribe. El hueco entre el último
+//     cierre y la respuesta es la espera de la persona, de toda la corrida, aparte de las etapas;
+//   - arnes-ui anota { stage, ws?, result: "costo", usd } al ver el fin de una etapa: la diferencia
+//     del costo de la sesión desde su inicio. Sin el mod no hay costo, y print muestra solo tiempos;
+//   - el Stop anota sus bloqueos y pendientes, y plan si la persona aprobó o descartó el plan.
 // print: una línea por evento en hora local; cada fin lleva la duración desde su inicio (misma
-// etapa y mismo workspace), y el evento que sigue a una nota "esperando" lleva la espera. Al final
-// van el total por etapa, la espera de la persona y lo que sigue sin fin o esperando.
+// etapa y mismo workspace) y su costo si lo hay. Las notas del turno no salen como líneas: la
+// respuesta que cierra una espera sale con su duración. Al final van el tiempo y el costo por
+// etapa, la espera de la persona y lo que sigue sin fin o esperando.
 // Exit: 0 anotado o impreso · 2 uso inválido o sin manifiesto
 
 'use strict';
@@ -62,37 +67,52 @@ function duration(ms) {
   return `${Math.floor(s / 3600)}h${pad(Math.floor(s / 60) % 60)}m`;
 }
 
+const money = (usd) => `$${usd.toFixed(2)}`;
+
 function format(entries) {
   const open = new Map();
   const total = new Map();
-  const waiting = new Map();
-  const waited = new Map();
+  const lastEnd = new Map();
   const out = [];
+  const wait = { since: null, ms: 0, n: 0 };
   for (const e of entries) {
     const at = new Date(e.at);
     const k = `${e.stage}\u0000${e.ws || ''}`;
-    let took = '';
-    if (waiting.has(k)) {
-      const ms = at - waiting.get(k).at;
-      waiting.delete(k);
-      waited.set(e.stage, (waited.get(e.stage) || 0) + ms);
-      took = `(espera ${duration(ms)})`;
+    const t = total.get(e.stage) || { ms: 0, usd: null };
+    if (e.stage === 'turno') {
+      if (e.result === 'cerrado') wait.since = at;
+      if (e.result === 'respuesta' && wait.since) {
+        const ms = at - wait.since;
+        Object.assign(wait, { since: null, ms: wait.ms + ms, n: wait.n + 1 });
+        out.push(`${stamp(at)} ${'turno'.padEnd(14)} respuesta de la persona (espera ${duration(ms)})`);
+      }
+      continue;
     }
-    if (e.event === 'note' && e.result === 'esperando') waiting.set(k, { stage: e.stage, ws: e.ws, at });
+    if (e.event === 'note' && e.result === 'costo') {
+      if (!Number.isFinite(e.usd)) continue;
+      total.set(e.stage, { ...t, usd: (t.usd || 0) + e.usd });
+      if (lastEnd.has(k)) out[lastEnd.get(k)] += ` ${money(e.usd)}`;
+      continue;
+    }
+    let took = '';
     if (e.event === 'start') open.set(k, { stage: e.stage, ws: e.ws, at });
-    else if (e.event === 'end' && open.has(k)) {
-      const ms = at - open.get(k).at;
-      open.delete(k);
-      total.set(e.stage, (total.get(e.stage) || 0) + ms);
-      took = `(${duration(ms)})`;
+    else if (e.event === 'end') {
+      lastEnd.set(k, out.length);
+      if (open.has(k)) {
+        const ms = at - open.get(k).at;
+        open.delete(k);
+        total.set(e.stage, { ...t, ms: t.ms + ms });
+        took = `(${duration(ms)})`;
+      }
     }
     const parts = [stamp(at), String(e.stage).padEnd(14), EVENT[e.event] || e.event, e.result, e.ws && `· ${e.ws}`, e.detail && `· ${e.detail}`, took];
     out.push(parts.filter(Boolean).join(' '));
   }
-  if (total.size) out.push(`por etapa: ${[...total].map(([stage, ms]) => `${stage} ${duration(ms)}`).join(' · ')}`);
-  if (waited.size) out.push(`espera de la persona: ${[...waited].map(([stage, ms]) => `${stage} ${duration(ms)}`).join(' · ')}`);
+  const per = [...total].filter(([, x]) => x.ms || x.usd !== null);
+  if (per.length) out.push(`por etapa: ${per.map(([stage, x]) => `${stage} ${duration(x.ms)}${x.usd !== null ? ` ${money(x.usd)}` : ''}`).join(' · ')}`);
+  if (wait.n) out.push(`espera de la persona: ${duration(wait.ms)} en ${wait.n} respuesta(s), aparte de las etapas`);
   for (const o of open.values()) out.push(`sin fin: ${o.stage}${o.ws ? ` · ${o.ws}` : ''} desde ${stamp(o.at)}`);
-  for (const o of waiting.values()) out.push(`esperando: ${o.stage}${o.ws ? ` · ${o.ws}` : ''} desde ${stamp(o.at)}`);
+  if (wait.since) out.push(`esperando a la persona desde ${stamp(wait.since)}`);
   return out;
 }
 

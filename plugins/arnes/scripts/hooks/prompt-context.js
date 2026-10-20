@@ -3,7 +3,7 @@
 // riskPaths tocados: cuántos archivos tocados y de código, si la bandera de verificación está
 // vigente, y qué riskPaths se tocaron. Si solo hay archivos que no son código, o no hay manifiesto,
 // no dice nada. Nunca bloquea. Además deja la foto del turno (gate-flag writeTurn) que stop-gate
-// compara para decidir si el turno cambió algo.
+// compara para decidir si el turno cambió algo, y anota en la timeline que la persona respondió.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -15,6 +15,7 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, writeTurn } = require('../gate-flag.js');
+const { append } = require('../lib/timeline.js');
 
 function line(project, ws) {
   const t = touched(ws, 'HEAD', project);
@@ -36,6 +37,8 @@ function promptContext(input) {
   if (!project || project.errors.length) return null;
   const adoptable = project.workspaces.filter((ws) => ws.adoptable);
   writeTurn(project, adoptable);
+  // La persona respondió: cierra la espera que abrió la nota "cerrado" del Stop.
+  append(project.root, { event: 'note', stage: 'turno', result: 'respuesta' });
   const out = adoptable.map((ws) => line(project, ws)).filter(Boolean);
   return out.length ? out.join('\n') : null;
 }

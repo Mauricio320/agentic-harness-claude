@@ -11,7 +11,9 @@
 // stop_hook_active (el turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el
 // pendiente en la timeline. Una sesión dentro de un worktree no juzga (b): integrar le toca a la del
 // checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
-// no bloquea.
+// no bloquea. Cuando el turno cierra de verdad (no lo bloquea), anota en la timeline la nota
+// "cerrado" del turno, de donde sale la espera de la persona; y si hay bandera vigente sin revisión
+// de ese contenido, avisa en una línea "verificado, falta review", sin bloquear.
 // Salida: JSON con decision/reason, o con systemMessage, o nada. Siempre exit 0.
 
 'use strict';
@@ -24,6 +26,7 @@ const { matchAny } = require('../lib/glob.js');
 const { append } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, turnChanged, turnPath } = require('../gate-flag.js');
+const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 
 function unverified(project) {
@@ -79,22 +82,42 @@ function pendingText(code, wts) {
   return [code.length && `cambios sin verificar en ${describe(code)}`, wts.length && `commits sin integrar en ${describeWt(wts)}`].filter(Boolean).join(', y ');
 }
 
+// Bandera vigente pero sin revisión de ese contenido: los workspaces del aviso "verificado, falta
+// review". Una revisión con bloqueantes no entra: ya se sabe que falta corregir.
+function unreviewed(project) {
+  const reviews = checkReview(project);
+  return project.workspaces
+    .filter((ws) => ws.adoptable)
+    .filter((ws) => {
+      const r = reviews.find((x) => x.ws === ws.name);
+      return r && !r.ok && !/bloqueante/.test(r.reason) && checkFlag(project, ws).ok;
+    })
+    .map((ws) => ws.name);
+}
+
 function stopGate(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
   const code = unverified(project);
   const wts = pendingWorktrees(cwd, turnStart(project));
-  if (!code.length && !wts.length) return null;
-  if (input.stop_hook_active) {
+  // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
+  // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
+  const pending = code.length || wts.length;
+  if (pending && !input.stop_hook_active && [...code, ...wts].some((p) => p.changed)) return block(project, code, wts);
+  // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
+  // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
+  append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
+  if (pending && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(code, wts)}` });
     return { systemMessage: `arnes: el turno termina con ${pendingText(code, wts)}. Quedó anotado en la timeline.` };
   }
-  // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
-  // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
-  if (![...code, ...wts].some((p) => p.changed)) {
-    return { systemMessage: `arnes: siguen ${pendingText(code, wts)}; este turno no los tocó.` };
-  }
+  if (pending) return { systemMessage: `arnes: siguen ${pendingText(code, wts)}; este turno no los tocó.` };
+  const noReview = unreviewed(project);
+  return noReview.length ? { systemMessage: `arnes: verificado, falta review en ${noReview.join(', ')} (/arnes:review).` } : null;
+}
+
+function block(project, code, wts) {
   // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
   append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado ${detailOf(code, wts)}` });
   const parts = [];
