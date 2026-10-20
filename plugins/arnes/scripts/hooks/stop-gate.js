@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Stop (docs/PLAN.md §6.2). Impide cerrar el turno, con decision "block" y reason, si algún
 // workspace adoptable tiene archivos de codeGlobs tocados sin bandera de verificación vigente, y
-// anota el bloqueo en la timeline (nota "bloqueado", la que lee arnes-ui). Un solo bloqueo por turno: si la entrada trae stop_hook_active (el turno ya continúa por un
-// bloqueo), deja pasar con un aviso visible (systemMessage) y anota el pendiente en la timeline.
+// anota el bloqueo en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el turno
+// cambió la lista o el contenido de los tocados respecto de la foto que dejó prompt-context; si no,
+// solo avisa con systemMessage. Un solo bloqueo por turno: si la entrada trae stop_hook_active (el
+// turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el pendiente en la timeline.
 // No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto no bloquea.
 // La condición de worktrees sin integrar queda preparada y sin efecto hasta el ledger (fase 3).
 // Salida: JSON con decision/reason, o con systemMessage, o nada. Siempre exit 0.
@@ -16,7 +18,7 @@ const { loadProject, posix } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag } = require('../gate-flag.js');
+const { checkFlag, turnChanged } = require('../gate-flag.js');
 
 const SCRIPTS = posix(path.resolve(__dirname, '..'));
 
@@ -28,7 +30,7 @@ function unverified(project) {
     const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
     if (!code.length) continue;
     const flag = checkFlag(project, ws);
-    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error });
+    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: turnChanged(project, ws) });
   }
   return out;
 }
@@ -52,6 +54,11 @@ function stopGate(input) {
   if (input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado sin verificar: ${describe(pending)}` });
     return { systemMessage: `arnes: el turno termina con cambios sin verificar en ${describe(pending)}. Quedó anotado en la timeline.` };
+  }
+  // Un turno que no cambió la lista ni el contenido de los tocados (imprimir la timeline, una
+  // pregunta) no se bloquea: solo se avisa de lo que sigue sin verificar.
+  if (!pending.some((p) => p.changed)) {
+    return { systemMessage: `arnes: siguen cambios sin verificar en ${describe(pending)}; este turno no los tocó.` };
   }
   // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
   append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado sin verificar: ${describe(pending)}` });

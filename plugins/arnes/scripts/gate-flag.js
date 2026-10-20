@@ -75,7 +75,35 @@ function checkFlag(project, ws, now = new Date()) {
   return { ok: true };
 }
 
-module.exports = { MAX_AGE_MS, flagPath, writeFlag, checkFlag };
+// Foto del turno: la huella de cada workspace al enviarse el prompt, en .tmp/harness/turn.json.
+// La escribe prompt-context y la compara stop-gate, que bloquea solo si el turno cambió algo.
+function turnPath(project) {
+  return path.join(harnessDir(project), 'turn.json');
+}
+
+function writeTurn(project, workspaces) {
+  const snap = {};
+  for (const ws of workspaces) {
+    const s = stateOf(project, ws);
+    if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash };
+  }
+  fs.mkdirSync(path.dirname(turnPath(project)), { recursive: true });
+  fs.writeFileSync(turnPath(project), JSON.stringify(snap, null, 2) + '\n');
+}
+
+// true si el workspace cambió la lista o el contenido de sus tocados desde la foto, o si no hay foto.
+function turnChanged(project, ws) {
+  let snap;
+  try {
+    snap = JSON.parse(fs.readFileSync(turnPath(project), 'utf8'))[ws.name];
+  } catch {
+    return true;
+  }
+  const s = stateOf(project, ws);
+  return !snap || !!s.error || s.touchedHash !== snap.touchedHash || s.contentHash !== snap.contentHash;
+}
+
+module.exports = { MAX_AGE_MS, flagPath, writeFlag, checkFlag, turnPath, writeTurn, turnChanged };
 
 function main() {
   let args;

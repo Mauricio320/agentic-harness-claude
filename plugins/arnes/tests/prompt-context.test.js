@@ -26,6 +26,16 @@ test('sin cambios, o solo con archivos que no son código, no dice nada', () => 
   assert.equal(prompt(dir).out, null);
 });
 
+test('deja la foto del turno con la huella de cada workspace', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
+  prompt(dir);
+  const snap = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'turn.json'), 'utf8'));
+  assert.deepEqual(Object.keys(snap), ['api']);
+  assert.match(snap.api.touchedHash, /^[0-9a-f]{64}$/);
+  assert.match(snap.api.contentHash, /^[0-9a-f]{64}$/);
+});
+
 test('con código tocado dice cuántos y si la bandera está vigente', () => {
   const dir = repo();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');

@@ -33,6 +33,26 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   assert.match(notes[0].detail, /^turno bloqueado sin verificar: api \(1 archivo\(s\) de código: src\/a\.ts/);
 });
 
+test('un turno que no cambió los tocados desde el prompt solo avisa; uno que los cambió bloquea', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+  const prompt = () => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'imprime la timeline', cwd: api });
+  prompt();
+  const quieto = stop(api);
+  assert.equal(quieto.out.decision, undefined);
+  assert.match(quieto.out.systemMessage, /siguen cambios sin verificar en api \(1 archivo\(s\) de código: src\/a\.ts; .*este turno no los tocó/);
+  assert.deepEqual(tl.read(root), [], 'sin bloqueo no hay nota');
+
+  prompt();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'c\n');
+  assert.equal(stop(api).out.decision, 'block', 'cambió el contenido de un tocado');
+
+  prompt();
+  h.write(api, 'src/nuevo.ts', 'x\n');
+  assert.equal(stop(api).out.decision, 'block', 'cambió la lista de tocados');
+  assert.deepEqual(tl.read(root).map((n) => n.result), ['bloqueado', 'bloqueado']);
+});
+
 test('con stop_hook_active deja pasar, avisa con systemMessage y lo anota en la timeline', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');

@@ -2,7 +2,8 @@
 // UserPromptSubmit (docs/PLAN.md §6.2). Adjunta una línea de estado por workspace con código o
 // riskPaths tocados: cuántos archivos tocados y de código, si la bandera de verificación está
 // vigente, y qué riskPaths se tocaron. Si solo hay archivos que no son código, o no hay manifiesto,
-// no dice nada. Nunca bloquea.
+// no dice nada. Nunca bloquea. Además deja la foto del turno (gate-flag writeTurn) que stop-gate
+// compara para decidir si el turno cambió algo.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -13,7 +14,7 @@ const { run, context } = require('../lib/hook.js');
 const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag } = require('../gate-flag.js');
+const { checkFlag, writeTurn } = require('../gate-flag.js');
 
 function line(project, ws) {
   const t = touched(ws, 'HEAD', project);
@@ -33,7 +34,9 @@ function line(project, ws) {
 function promptContext(input) {
   const project = loadProject(path.resolve(input.cwd || process.cwd()));
   if (!project || project.errors.length) return null;
-  const out = project.workspaces.filter((ws) => ws.adoptable).map((ws) => line(project, ws)).filter(Boolean);
+  const adoptable = project.workspaces.filter((ws) => ws.adoptable);
+  writeTurn(project, adoptable);
+  const out = adoptable.map((ws) => line(project, ws)).filter(Boolean);
   return out.length ? out.join('\n') : null;
 }
 
