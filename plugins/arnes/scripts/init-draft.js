@@ -5,7 +5,9 @@
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
 // lint (eslint con configuración), test (jest, vitest o karma), build, specPattern (formatos que
-// aparecen en git ls-files), forbidden (scripts con --fix o --write), remote y rama por defecto.
+// aparecen en git ls-files), forbidden (scripts con --fix o --write, y lo que toca una base: los
+// scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre y las escrituras de
+// prisma, typeorm y knex, lib/database.js), remote y rama por defecto.
 // Un repo sin typecheck ni test detectables, como uno solo con composer.json, no lleva manifiesto
 // propio: entra en la composición como no adoptable todavía.
 //
@@ -27,6 +29,7 @@ const { parseArgs } = require('util');
 const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
+const { databaseForbidden } = require('./lib/database.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
@@ -135,6 +138,7 @@ function detectRepo(dir) {
   const forbidden = Object.entries(pkg.scripts || {})
     .filter(([, s]) => /(^|\s)--(fix|write)\b/.test(s))
     .map(([k]) => `${pm} run ${k}`);
+  for (const f of databaseForbidden(pkg, pm)) if (!forbidden.includes(f)) forbidden.push(f);
   const ws = {
     name,
     path: '.',

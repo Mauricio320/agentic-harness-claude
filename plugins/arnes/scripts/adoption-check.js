@@ -3,7 +3,8 @@
 //   1. manifiesto válido contra el schema, carpeta y repo git presentes
 //   2. CLAUDE.md (≤ 200 líneas) y .claude/rules/*.md con `paths:` en cada repo; CLAUDE.md raíz en una carpeta
 //   3. commands.typecheck y commands.lint declarados, ejecutables y sin --fix; commands.test, si
-//      está, corre sobre un spec y test-baseline lee su detalle (si no, dice el flag que falta)
+//      está, corre sobre un spec y test-baseline lee su detalle (si no, dice el flag que falta); y
+//      lo que toca una base (scripts y escrituras de prisma, typeorm, knex) está en forbidden
 //   4. CI que corre ci-gate; detección de secretos (GitLab); el resto de la configuración del host, a mano
 //   5. riskPaths declaradas; regla de aprobación en el host (CODEOWNERS o a mano)
 //   6. plugin fijado a un tag en .claude/settings.json del proyecto o de un repo, o en el de usuario
@@ -28,11 +29,20 @@ const { parseArgs } = require('util');
 const { loadProject, selectWorkspaces, MANIFEST, posix } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
+const { databaseForbidden, missingFromForbidden } = require('./lib/database.js');
 const { readBaseline, probeTests } = require('./test-baseline.js');
 
 const MAX_CLAUDE_MD = 200;
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
 const MARKETPLACE = 'agentic-harness';
+
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
 
 function exists(p) {
   return fs.existsSync(p);
@@ -214,6 +224,13 @@ function main() {
     const probe = probeTests(ws);
     if (probe.ok) say('ok', `${ws.name}: test sobre ${probe.ok}`);
     if (probe.error) say('FALTA', probe.error.startsWith(ws.name) ? probe.error : `${ws.name}: ${probe.error}`);
+    // Lo que toca una base va en forbidden: lo corre la persona, sabiendo a qué base apunta el .env.
+    const pkg = readJsonFile(path.join(ws.dir, 'package.json'));
+    const pm = exists(path.join(ws.repo, 'pnpm-lock.yaml')) ? 'pnpm' : exists(path.join(ws.repo, 'yarn.lock')) ? 'yarn' : 'npm';
+    const expected = pkg ? databaseForbidden(pkg, pm) : [];
+    const missing = missingFromForbidden(expected, ws.forbidden);
+    if (missing.length) say('FALTA', `${ws.name}: tocan una base y no están en forbidden: ${missing.join(', ')}`);
+    else if (expected.length) say('ok', `${ws.name}: los ${expected.length} comando(s) que tocan una base están en forbidden`);
   }
 
   console.log('\n4. CI con el gate');

@@ -87,7 +87,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
         build: 'npm run build',
       },
       specPattern: ['{ancestor}/__test__/{name}.spec.ts', '{dir}/__test__/{name}.spec.ts', '{dir}/{name}.spec.ts'],
-      forbidden: ['npm run lint', 'npm run format'],
+      forbidden: ['npm run lint', 'npm run format', 'prisma migrate dev', 'prisma migrate deploy', 'prisma migrate reset', 'prisma migrate resolve', 'prisma db push', 'prisma db seed', 'prisma db execute'],
     },
   );
 
@@ -177,4 +177,13 @@ test('un repo sin manifiesto dice su rama, y si una rama remota lo trae, --write
   const solo = h.tmp('init-sin-remota');
   h.repo(solo, { 'package.json': pkg({ typescript: '5' }), 'tsconfig.json': '{}' });
   assert.match(h.run('init-draft.js', [], { cwd: solo }).stderr, /en main, sin \.claude\/harness\.json\n/);
+});
+
+test('propone en forbidden los scripts que tocan una base por su nombre o por lo que corren', () => {
+  const dir = h.tmp('init-db');
+  const scripts = { 'acl:sync': 'ts-node scripts/acl-sync.ts', 'acl:migrar-otorgamientos': 'ts-node x.ts', 'acl:generar': 'ts-node y.ts', 'db:up': 'knex migrate:latest', 'db:status': 'knex migrate:status', build: 'tsc' };
+  h.repo(dir, { 'package.json': pkg({ typescript: '5', knex: '3' }, scripts), 'tsconfig.json': '{}' });
+  const r = h.run('init-draft.js', [], { cwd: dir });
+  const [ws] = JSON.parse(r.stdout.split('\n').slice(1).join('\n')).workspaces;
+  assert.deepEqual(ws.forbidden, ['npm run acl:sync', 'npm run acl:migrar-otorgamientos', 'npm run db:up', 'knex migrate:latest', 'knex migrate:up', 'knex migrate:down', 'knex migrate:rollback', 'knex seed:run']);
 });

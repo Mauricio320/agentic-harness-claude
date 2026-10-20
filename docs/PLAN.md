@@ -94,7 +94,8 @@ agentic-harness/
         lib/exec.js                      # git y comandos del manifiesto, con {files}/{specs} citados y partidos si exceden la línea
         lib/hook.js                      # stdin/stdout de los hooks; un error propio sale con 0 y nunca bloquea
         lib/shell.js                     # segmentos de un comando Bash/PowerShell sin heredocs ni here-strings; ejecutable de cada uno
-        lib/branches.js                  # commits de una rama fuera de la rama por defecto (branch -D, worktrees)
+        lib/branches.js                  # commits de una rama fuera de la rama por defecto (branch -D, worktrees); dónde está el manifiesto que un repo no tiene
+        lib/database.js                  # los comandos que tocan una base: los propone init-draft, los niega el guard
         init-draft.js                    # detección determinista de arnes:init: repos, stack, comandos, specPattern; escribe los dos niveles de §5
         touched-files.js                 # modificados + untracked por workspace
         typecheck-baseline.js            # foto y diff por diagnóstico (parser tsc; interfaz para otros)
@@ -445,6 +446,11 @@ Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida
 init no instala dependencias ni commitea.
 
 Cambio de la tercera ronda antes del piloto (2026-10-20), por la corrida de un front en su Mac: tenía los repos en su rama de trabajo, que no traía los manifiestos, e init le propuso escribir los dos desde cero, con riskPaths inventadas. Tardaron cuatro intentos en darse cuenta. Ahora, de un repo sin `.claude/harness.json`, `init-draft` (init) y `adoption-check` (init --check) imprimen la rama actual: `api-academico en feature/talleres-view, sin .claude/harness.json`. Si alguna rama remota sí lo trae, la nombran: `origin/fix/adopcion-arnes sí lo trae; cámbiate antes de seguir`. Lo saben con un solo `git cat-file --batch-check` sobre `<rama remota>:.claude/harness.json`, sin checkout (`lib/branches.js` `manifestElsewhere`); las remotas son las del último `git fetch`. En ese caso `init-draft --write` se niega sin `--force`, la skill init se detiene y pide cambiar de rama, y `adoption-check` lo marca como FALTA en la comprobación 1 en vez de NO ADOPTABLE.
+
+Cambio de la tercera ronda antes del piloto (2026-10-20): **los comandos que tocan una base los corre la persona.** El compañero le pidió a la sesión correr `npm run acl:sync`. El `.env` apuntaba a QA, por un proxy en `127.0.0.1:3312`, no a una base local: creó los permisos de talleres, pero desactivó `convenio.desactivar` en QA, porque esa base estaba sincronizada desde otra rama. El manifiesto de api-academico ya lleva en `forbidden` `acl:sync`, `acl:migrar-otorgamientos`, `acl:fusionar-modulos`, `prisma:push`, `prisma:migrate` y `prisma:deploy`. Ahora es general, con `lib/database.js`:
+- `init-draft` propone en `forbidden` los scripts del `package.json` cuyo nombre contiene sync, migrate, migrar, push, deploy, seed o reset, o cuyo comando corre una escritura de prisma, typeorm o knex. Propone también esas escrituras si la herramienta está en las dependencias: `prisma migrate dev|deploy|reset|resolve` y `prisma db push|seed|execute`; `typeorm migration:run|revert`, `schema:sync|drop` y `query`; `knex migrate:latest|up|down|rollback` y `seed:run`. Las que solo leen, como `prisma migrate status`, quedan fuera.
+- El guard niega esos comandos con su propio motivo: `toca una base: lo corre la persona desde su terminal, sabiendo contra qué base apunta el .env`.
+- `adoption-check` da FALTA en la comprobación 3 si alguno no está en `forbidden`.
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 

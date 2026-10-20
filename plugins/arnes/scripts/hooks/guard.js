@@ -15,7 +15,8 @@
 // El destino de una rama es el registrado en .tmp/harness/worktrees.json si es de un worktree
 // abierto del registro; si no, la rama por defecto del workspace.
 // Deniega solo con manifiesto:
-//   los comandos de `forbidden` del workspace (o de todos, si no se sabe cuál) ·
+//   los comandos de `forbidden` del workspace (o de todos, si no se sabe cuál); los que tocan una
+//   base (lib/database.js) con su propio motivo: los corre la persona desde su terminal ·
 //   git commit sin bandera vigente (gate-flag.js) para ese workspace, o sin workspace claro ·
 //   git add masivo (., -A, --all, :/, *) con .env o *.log sin trackear en su alcance
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
@@ -34,6 +35,7 @@ const { checkFlag } = require('../gate-flag.js');
 const { targetOf } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
 const { secretPath } = require('./read-guard.js');
+const { touchesDatabase } = require('../lib/database.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
@@ -218,7 +220,9 @@ function judgeForbidden(cmd, dir) {
   for (const f of list) {
     const want = tokenize(f);
     if (variants(cmd).some((v) => want.every((w, i) => (i === 0 ? v[i] && v[i].toLowerCase() === w.toLowerCase() : v[i] === w)))) {
-      return `"${f}" está en forbidden de ${ws ? ws.name : project.name}: reescribe archivos en masa o es destructivo. Usa el comando equivalente sin efectos (por ejemplo, el lint del manifiesto sobre los archivos tocados).`;
+      const where = `"${f}" está en forbidden de ${ws ? ws.name : project.name}`;
+      if (touchesDatabase(f)) return `${where}: toca una base: lo corre la persona desde su terminal, sabiendo contra qué base apunta el .env.`;
+      return `${where}: reescribe archivos en masa o es destructivo. Usa el comando equivalente sin efectos (por ejemplo, el lint del manifiesto sobre los archivos tocados).`;
     }
   }
   return null;

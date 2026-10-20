@@ -99,6 +99,19 @@ test('guard bloquea la ejecución de forbidden del manifiesto, en sus formas usu
   }
 });
 
+test('un forbidden que toca una base se niega con su propio motivo: lo corre la persona', () => {
+  const root = h.tmp('guard-db');
+  const forbidden = ['npm run lint', 'npm run acl:sync', 'npm run prisma:push', 'prisma migrate dev', 'prisma db push'];
+  h.repo(root, { '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', forbidden })), 'src/a.ts': 'a\n' });
+  for (const cmd of ['npm run acl:sync', 'npm run acl:sync -- --apply', 'npm run prisma:push', 'npx prisma migrate dev --name talleres', 'npx prisma db push']) {
+    const r = guard(root, cmd);
+    assert.ok(denied(r), cmd);
+    assert.match(reason(r), /: toca una base: lo corre la persona desde su terminal, sabiendo contra qué base apunta el \.env\.$/, cmd);
+  }
+  assert.match(reason(guard(root, 'npm run lint')), /reescribe archivos en masa/);
+  assert.equal(guard(root, 'npx prisma migrate status').out, null, 'leer el estado no escribe');
+});
+
 test('guard NO bloquea mencionar un forbidden dentro de otro comando', () => {
   const { api } = folder();
   for (const cmd of ['grep "npm run lint" CLAUDE.md', 'echo "nunca uses npm run lint"', 'rg --files-with-matches "ng lint"', 'cat <<EOF\nnpm run lint\nEOF']) {

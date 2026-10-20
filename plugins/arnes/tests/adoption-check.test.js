@@ -206,3 +206,15 @@ test('un repo de la carpeta sin manifiesto dice su rama; si una rama remota lo t
   h.repo(solo, { 'a.ts': 'a\n' });
   assert.match(check(solo).stderr, /sin manifiesto: no hay .*\narnes-adopt-solo-\S+ en main, sin \.claude\/harness\.json/);
 });
+
+test('comprobación 3: lo que toca una base tiene que estar en forbidden', () => {
+  const scripts = { 'acl:sync': 'ts-node x.ts', 'prisma:push': 'prisma db push', build: 'tsc' };
+  const files = { 'package.json': JSON.stringify({ scripts, dependencies: { '@prisma/client': '5' } }) };
+  let r = check(adopted({}, files));
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALTA\s+api: tocan una base y no están en forbidden: npm run acl:sync, npm run prisma:push, prisma migrate dev, .*prisma db execute/);
+  const forbidden = ['npm run acl:sync', 'npm run prisma:push', 'npx prisma migrate dev', 'prisma migrate deploy', 'prisma migrate reset', 'prisma migrate resolve', 'prisma db push', 'prisma db seed', 'prisma db execute'];
+  r = check(adopted({ forbidden }, files));
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /ok\s+api: los 9 comando\(s\) que tocan una base están en forbidden/);
+});
