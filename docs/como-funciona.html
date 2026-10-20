@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cómo funciona el arnés</title>
+<meta name="description" content="Explicación desde cero del arnés para Claude Code (versión 0.5.0 y las correcciones antes del piloto): qué resuelve, sus piezas, el recorrido de un issue y en qué va el proyecto.">
+<style>
+:root {
+  --bg: #fbfaf7;
+  --fg: #1f2328;
+  --muted: #5b636d;
+  --card: #ffffff;
+  --card-2: #f3f1ec;
+  --border: #dedad2;
+  --accent: #b4532a;
+  --accent-soft: #f6e6dc;
+  --code-bg: #f1eee8;
+  --persona: #1f6f50;
+  --persona-soft: #dcefe6;
+  --claude: #b4532a;
+  --claude-soft: #f6e6dc;
+  --ayudante: #4d55b8;
+  --ayudante-soft: #e3e5f7;
+  --script: #5d6670;
+  --script-soft: #e6e8eb;
+  --ok: #1f7a3d;
+  --bad: #b3261e;
+  --wait: #9a6b00;
+  --term-bg: #1d1f23;
+  --term-fg: #d8dadf;
+  --term-dim: #8b919b;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 10px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171a;
+    --fg: #e6e7ea;
+    --muted: #a0a6b0;
+    --card: #1d2024;
+    --card-2: #23272c;
+    --border: #343940;
+    --accent: #f08a5d;
+    --accent-soft: #3a2a22;
+    --code-bg: #262a30;
+    --persona: #6fd3a5;
+    --persona-soft: #1f3a2f;
+    --claude: #f08a5d;
+    --claude-soft: #3a2a22;
+    --ayudante: #9aa2ff;
+    --ayudante-soft: #282c4d;
+    --script: #b5bcc6;
+    --script-soft: #2c3036;
+    --ok: #63d08a;
+    --bad: #ff8a80;
+    --wait: #e8c062;
+    --term-bg: #0e0f11;
+    --term-fg: #d8dadf;
+    --term-dim: #7f8590;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171a;
+  --fg: #e6e7ea;
+  --muted: #a0a6b0;
+  --card: #1d2024;
+  --card-2: #23272c;
+  --border: #343940;
+  --accent: #f08a5d;
+  --accent-soft: #3a2a22;
+  --code-bg: #262a30;
+  --persona: #6fd3a5;
+  --persona-soft: #1f3a2f;
+  --claude: #f08a5d;
+  --claude-soft: #3a2a22;
+  --ayudante: #9aa2ff;
+  --ayudante-soft: #282c4d;
+  --script: #b5bcc6;
+  --script-soft: #2c3036;
+  --ok: #63d08a;
+  --bad: #ff8a80;
+  --wait: #e8c062;
+  --term-bg: #0e0f11;
+  --term-fg: #d8dadf;
+  --term-dim: #7f8590;
+  --shadow: none;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.62 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent); }
+code, kbd, pre { font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace; font-size: .88em; }
+code { background: var(--code-bg); padding: .08em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 8px; overflow-x: auto; line-height: 1.5; margin: 14px 0; }
+pre code { background: none; padding: 0; }
+dfn { font-style: normal; font-weight: 650; border-bottom: 1px dotted var(--muted); }
+h1, h2, h3 { line-height: 1.25; }
+h2 { font-size: 1.6rem; margin: 0 0 .6em; }
+h3 { font-size: 1.15rem; margin: 1.6em 0 .5em; }
+p { margin: .7em 0; }
+ul, ol { padding-left: 1.3em; }
+li { margin: .25em 0; }
+
+/* barra superior */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .brand { font-weight: 700; letter-spacing: .01em; text-decoration: none; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.topbar .btn { white-space: nowrap; flex: 0 0 auto; }
+.topbar .brand span { color: var(--accent); }
+.topbar .spacer { flex: 1; }
+.btn {
+  font: inherit; font-size: .9rem;
+  border: 1px solid var(--border); background: var(--card); color: var(--fg);
+  padding: 6px 12px; border-radius: 8px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-theme="dark"] .btn.primary { color: #15171a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { color: #15171a; } }
+#toc-toggle { display: none; }
+
+/* layout */
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 40px; max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+nav.toc { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; padding: 24px 0 40px; }
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+nav.toc li { margin: 0; }
+nav.toc a {
+  display: flex; gap: 10px; padding: 6px 10px; border-radius: 6px;
+  color: var(--muted); text-decoration: none; font-size: .92rem; line-height: 1.35;
+}
+nav.toc a .n { min-width: 1.4em; text-align: right; color: var(--muted); opacity: .7; font-variant-numeric: tabular-nums; }
+nav.toc a:hover { background: var(--card-2); color: var(--fg); }
+nav.toc a.active { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+nav.toc .toc-title { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 10px 8px; }
+main { padding: 24px 0 80px; min-width: 0; }
+main > section { max-width: 760px; padding: 44px 0 20px; border-top: 1px solid var(--border); }
+main > section:first-of-type { border-top: 0; }
+.hero { max-width: 760px; padding: 36px 0 8px; }
+.hero h1 { font-size: 2.3rem; margin: 0 0 .3em; }
+.hero .lede { font-size: 1.15rem; color: var(--muted); }
+.kicker { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 700; margin: 0 0 .3em; }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); padding: 0 16px; gap: 0; }
+  #toc-toggle { display: inline-block; }
+  nav.toc {
+    position: fixed; top: 53px; left: 0; right: 0; z-index: 15;
+    max-height: calc(100vh - 53px); padding: 12px 16px 24px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+    display: none;
+  }
+  nav.toc.open { display: block; }
+  .hero h1 { font-size: 1.85rem; }
+  body { font-size: 16.5px; }
+}
+
+/* piezas */
+.callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 18px 0; }
+.callout.quiet { border-left-color: var(--script); background: var(--card-2); }
+.callout strong { font-weight: 700; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); margin: 16px 0; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); }
+.card h4 { margin: 0 0 .4em; font-size: 1rem; }
+.card p { margin: .4em 0; font-size: .95rem; }
+.badge {
+  display: inline-block; font-size: .74rem; font-weight: 700; letter-spacing: .02em;
+  padding: 2px 8px; border-radius: 999px; vertical-align: middle; white-space: nowrap;
+}
+.b-persona { color: var(--persona); background: var(--persona-soft); }
+.b-claude { color: var(--claude); background: var(--claude-soft); }
+.b-ayudante { color: var(--ayudante); background: var(--ayudante-soft); }
+.b-script { color: var(--script); background: var(--script-soft); }
+
+/* eventos del turno */
+.turn { display: flex; flex-direction: column; gap: 0; margin: 18px 0; }
+.turn .ev { display: grid; grid-template-columns: 150px 1fr; gap: 14px; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+.turn .ev:last-child { border-bottom: 0; }
+.turn .ev code { font-weight: 600; }
+@media (max-width: 560px) { .turn .ev { grid-template-columns: 1fr; gap: 2px; } }
+
+/* manifiesto anotado */
+.annot { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 16px 0; background: var(--card); }
+.annot .row { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); border-top: 1px solid var(--border); }
+.annot .row:first-child { border-top: 0; }
+.annot .row > code { display: block; background: var(--code-bg); border-radius: 0; padding: 8px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; }
+.annot .row > div { padding: 8px 12px; font-size: .92rem; }
+@media (max-width: 640px) { .annot .row { grid-template-columns: 1fr; } }
+
+/* historia interactiva */
+.story { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin: 18px 0; box-shadow: var(--shadow); }
+.story .prompt { background: var(--persona-soft); border-radius: 10px; padding: 12px 14px; font-size: .96rem; }
+.story .prompt .who { font-size: .78rem; font-weight: 700; color: var(--persona); text-transform: uppercase; letter-spacing: .06em; }
+.rail { display: flex; gap: 6px; margin: 16px 0 8px; overflow-x: auto; padding-bottom: 6px; }
+.rail button {
+  flex: 0 0 auto; font: inherit; font-size: .8rem; cursor: pointer;
+  border: 1px solid var(--border); background: var(--card-2); color: var(--muted);
+  border-radius: 999px; padding: 4px 10px; white-space: nowrap;
+}
+.rail button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+:root[data-theme="dark"] .rail button.on { color: #15171a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rail button.on { color: #15171a; } }
+.rail button.seen { color: var(--fg); }
+.step { min-height: 260px; padding: 6px 2px; }
+.step .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.step .meta .time { font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.step h4 { font-size: 1.15rem; margin: 6px 0 4px; }
+.step .out { margin-top: 10px; }
+.step-nav { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 12px; }
+.step-nav .count { font-size: .85rem; color: var(--muted); }
+
+/* tarjetas de guardias */
+.hooks { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.hook { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow); }
+.hook h4 { margin: 0; font-size: 1.02rem; }
+.hook .ev-name { font-size: .78rem; color: var(--muted); margin: 2px 0 8px; }
+.hook dl { margin: 0; display: grid; grid-template-columns: 1fr; gap: 6px; }
+.hook dt { font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; color: var(--muted); margin-top: 4px; }
+.hook dd { margin: 0; font-size: .93rem; }
+.hook dd.block { color: var(--bad); }
+.hook dd.never { color: var(--ok); }
+
+/* maqueta de terminal */
+.term { background: var(--term-bg); color: var(--term-fg); border-radius: 10px; padding: 0; margin: 16px 0; overflow: hidden; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem; line-height: 1.55; }
+.term .bar { background: #2a2d33; color: var(--term-dim); padding: 6px 12px; font-size: .74rem; display: flex; gap: 6px; align-items: center; }
+.term .bar i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #555a63; }
+.term .body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
+.term .chat { padding: 12px 14px; min-width: 0; }
+.term .pane { border-left: 1px solid #333840; padding: 12px 14px; min-width: 0; }
+.term .line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.term .dim { color: var(--term-dim); }
+.term .ok { color: #6fd38f; }
+.term .bad { color: #ff8a80; }
+.term .run { color: #e8c062; }
+.term .acc { color: #f0a07a; }
+.term .bold { font-weight: 700; color: #fff; }
+.term .sug { color: #8fb8ff; }
+.term .prompt-box { border: 1px solid #444a53; border-radius: 6px; padding: 6px 10px; margin-top: 6px; color: var(--term-dim); }
+.term .band { color: var(--term-dim); margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.term .status { color: var(--term-dim); margin-top: 6px; }
+.term .toast { margin: 8px 0; border: 1px solid #5a4a2a; background: #2b2518; color: #f2d58a; border-radius: 6px; padding: 6px 10px; display: inline-block; }
+.term button.ver { font: inherit; font-size: .72rem; background: #2f343b; color: var(--term-fg); border: 1px solid #4a5059; border-radius: 4px; padding: 0 6px; margin-left: 6px; cursor: default; }
+.mock-legend { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 10px 0 18px; }
+.mock-legend .card { padding: 10px 12px; }
+@media (max-width: 760px) {
+  .term .body { grid-template-columns: 1fr; }
+  .term .pane { border-left: 0; border-top: 1px solid #333840; }
+}
+
+/* fases */
+.phases { list-style: none; padding: 0; margin: 16px 0; border-left: 2px solid var(--border); }
+.phases li { position: relative; padding: 4px 0 14px 22px; margin: 0; }
+.phases li::before { content: ""; position: absolute; left: -7px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--card); border: 2px solid var(--border); }
+.phases li.done::before { background: var(--ok); border-color: var(--ok); }
+.phases li.now::before { background: var(--wait); border-color: var(--wait); }
+.phases li .ph { font-weight: 700; }
+.phases li .tag { font-size: .74rem; font-weight: 700; margin-left: 6px; }
+.phases li.done .tag { color: var(--ok); }
+.phases li.now .tag { color: var(--wait); }
+.phases li.todo .tag { color: var(--muted); }
+
+/* preguntas */
+details.faq { border: 1px solid var(--border); border-radius: 10px; background: var(--card); margin: 10px 0; padding: 0 16px; }
+details.faq summary { cursor: pointer; font-weight: 650; padding: 12px 0; list-style: none; }
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq summary::before { content: "＋"; color: var(--accent); margin-right: 8px; font-weight: 700; }
+details.faq[open] summary::before { content: "－"; }
+details.faq > div { padding-bottom: 12px; }
+
+/* glosario */
+dl.gloss { display: grid; grid-template-columns: minmax(130px, 210px) 1fr; gap: 0; margin: 16px 0; border-top: 1px solid var(--border); }
+dl.gloss dt, dl.gloss dd { padding: 9px 0; border-bottom: 1px solid var(--border); margin: 0; }
+dl.gloss dt { font-weight: 700; padding-right: 14px; }
+dl.gloss dd { font-size: .95rem; }
+@media (max-width: 560px) {
+  dl.gloss { grid-template-columns: 1fr; }
+  dl.gloss dt { border-bottom: 0; padding-bottom: 0; }
+}
+.small { font-size: .88rem; color: var(--muted); }
+footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px 0 0; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="btn" id="toc-toggle" aria-expanded="false" aria-controls="toc">Índice</button>
+  <a class="brand" href="#top">arnés <span>·</span> cómo funciona</a>
+  <span class="spacer"></span>
+  <button class="btn" id="theme-toggle" type="button" aria-label="Cambiar entre modo claro y oscuro">Modo oscuro</button>
+</header>
+
+<div class="layout" id="top">
+  <nav class="toc" id="toc" aria-label="Índice de secciones">
+    <p class="toc-title">Secciones</p>
+    <ol>
+      <li><a href="#problema"><span class="n">1</span>Qué problema resuelve</a></li>
+      <li><a href="#piezas"><span class="n">2</span>Las piezas de Claude Code</a></li>
+      <li><a href="#manifiesto"><span class="n">3</span>El manifiesto</a></li>
+      <li><a href="#historia"><span class="n">4</span>La historia de un issue</a></li>
+      <li><a href="#guardias"><span class="n">5</span>Los guardias (hooks)</a></li>
+      <li><a href="#bandera"><span class="n">6</span>La bandera</a></li>
+      <li><a href="#verificacion"><span class="n">7</span>Verificar sin trampas</a></li>
+      <li><a href="#worktrees"><span class="n">8</span>Los worktrees</a></li>
+      <li><a href="#memoria"><span class="n">9</span>La memoria y el mapa</a></li>
+      <li><a href="#pantalla"><span class="n">10</span>Lo que ves en pantalla</a></li>
+      <li><a href="#persona"><span class="n">11</span>Lo que haces tú</a></li>
+      <li><a href="#instalar"><span class="n">12</span>Instalar y adoptar</a></li>
+      <li><a href="#estado"><span class="n">13</span>En qué va el proyecto</a></li>
+      <li><a href="#esceptico"><span class="n">14</span>Preguntas escépticas</a></li>
+      <li><a href="#glosario"><span class="n">15</span>Glosario</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <p class="kicker">Versión 0.5.0 y las correcciones antes del piloto</p>
+      <h1>Cómo funciona el arnés</h1>
+      <p class="lede">Una explicación desde cero, para quien nunca ha visto un arnés ni sabe qué es un hook, un plugin o un mod. Todo lo que dice esta página sale del repo <code>agentic-harness</code>: el plan, el README, el CHANGELOG, los scripts y la prueba real del CRUD de talleres.</p>
+      <p class="small">Las palabras raras van en <dfn>negrita punteada</dfn> la primera vez, con su explicación al lado. Todas quedan juntas en el <a href="#glosario">glosario</a> del final.</p>
+    </div>
+
+    <!-- 1 -->
+    <section id="problema">
+      <p class="kicker">1</p>
+      <h2>Qué problema resuelve, en tres frases</h2>
+      <p><dfn>Claude Code</dfn> es Claude trabajando dentro de tu terminal: lee tu código, lo edita y corre comandos. Un <dfn>arnés</dfn> es lo que le pones alrededor para que trabaje siempre igual, como el arnés de un escalador: no escala por él, pero no lo deja caerse.</p>
+      <ol>
+        <li><strong>Que cualquier sesión, en cualquier proyecto, siga el mismo camino:</strong> plan, construir, verificar, revisar y entregar (en el repo se dicen <code>plan → build → verify → review → ship</code>), sin que tengas que acordarte de pedir cada paso.</li>
+        <li><strong>Que lo que tiene que cumplirse siempre no dependa de que Claude se acuerde:</strong> lo revisan programas que no piensan (lint, typecheck, tests, unos guardias y el <dfn>CI</dfn>, que es el servidor que vuelve a correr las comprobaciones cuando subes un cambio).</li>
+        <li><strong>Que en las zonas delicadas</strong> (migraciones de base de datos, autenticación, permisos) siempre haya una persona que revise antes de que el cambio entre.</li>
+      </ol>
+      <h3>Lo que NO hace</h3>
+      <ul>
+        <li>No sabe si tu cambio es correcto para el negocio. Sabe si compila, si pasa el lint, si los tests siguen en verde y si se respetaron las reglas escritas del repo.</li>
+        <li>No hace push ni abre merge requests por su cuenta: eso solo pasa si tú lo pides y dices que sí.</li>
+        <li>No reemplaza al CI ni a la aprobación en GitLab: las usa como garantía de verdad.</li>
+        <li>No trae nada del stack cableado: los comandos de cada proyecto los lee de un archivo del propio proyecto (el manifiesto, sección 3).</li>
+      </ul>
+      <div class="callout">
+        <strong>La frase que va en cada reporte:</strong> verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.
+      </div>
+      <p>Hay otra idea detrás de todo el diseño, y está en los principios del README: cada pieza existe porque el modelo no lo hace solo. Cuando un modelo nuevo lo haga, la pieza se quita.</p>
+    </section>
+
+    <!-- 2 -->
+    <section id="piezas">
+      <p class="kicker">2</p>
+      <h2>Las piezas de Claude Code sobre las que está construido</h2>
+      <p>El arnés no es un programa aparte: es un conjunto de piezas que Claude Code ya sabe cargar. Vamos una por una.</p>
+
+      <h3>Plugin y marketplace</h3>
+      <p>Un <dfn>plugin</dfn> es un paquete que le agrega cosas a Claude Code (instrucciones, ayudantes, guardias). Un <dfn>marketplace</dfn> es una lista de plugins que vive en un repo de git: Claude Code la clona y de ahí instala. El repo <code>agentic-harness</code> es un marketplace con tres plugins:</p>
+      <ul>
+        <li><code>arnes</code>: el arnés de verdad. Funciona completo solo.</li>
+        <li><code>arnes-ui</code>: un mod de interfaz que muestra en pantalla en qué va el arnés. Opcional.</li>
+        <li><code>arnes-mod</code>: un mod de comportamiento que todavía no existe (fase 5).</li>
+      </ul>
+      <p><strong>¿Por qué así y no copiando archivos a cada proyecto?</strong> Por cómo lee Claude Code su configuración, según la documentación oficial que cita el plan:</p>
+      <ul>
+        <li>El archivo de ajustes <code>.claude/settings.json</code> (donde van los guardias y los permisos) solo se lee de la carpeta donde arrancas la sesión. No se hereda de las carpetas de arriba. Si copias los guardias a una carpeta padre, una sesión abierta dentro de un repo hijo no los ve.</li>
+        <li>Un plugin instalado a nivel de usuario carga en todos tus proyectos.</li>
+        <li>Un plugin se fija a una versión (un <dfn>tag</dfn> de git, como <code>v0.5.0</code>). Todo el equipo corre la misma versión, y volver atrás es reinstalar el tag anterior. Copiando archivos, cada repo terminaría con su propia variante.</li>
+      </ul>
+
+      <h3>Skill</h3>
+      <p>Una <dfn>skill</dfn> es una receta escrita en un archivo corto (<code>SKILL.md</code>): "cuando toque planear, haz esto, en este orden". Claude la lee y la sigue. El arnés trae diez, y todas se llaman con el prefijo del plugin: <code>/arnes:plan</code>, <code>/arnes:verify</code>, etc.</p>
+      <p>La diferencia importante es quién las puede disparar:</p>
+      <div class="grid">
+        <div class="card">
+          <h4><span class="badge b-claude">Claude las carga solo</span></h4>
+          <p><code>plan</code>, <code>build</code>, <code>verify</code>, <code>review</code>, <code>memory</code> y <code>timeline</code>.</p>
+          <p>Su descripción empieza con las palabras de un pedido real ("Implementar, corregir o agregar algo…", "Verificar, probar o comprobar…"). Cuando escribes "implementa este issue", Claude reconoce la receta y la carga sin que la nombres. Ese es el truco para que el flujo corra "sin invocar comandos".</p>
+        </div>
+        <div class="card">
+          <h4><span class="badge b-persona">Solo las invocas tú</span></h4>
+          <p><code>init</code>, <code>ship</code>, <code>worktree</code> y <code>sync</code>.</p>
+          <p>Llevan <code>disable-model-invocation: true</code> porque mueven ramas, commitean o crean archivos. Claude no puede dispararlas: las escribes tú, por ejemplo <code>/arnes:ship</code>.</p>
+        </div>
+      </div>
+      <p>Hay un presupuesto: ninguna skill pasa de unas 80 líneas. Hay un test que lo comprueba.</p>
+
+      <h3>Agente o subagente</h3>
+      <p>Un <dfn>agente</dfn> (o <dfn>subagente</dfn>) es un ayudante que Claude llama para un trabajo puntual. Arranca con la memoria en blanco, recibe solo lo que Claude le pasa, hace su trabajo y devuelve un reporte. Cada uno tiene sus propias herramientas permitidas y su propio <dfn>modelo</dfn>, que es la versión de Claude que lo mueve: <strong>opus</strong> es la más capaz y la más cara, <strong>sonnet</strong> va en el medio y <strong>haiku</strong> es la más rápida y barata.</p>
+      <div class="grid">
+        <div class="card"><h4>dev <span class="badge b-ayudante">sonnet</span></h4><p>El que escribe el código de producción de un solo workspace. Lee las reglas del repo antes de escribir. No escribe tests.</p></div>
+        <div class="card"><h4>test-writer <span class="badge b-ayudante">sonnet</span></h4><p>El que solo sabe escribir tests, y solo para código nuevo o cambiado. No toca código de producción.</p></div>
+        <div class="card"><h4>reviewer <span class="badge b-ayudante">opus</span></h4><p>El revisor. Solo puede leer (Read, Grep, Glob): no tiene terminal ni puede editar. Trabaja con esfuerzo alto.</p></div>
+        <div class="card"><h4>test-runner <span class="badge b-ayudante">haiku</span></h4><p>Corre un comando de tests y copia la salida tal cual, sin interpretarla. Esfuerzo bajo.</p></div>
+      </div>
+      <p>¿Por qué un modelo distinto por ayudante? Porque cada trabajo pide algo distinto: copiar la salida de un script no necesita al modelo más caro, y juzgar un cambio entero contra una lista de reglas sí lo agradece. Cada agente lleva su <code>model</code> y su <code>effort</code> escritos en su archivo. Y como cada uno tiene su propio contexto, el revisor juzga el árbol de archivos, no el relato de quien lo construyó.</p>
+      <p class="small">Un detalle del plan: los agentes de un plugin ignoran los campos <code>hooks</code>, <code>mcpServers</code> y <code>permissionMode</code> de su archivo. Por eso todo el control sobre ellos va por los guardias del plugin, no por el agente.</p>
+
+      <h3>Hook clásico</h3>
+      <p>Un <dfn>hook</dfn> es un programa chiquito que Claude Code corre solo en un momento fijo, sin preguntarle al modelo. Recibe un JSON con lo que está pasando y puede responder "agrega este contexto", "no dejes correr esto" o "no termines todavía". En esta página les decimos <strong>guardias</strong>. El arnés los escribe todos en Node, sin bash, para que corran igual en PowerShell, Git Bash y el CI.</p>
+      <p>Estos son los momentos (<dfn>eventos</dfn>) de una sesión, en orden:</p>
+      <div class="turn">
+        <div class="ev"><code>SessionStart</code><div>Cuando abres la sesión (o después de un <code>/clear</code>). Antes de que escribas nada.</div></div>
+        <div class="ev"><code>UserPromptSubmit</code><div>Cada vez que mandas un mensaje, antes de que Claude lo lea.</div></div>
+        <div class="ev"><code>PreToolUse</code><div>Justo antes de que Claude use una herramienta: correr un comando, leer un archivo, salir de un worktree. Aquí se puede negar.</div></div>
+        <div class="ev"><code>PostToolUse</code><div>Justo después de que la herramienta terminó, por ejemplo después de editar un archivo.</div></div>
+        <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".</div></div>
+        <div class="ev"><code>SessionEnd</code><div>Cuando cierras la sesión.</div></div>
+      </div>
+      <p>Un <dfn>turno</dfn> es todo lo que pasa entre que mandas un mensaje y Claude te devuelve el control: pueden ser muchos pasos con herramientas en medio. Los hooks no piden permiso: corren fuera del sistema de permisos.</p>
+
+      <h3>Mod</h3>
+      <p>Un <dfn>mod</dfn> es otro tipo de enganche, más nuevo y más poderoso. En vez de un programa que corre en un momento fijo y responde un JSON, es un módulo de código que se mete dentro de Claude Code y puede envolver casi todo: cada herramienta antes y después, cada respuesta del modelo, el texto que ve el modelo, y la pantalla (paneles, una banda, la línea de estado, avisos).</p>
+      <ul>
+        <li><strong>Hook clásico:</strong> un comando suelto que mira y decide en un momento fijo. Es lo que usa el arnés para todo lo que debe cumplirse.</li>
+        <li><strong>Mod:</strong> código que vive dentro de la sesión, escucha muchos eventos y puede dibujar. Solo carga en sesiones locales.</li>
+      </ul>
+      <p><strong>¿Por qué el de interfaz va aparte?</strong> Para que lo visual no comparta destino con lo que gobierna el flujo. <code>arnes-ui</code> tiene una regla única: cada enganche observa y deja pasar el evento tal como venía, sin tocar nada. Si se cae, se apaga o no está instalado, el arnés hace exactamente lo mismo.</p>
+      <p><strong>¿Por qué puede fallar sin romper nada?</strong> Porque cada enganche del mod atrapa sus propios errores, los anota en el transcript con <code>$.ui.log</code> y deja pasar el evento original. Y porque nada que importe depende de él: la medición de tiempos la escriben las skills en un archivo (<code>.tmp/harness/timeline.jsonl</code>) que existe aunque el mod no esté.</p>
+      <div class="callout quiet">Esto no es teoría. En las pruebas, un plugin interno de Claude Code (<code>cc-plugin-sec-default</code>) se saltó dos enganches del mod: el del <code>Stop</code> y el de carga de skills. La banda dejó de mostrar algunas etapas, y el arnés siguió igual. La corrección fue sacar esas etapas de la timeline, que ya existía.</div>
+    </section>
+
+    <!-- 3 -->
+    <section id="manifiesto">
+      <p class="kicker">3</p>
+      <h2>El manifiesto: <code>.claude/harness.json</code></h2>
+      <p>El <dfn>manifiesto</dfn> es un archivo JSON que le dice al arnés cómo es tu proyecto: qué comandos corre para revisar tipos, lint y tests, dónde están las zonas de riesgo y qué comandos están prohibidos. El arnés no adivina nada del stack: si algo no está en el manifiesto (o en el <code>CLAUDE.md</code> del repo, que es el archivo de reglas que Claude lee al trabajar ahí), no existe.</p>
+      <p>Hay dos tipos, y el schema acepta exactamente uno de los dos en cada archivo:</p>
+      <ul>
+        <li><strong>De repo</strong> (<code>&lt;repo&gt;/.claude/harness.json</code>): lleva <code>workspaces</code> con sus comandos. Es el que lee el CI de ese repo, que clona solo ese repo.</li>
+        <li><strong>De composición</strong> (<code>&lt;carpeta&gt;/.claude/harness.json</code>): para una carpeta que tiene varios repos adentro. Lleva <code>repos</code>, los lista y agrega solo lo que existe entre repos. Los comandos no se repiten ahí.</li>
+      </ul>
+      <p>Un <dfn>workspace</dfn> es una parte del proyecto con sus propios comandos: en una carpeta con varios repos, cada repo es un workspace.</p>
+
+      <h3>Un manifiesto de repo, línea por línea</h3>
+      <p>Este es el de la prueba con api-academico, recortado:</p>
+      <div class="annot">
+        <div class="row"><code>"version": 1,</code><div>La versión del formato del manifiesto.</div></div>
+        <div class="row"><code>"name": "api-academico",</code><div>El nombre del proyecto.</div></div>
+        <div class="row"><code>"workspaces": [ {</code><div>La lista de partes con comandos. En un repo normal hay una sola.</div></div>
+        <div class="row"><code>  "name": "api-academico",
+  "path": ".", "git": ".",</code><div>El nombre del workspace, su carpeta dentro del repo y dónde está la raíz de git. <code>.</code> es "aquí mismo".</div></div>
+        <div class="row"><code>  "defaultBranch": "main",
+  "stack": "nestjs-prisma",</code><div>La rama principal. <code>stack</code> es solo una etiqueta: el arnés nunca decide nada por ella.</div></div>
+        <div class="row"><code>  "commands": {
+    "typecheck": ["npx tsc --noEmit"],
+    "lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored",
+    "test": "npx jest {specs} --runTestsByPath --verbose",
+    "testAll": "npx jest"
+  },</code><div>Los comandos reales del repo. <code>{files}</code> se reemplaza por los archivos tocados y <code>{specs}</code> por los tests elegidos. El typecheck es una lista porque Angular necesita dos. Todo es opcional salvo tener typecheck o test.</div></div>
+        <div class="row"><code>  "specPattern": "{dir}/{name}.spec.ts",</code><div>Dónde vive el test de un archivo: misma carpeta, mismo nombre, terminado en <code>.spec.ts</code>. Así se eligen solo los tests de lo que tocaste.</div></div>
+        <div class="row"><code>  "riskPaths": ["prisma/migrations/**",
+    "src/modules/auth/**",
+    "src/common/constants/acl*.ts"],</code><div>Las zonas de riesgo. Tocar un archivo que caiga aquí obliga a la revisión humana. Esto lo completa la persona al adoptar: el arnés no lo infiere.</div></div>
+        <div class="row"><code>  "forbidden": ["npm run lint",
+    "npm run format",
+    "prisma migrate reset"]</code><div>Comandos que el guardia niega en este repo: reescriben archivos en masa o son destructivos.</div></div>
+        <div class="row"><code>} ],
+"integration": { "branchPrefix": "feature/" },</code><div>El prefijo de las ramas que crea ship.</div></div>
+        <div class="row"><code>"memory": { "notes": "docs/decisions",
+  "gotchas": "docs/gotchas.md",
+  "graphify": true }</code><div>Dónde se escriben las decisiones y las trampas conocidas, y si el repo tiene mapa de graphify (sección 9).</div></div>
+      </div>
+      <p>Hay campos opcionales que también leen los guardias: <code>codeGlobs</code> (qué cuenta como código; por defecto <code>.ts</code>, <code>.tsx</code>, <code>.js</code>, <code>.jsx</code>, <code>.php</code> y <code>.sql</code>, nunca <code>.md</code>), <code>sharedPaths</code> (código compartido que obliga a correr todos los tests), <code>secretPaths</code> (más archivos de secretos) y <code>commands.typecheckFast</code> (un typecheck rápido para después de cada edición).</p>
+
+      <h3>Una composición de carpeta</h3>
+      <pre><code>{
+  "version": 1,
+  "name": "academico",
+  "repos": [
+    { "path": "api-academico", "contract": { "provides": ["src/**/dto/**", "src/**/*.controller.ts"] } },
+    { "path": "academico-front", "contract": { "consumes": ["src/**/types/**", "src/**/api/**"] } },
+    { "path": "academicoBitbuckett" }
+  ],
+  "integration": { "branchPrefix": "feature/", "sameBranchAcrossWorkspaces": true }
+}</code></pre>
+      <ul>
+        <li><code>repos</code> lista los repos por carpeta. Cada uno se lee de su propio <code>.claude/harness.json</code>.</li>
+        <li><code>contract</code> dice qué archivos de un repo forman la API que otro consume: el back <em>provee</em> los DTO y los controladores, el front <em>consume</em> los tipos y el cliente de la API. El revisor usa esto para detectar un contrato roto.</li>
+        <li><code>sameBranchAcrossWorkspaces</code>: la misma rama en todos los repos del issue.</li>
+      </ul>
+      <p>Cómo se encuentra: los scripts suben desde la carpeta donde está Claude hasta el primer manifiesto. Si es de repo, siguen subiendo por si una composición lo lista. Así una sesión abierta dentro de <code>api-academico/</code> sigue viendo a sus hermanos, y el CI, que no tiene carpeta encima, ve solo su repo.</p>
+
+      <h3>Adoptado y no adoptado</h3>
+      <p>En el ejemplo, <code>academicoBitbuckett</code> (un repo PHP) aparece sin <code>contract</code> y no tiene manifiesto propio. Eso lo deja como <dfn>no adoptable todavía</dfn>: los scripts lo ven, lo muestran al arrancar ("no adoptable todavía: sin manifiesto propio, no se verifica"), pero no lo verifican ni lo bloquean. No es un error.</p>
+      <p>Un repo <dfn>adoptado</dfn> es uno que tiene su manifiesto y cumple el mínimo de adopción: ocho comprobaciones que corre <code>/arnes:init --check</code> (sección 12).</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="historia">
+      <p class="kicker">4</p>
+      <h2>La historia completa de un issue</h2>
+      <p>Un <dfn>issue</dfn> es un pedido de trabajo (en GitLab o GitHub, o escrito a mano). Este es el recorrido real del CRUD de talleres de <code>docs/PRUEBA-FASE-3.md</code>, hecho sobre un clon de api-academico el 2026-10-20. Los tiempos son los de la prueba manual en una sesión interactiva; donde sirve, se cuenta también lo que pasó en la corrida automática de ese mismo día.</p>
+      <p>Cada paso dice quién lo hizo:
+        <span class="badge b-persona">la persona</span>
+        <span class="badge b-claude">Claude solo</span>
+        <span class="badge b-ayudante">un ayudante</span>
+        <span class="badge b-script">un script que no piensa</span>
+      </p>
+
+      <div class="story" id="story">
+        <div class="prompt">
+          <div class="who">Lo que escribe la persona, sin comandos</div>
+          Implementa este issue: CRUD de talleres: listar, crear, editar y eliminar talleres; el modelo Taller ya existe en el esquema de Prisma; solo roles ADMIN y COORDINADOR pueden crear y eliminar; un taller con alumnos inscritos no se elimina, se desactiva.
+        </div>
+        <div class="rail" id="rail" role="tablist" aria-label="Pasos del issue"></div>
+        <div class="step" id="step" aria-live="polite"></div>
+        <div class="step-nav">
+          <button class="btn" id="prev" type="button">← Anterior</button>
+          <span class="count" id="count"></span>
+          <button class="btn primary" id="next" type="button">Siguiente →</button>
+        </div>
+      </div>
+      <p class="small">Puedes usar las flechas del teclado cuando la historia tenga el foco. La timeline de la prueba manual cerró con <code>plan 16m01s · build 8m13s · verify 4m21s · review 2m05s · ship 19s</code>.</p>
+    </section>
+
+    <!-- 5 -->
+    <section id="guardias">
+      <p class="kicker">5</p>
+      <h2>Los guardias, que son los hooks</h2>
+      <p>Una tarjeta por cada entrada de <code>plugins/arnes/hooks/hooks.json</code>, sacada de los scripts de <code>scripts/hooks/</code>. Dos reglas valen para todos:</p>
+      <ul>
+        <li>Leen la carpeta donde está Claude del JSON que reciben, nunca de una variable fija: así siguen a Claude dentro de un worktree.</li>
+        <li>Si un guardia se rompe por un error propio, sale con 0 y no actúa: un guardia roto nunca bloquea la sesión. El error queda en el log.</li>
+      </ul>
+      <div class="hooks">
+        <div class="hook">
+          <h4>El de arranque de sesión</h4>
+          <p class="ev-name"><code>SessionStart</code> · <code>session-start.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Al abrir la sesión, y después de un <code>/clear</code>.</dd>
+            <dt>Qué mira</dt><dd>El manifiesto; la rama y los archivos sin commitear de cada workspace; los worktrees sin integrar del registro (cinco como máximo, con aviso a los de más de 7 días sin commits nuevos); las cinco decisiones más recientes; y si hay otra sesión de Claude viva en el mismo proyecto, con un "candado" propio en <code>.tmp/harness/sessions/</code>.</dd>
+            <dt>Qué hace</dt><dd>Le inyecta a Claude, en 40 líneas como máximo, todo eso más el protocolo del arnés. Si ve otra sesión, avisa que esta debe abrir su propio worktree. Sin manifiesto, dice cómo crearlo con <code>/arnes:init</code> y no inventa nada.</dd>
+            <dt>Qué bloquea</dt><dd class="never">Nada: solo informa.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El de cada mensaje</h4>
+          <p class="ev-name"><code>UserPromptSubmit</code> · <code>prompt-context.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Cada vez que mandas un mensaje.</dd>
+            <dt>Qué mira</dt><dd>Por workspace: cuántos archivos tocados y cuántos de código, si la bandera está vigente y qué zonas de riesgo se tocaron.</dd>
+            <dt>Qué hace</dt><dd>Adjunta una línea de estado por workspace, por ejemplo <code>arnes · api-academico: 25 tocado(s), 25 de código · bandera vigente</code>, y saca una "foto del turno" (<code>.tmp/harness/turn.json</code>) que después usa el Stop.</dd>
+            <dt>Qué bloquea</dt><dd class="never">Nunca bloquea.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El de después de editar</h4>
+          <p class="ev-name"><code>PostToolUse</code> sobre Edit y Write · <code>after-edit.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Cada vez que Claude o un ayudante edita o crea un archivo.</dd>
+            <dt>Qué mira</dt><dd>Solo ese archivo, con el lint de su workspace. Si el workspace declara <code>typecheckFast</code>, corre también ese typecheck, como mucho una vez cada 20 segundos.</dd>
+            <dt>Qué hace</dt><dd>Le devuelve a Claude los hallazgos del lint como contexto, para que los corrija ahí mismo. El typecheck completo no corre aquí: un <code>tsc</code> de un minuto después de cada edición destruye la sesión, así que queda para verify.</dd>
+            <dt>Qué bloquea</dt><dd class="never">Nunca bloquea. Se calla si el archivo no es código, no es de un workspace o el lint pasa.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El guard de comandos</h4>
+          <p class="ev-name"><code>PreToolUse</code> sobre Bash y PowerShell · <code>guard.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Antes de cada comando de terminal.</dd>
+            <dt>Qué mira</dt><dd>Parte el comando en pedazos (por <code>&amp;&amp;</code>, <code>;</code>, <code>|</code> y saltos de línea) y juzga cada pedazo solo por el programa con que empieza. Sigue los <code>cd</code> y el <code>-C</code> de git para saber en qué carpeta corre.</dd>
+            <dt>Qué bloquea siempre</dt><dd class="block"><code>git reset --hard</code>, el push forzado, <code>git clean -f</code>, <code>git branch -D</code> de una rama con commits sin integrar, <code>git worktree remove</code> de un worktree con commits sin integrar, y leer secretos con <code>cat</code>, <code>type</code>, <code>Get-Content</code>, <code>gc</code> o <code>head</code>. Esto vale haya o no manifiesto.</dd>
+            <dt>Qué bloquea con manifiesto</dt><dd class="block">Los comandos de <code>forbidden</code>; <code>git commit</code> sin bandera vigente para ese workspace; <code>git add .</code> o <code>-A</code> cuando hay un <code>.env</code> o un <code>.log</code> sin trackear.</dd>
+            <dt>Qué nunca bloquea</dt><dd class="never">Nunca mira el texto de un heredoc ni los argumentos de <code>echo</code> o <code>grep</code>. <code>cat &gt; .env &lt;&lt;EOF</code> pasa (escribe, no lee); <code>cat &lt; .env</code> se niega.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El de lectura de secretos</h4>
+          <p class="ev-name"><code>PreToolUse</code> sobre Read, Glob y Grep · <code>read-guard.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Antes de que Claude abra o busque en un archivo.</dd>
+            <dt>Qué mira</dt><dd>La ruta o el patrón: <code>.env</code> y sus variantes, lo que esté dentro de <code>.ssh</code> o <code>.aws</code>, <code>.netrc</code>, <code>.pgpass</code>, <code>.git-credentials</code>, <code>credentials</code>, llaves privadas (<code>id_rsa</code>, <code>*.pem</code>, <code>*.key</code>…), tokens, y los <code>secretPaths</code> del manifiesto.</dd>
+            <dt>Qué bloquea</dt><dd class="block">Abrir o buscar en esos archivos, para que su contenido nunca entre al transcript. Vale haya o no manifiesto.</dd>
+            <dt>Qué nunca bloquea</dt><dd class="never"><code>.env.example</code> ni la llave <code>.pub</code>. Tampoco un Grep sobre una carpeta entera: ripgrep ya salta lo ignorado por git, que es donde viven esos archivos.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El de salir de un worktree</h4>
+          <p class="ev-name"><code>PreToolUse</code> sobre ExitWorktree · <code>worktree-remove.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Cuando Claude quiere salir de un worktree pidiendo borrarlo (<code>action: "remove"</code>).</dd>
+            <dt>Qué mira</dt><dd>Si la rama del worktree tiene commits que no están en su destino: la rama del issue si está en el registro, o la rama principal si no.</dd>
+            <dt>Qué bloquea</dt><dd class="block">El borrado, si esos commits se perderían.</dd>
+            <dt>Qué nunca bloquea</dt><dd class="never">Salir sin borrar (<code>keep</code>), ni borrar un worktree ya integrado en la rama del issue aunque todavía no esté en main.</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El Stop</h4>
+          <p class="ev-name"><code>Stop</code> · <code>stop-gate.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Cuando Claude quiere terminar el turno.</dd>
+            <dt>Qué mira</dt><dd>(a) Si hay archivos de código tocados sin bandera vigente. (b) Si hay worktrees del issue con commits sin integrar. Y si este turno cambió algo, comparando con la foto que dejó el guardia de cada mensaje.</dd>
+            <dt>Qué bloquea</dt><dd class="block">Una sola vez por turno, y solo si el turno cambió algo: le dice a Claude "verifica con <code>/arnes:verify</code>" o "pídele a la persona que integre". Cada bloqueo queda anotado en la timeline.</dd>
+            <dt>Qué nunca bloquea</dt><dd class="never">Un segundo intento en el mismo turno (deja pasar con aviso y anota el pendiente); un turno que no tocó nada (solo avisa); un proyecto sin manifiesto; los ayudantes (no se engancha a <code>SubagentStop</code>).</dd>
+          </dl>
+        </div>
+        <div class="hook">
+          <h4>El de fin de sesión</h4>
+          <p class="ev-name"><code>SessionEnd</code> · <code>session-start.js</code></p>
+          <dl>
+            <dt>Cuándo</dt><dd>Al cerrar la sesión.</dd>
+            <dt>Qué hace</dt><dd>Borra el candado de esta sesión en <code>.tmp/harness/sessions/</code>, para que otra sesión no crea que sigue viva. Si una sesión muere sin cerrar, su candado se borra solo cuando su proceso ya no existe, o a las 24 horas.</dd>
+            <dt>Qué bloquea</dt><dd class="never">Nada.</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="callout quiet">Un detalle de adopción que salió en las pruebas: los hooks del <code>.claude/settings.json</code> de un repo corren <em>además</em> de los del plugin, y basta que uno niegue. En api-academico, el guardia viejo negó un commit que el del arnés dejaba pasar. Por eso adoptar un repo empieza por quitar esos hooks viejos.</div>
+    </section>
+
+    <!-- 6 -->
+    <section id="bandera">
+      <p class="kicker">6</p>
+      <h2>La bandera</h2>
+      <p>La <dfn>bandera</dfn> (o bandera de verificación) es un archivito que dice "este workspace, tal como está ahora, pasó la verificación". Es lo que pide el guardia antes de dejarte commitear.</p>
+      <div class="grid">
+        <div class="card"><h4>Quién la escribe</h4><p>Solo <code>/arnes:verify</code>, con <code>gate-flag.js write</code>, y solo si el gate salió con código 0. La skill lo dice así: nunca escribas pass porque la salida "parece" verde; el código de salida decide.</p></div>
+        <div class="card"><h4>Dónde vive</h4><p><code>.tmp/harness/gate/&lt;workspace&gt;.json</code>, en la raíz del proyecto. No se commitea.</p></div>
+      </div>
+      <h3>Qué guarda</h3>
+      <pre><code>{ "head": "…", "touchedHash": "…", "contentHash": "…", "result": "pass", "at": "2026-10-20T…" }</code></pre>
+      <ul>
+        <li><code>head</code>: el commit en que estaba el repo.</li>
+        <li><code>touchedHash</code>: una huella de la lista de archivos tocados. Una <dfn>huella</dfn> (hash) es un código corto que cambia si cambia cualquier cosa de lo que resume.</li>
+        <li><code>contentHash</code>: una huella del contenido de cada archivo tocado, trackeado o no.</li>
+        <li><code>result</code> y <code>at</code>: el resultado y la hora.</li>
+      </ul>
+      <h3>Cuándo vence</h3>
+      <p>Vale solo si se cumplen todas: dice <code>pass</code>, el HEAD es el mismo, la lista de tocados es la misma, el contenido de cada tocado es el mismo y tiene menos de 30 minutos. Cambias una coma en un archivo tocado y se vence. Haces un commit y se vence (cambió el HEAD).</p>
+      <p class="small">El <code>contentHash</code> entró en la fase 2b: la prueba manual mostró que editar un archivo ya tocado no vencía la bandera.</p>
+      <h3>Por qué un commit sin bandera se niega</h3>
+      <p>Porque es la única manera de que "verifiqué" no dependa de la palabra de Claude. El guardia de comandos, ante un <code>git commit</code>, consulta la bandera del workspace; si no está vigente, lo niega con el motivo y le dice que verifique con <code>/arnes:verify</code>. Por eso ship hace un solo commit por workspace: el primer commit cambia el HEAD y vence la bandera.</p>
+      <div class="callout quiet">La huella cubre solo los archivos tocados, no el árbol entero. Fue a propósito (está en la lista de lo que no se hace): la garantía de verdad es el CI, que corre lo mismo sobre el merge request. La bandera es un marcador de la sesión, no un sello.</div>
+    </section>
+
+    <!-- 7 -->
+    <section id="verificacion">
+      <p class="kicker">7</p>
+      <h2>La verificación sin trampas</h2>
+      <p>El problema típico: el repo ya tiene errores viejos de tipos o tests rojos de antes. Si verificar es "todo en verde", nunca pasa; si es "más o menos verde", cualquier cosa pasa. El arnés compara contra lo que había antes, con tres piezas.</p>
+
+      <h3>La foto de typecheck, por diagnóstico</h3>
+      <p>Un <dfn>typecheck</dfn> es el programa que revisa que los tipos cuadren (en TypeScript, <code>tsc</code>). Un <dfn>diagnóstico</dfn> es cada error que reporta.</p>
+      <ul>
+        <li><code>ci-gate.js</code> saca una <strong>foto</strong> del commit de base con <code>git archive</code> en una carpeta temporal (no toca <code>.git</code>, no crea ramas), corre el typecheck ahí y lo compara con el de tu árbol.</li>
+        <li>Cada diagnóstico se identifica por archivo + código de error + primera línea del mensaje, <strong>sin línea ni columna</strong>: si mueves código, los errores viejos desplazados no cuentan como nuevos.</li>
+        <li>Se comparan <strong>conteos</strong>, no listas: un tercer error idéntico a dos que ya había es nuevo.</li>
+        <li>La foto queda en <code>.tmp/harness/typecheck/&lt;ws&gt;.txt</code> y se reutiliza mientras el HEAD no cambie. En la prueba: <code>typecheck ok · sin diagnósticos nuevos (base 0, ahora 0) · foto del base reutilizada</code>.</li>
+      </ul>
+
+      <h3>La línea base de tests, commiteada</h3>
+      <p>La <dfn>línea base</dfn> es un archivo commiteado en el repo (<code>tests/baseline.json</code>) que guarda, por cada archivo de test (<dfn>spec</dfn>), cuántos tests pasan, cuántos fallan y cuántos se saltan, y los saltos por nombre.</p>
+      <ul>
+        <li>Verify corre solo los specs de lo que tocaste, y compara su suma contra la suma de esos mismos specs en la base.</li>
+        <li><strong>Por qué un test borrado pone rojo:</strong> si hay menos tests que en la base, aunque los que quedan estén verdes, es una regresión silenciosa. Borrar o saltar un test es la forma más fácil de "arreglar" un rojo, y esto la cierra. Un spec de la base que ya no existe también es rojo, haya o no otro código tocado.</li>
+        <li>Recapturar la base es decisión de la persona, nunca de Claude para que cuadre, y su commit lleva el prefijo <code>gates:</code>.</li>
+      </ul>
+
+      <h3>Los rojos conocidos, con fecha</h3>
+      <p>Los tests que ya fallaban van en <code>tests/known-failures.txt</code>, uno por línea:</p>
+      <pre><code>2026-08-27 | src/modules/horario-sede/horario-sede.service.spec.ts | &lt;nombre completo del test&gt;</code></pre>
+      <ul>
+        <li>Solo cuenta la coincidencia exacta de spec y nombre. Esas fallas no ponen rojo y salen en el reporte como <code>preexistente (2026-08-27)</code>.</li>
+        <li>Una línea sin fecha no absuelve.</li>
+        <li>La lista es temporal: si una suite está rota, el issue es arreglarla. En api-academico eran 18 fallas de 5.279 tests en 314 specs.</li>
+      </ul>
+
+      <h3>Por qué el CI corre lo mismo que la sesión</h3>
+      <p>Verify corre <code>ci-gate.js --ws &lt;ws&gt; --base HEAD</code>, y el CI corre el mismo <code>ci-gate.js</code> con la base del merge request. Mismo motor, misma clave de diagnósticos, misma línea base, mismos rojos conocidos. Lo que pasa en tu sesión pasa en el pipeline, y si alguien se salta la sesión (o el arnés se equivoca), el pipeline lo atrapa. Ese es el seguro real.</p>
+      <div class="callout quiet">Hay cosas que ni tsc ni jest ven. En la prueba: mover <code>TallerRepository</code> a otro módulo de inyección de dependencias. Para eso hace falta arrancar la app con base de datos, y hoy está como decisión abierta (un posible <code>commands.boot</code>).</div>
+    </section>
+
+    <!-- 8 -->
+    <section id="worktrees">
+      <p class="kicker">8</p>
+      <h2>Los worktrees</h2>
+      <p>Un <dfn>worktree</dfn> es una segunda carpeta de trabajo del mismo repo, en otra rama, sin clonar de nuevo. Sirve cuando dos ayudantes del mismo issue tocarían los mismos archivos a la vez, o cuando ya hay otra sesión trabajando en tu árbol: cada uno trabaja en su carpeta y después se junta.</p>
+      <p>El problema que se vio antes del arnés: en renova365 había 12 worktrees huérfanos en <code>api/</code>. Cada ayudante deja su rama y nadie se acuerda de integrarla.</p>
+      <p><strong>Cuándo no usarlos:</strong> si los ayudantes tocan archivos distintos, trabajan en el mismo árbol, uno tras otro o en paralelo, sin ramas. Cero integración.</p>
+
+      <h3>El registro y las ramas efímeras</h3>
+      <ul>
+        <li>Solo la skill <code>/arnes:worktree</code> (que corre la persona) abre, integra y cierra, sobre <code>worktree-ledger.js</code>.</li>
+        <li>El <dfn>registro</dfn> (ledger) es <code>.tmp/harness/worktrees.json</code>: por cada worktree, su workspace, carpeta, rama, destino, issue, fecha y estado (abierto, integrado o cerrado).</li>
+        <li>Cada tarea va en una <dfn>rama efímera</dfn>, que existe solo mientras dura la tarea: <code>wt/&lt;rama-del-issue&gt;/&lt;slug&gt;</code>, creada desde la rama del issue, nunca desde main. Por ejemplo <code>wt/feature/crud-talleres/taller-select-activos</code>. Con ese nombre, git dice mecánicamente qué falta integrar.</li>
+        <li>Los worktrees viven en <code>.tmp/harness/worktrees/&lt;ws&gt;/&lt;slug&gt;</code>.</li>
+        <li><code>integrate</code> hace <code>git merge --no-ff</code> en la rama del issue (nunca squash: el squash lo hace GitLab al mergear a main), borra el worktree y la rama, y cierra el registro. Después se verifica la rama del issue.</li>
+        <li><code>close</code> cierra solo un worktree sin commits propios. Con commits, se niega.</li>
+      </ul>
+
+      <h3>Por qué nada se queda sin integrar: los cuatro cercos</h3>
+      <p>Un ayudante "terminó" solo cuando su rama ya no existe. Si algo se salta ese paso, lo atajan cuatro cercos:</p>
+      <ol>
+        <li><strong>El Stop</strong> bloquea una vez el turno que dejó commits sin integrar en un worktree del issue.</li>
+        <li><strong>El arranque de sesión</strong> lista los pendientes al abrir, y avisa de los que llevan más de 7 días sin commits nuevos: "intégralo o ciérralo, nunca se borra solo".</li>
+        <li><strong>Ship</strong> se niega a commitear o abrir el merge request si hay worktrees del issue abiertos.</li>
+        <li><strong>Borrar un worktree</strong> con commits sin integrar se niega, tanto por la herramienta <code>ExitWorktree</code> como por <code>git worktree remove</code> en la terminal.</li>
+      </ol>
+      <p>Antes del primer cerco está el aviso de sesión concurrente: si otra sesión ya trabaja en el mismo proyecto, la nueva recibe "esta sesión debe trabajar en su propio worktree".</p>
+      <div class="callout quiet">Limitación de esta versión: los worktrees que abre el registro no copian <code>.env</code> ni enlazan <code>node_modules</code>. Para verificar dentro de uno hay que instalar dependencias. Queda para los templates de la fase 6.</div>
+    </section>
+
+    <!-- 9 -->
+    <section id="memoria">
+      <p class="kicker">9</p>
+      <h2>La memoria y el mapa</h2>
+      <h3>El mapa: graphify</h3>
+      <p><dfn>graphify</dfn> es una herramienta externa que arma un <dfn>grafo</dfn> del código: un mapa de qué archivo, clase o función se relaciona con cuál. Vive en <code>graphify-out/graph.json</code> de cada repo.</p>
+      <ul>
+        <li><strong>Qué guarda:</strong> al principio, solo código (<code>GRAPHIFY_BACKEND=none</code>). Se reconstruye en cada commit o checkout con su propio hook de git. El reporte <code>graphify-out/GRAPH_REPORT.md</code> se versiona; el <code>graph.json</code>, según su tamaño.</li>
+        <li><strong>Qué no guarda:</strong> las decisiones del equipo (eso va en markdown, abajo), y por ahora tampoco la lectura semántica de los documentos: cuándo activarla es una decisión abierta.</li>
+        <li><strong>Cómo lo consulta el plan:</strong> si el repo tiene el grafo y el comando responde, el plan le pregunta antes de abrir archivos (<code>graphify query</code>, <code>explain</code> y <code>path</code>) y abre solo las líneas que el grafo ubicó, en vez de barrer el repo. Sin graphify, busca por los nombres del issue y abre un módulo parecido. En la prueba, el plan consultó el grafo y descubrió que el modelo es <code>taller</code> en minúsculas, que las inscripciones son <code>usuario_taller</code> y que el acceso va por permisos, no por nombre de rol.</li>
+      </ul>
+      <h3>Las decisiones y los gotchas, en markdown</h3>
+      <p>La skill <code>memory</code> escribe dos cosas dentro del repo:</p>
+      <ul>
+        <li><strong>Decisiones:</strong> <code>docs/decisions/AAAA-MM-DD-&lt;slug&gt;.md</code>, con Qué, Por qué y Alternativa descartada. Si falta el porqué o la alternativa, lo pregunta en un mensaje; no lo inventa.</li>
+        <li><strong>Gotchas:</strong> un <dfn>gotcha</dfn> es una trampa conocida. Van en <code>docs/gotchas.md</code>, una línea cada uno: <code>- fecha · workspace · síntoma → causa → qué hacer</code>.</li>
+        <li><strong>Recall:</strong> buscar lo ya decidido, con búsqueda de texto en esos archivos y en graphify. No escribe nada.</li>
+      </ul>
+      <p>El arranque de sesión muestra los títulos de las cinco decisiones más recientes.</p>
+      <p><strong>¿Por qué en archivos y no en una base local?</strong> Porque así es visible para todo el equipo y para los merge requests, viaja con el repo, se revisa como código y no depende de ningún servidor ni <dfn>MCP</dfn> (un MCP es un servidor de herramientas extra que se le conecta a Claude). Engram, que es una memoria personal en una base local, queda opcional: el arnés no depende de él.</p>
+      <p class="small">Ojo al adoptar: en las ramas de trabajo de api-academico el <code>.gitignore</code> ignora <code>docs</code>, así que una decisión no se versiona sin <code>git add -f</code>. La skill lo avisa.</p>
+    </section>
+
+    <!-- 10 -->
+    <section id="pantalla">
+      <p class="kicker">10</p>
+      <h2>Lo que ves en pantalla con el mod de interfaz</h2>
+      <p>Con <code>arnes-ui</code> instalado, la terminal muestra en qué va el arnés. Esto es una maqueta dibujada en HTML, con los formatos de texto que arma <code>hooks/lib.ts</code> y los números de la prueba, no una captura:</p>
+
+      <div class="term" role="img" aria-label="Maqueta de la terminal con el chat, el panel del arnés, la banda y la línea de estado">
+        <div class="bar"><i></i><i></i><i></i><span>claude · api-academico</span></div>
+        <div class="body">
+          <div class="chat">
+            <div class="line dim">● Skill arnes:review</div>
+            <div class="line dim">● Bash node "…/review.js" input</div>
+            <div class="line">  api-academico: 25 tocado(s) · <span class="acc">REVISIÓN HUMANA OBLIGATORIA</span>: src/common/constants/acl-catalogo.generated.ts, …</div>
+            <div class="line dim">● Agent arnes:reviewer</div>
+            <div class="toast">arnes ▸ Revisando (reviewer)</div>
+            <div class="line acc">arnes: zona de riesgo tocada en api-academico (src/common/constants/acl-overrides.ts) · revisión humana obligatoria</div>
+            <div class="prompt-box">&gt; _</div>
+            <div class="band">arnes ▸ Revisando (reviewer) 00:42 · reviewer opus 00:42 · api-academico <span class="ok">✓tsc</span> <span class="ok">✓tests</span> <span class="run">⏳review</span> ✎25 <span class="ok">✓flag</span></div>
+            <div class="status">⚠arnes-ui: Revisando (reviewer)</div>
+          </div>
+          <div class="pane">
+            <div class="line">arnes · api-academico · Revisando (reviewer)</div>
+            <div class="line bold">Cronología</div>
+            <div class="line">  Planeando            6m  $1.43</div>
+            <div class="line">  Construyendo (dev)   9m  $1.44</div>
+            <div class="line">  Verificando          9m  $1.95</div>
+            <div class="line run">⏳ Revisando (reviewer) 00:42</div>
+            <div class="line bold">Agentes</div>
+            <div class="line dim">  dev sonnet 09:02 · Bash · 412k tok · $1.20 <button class="ver" tabindex="-1">ver</button></div>
+            <div class="line">  reviewer opus 00:42 · Read <button class="ver" tabindex="-1">ver</button></div>
+            <div class="line bold">Gate</div>
+            <div class="line">  api-academico · feature/crud-talleres · 25 cambio(s), 25 de código · tsc <span class="ok">✓</span> · tests <span class="ok">✓</span> · review <span class="run">⏳</span> · bandera vigente · ✎25</div>
+            <div class="line">Plan: CRUD de talleres</div>
+            <div class="line bold">Timeline</div>
+            <div class="line dim">  hace 1m · start review</div>
+            <div class="line sug">Lo que sigue: verificado: listo para commit</div>
+          </div>
+        </div>
+      </div>
+      <p class="small">Los tokens y el costo del agente dev son ilustrativos. Los tiempos y costos de la cronología son los de la corrida automática (repartidos por etapa a mano en la guía de prueba).</p>
+
+      <div class="mock-legend">
+        <div class="card"><h4>La banda</h4><p>Una línea siempre visible sobre donde escribes: la etapa con su reloj (o "Pensando…"), los ayudantes vivos con su modelo, el gate de cada workspace (✓ pasó, ✗ falló, ⏳ corriendo), los archivos editados (✎), la bandera y los worktrees sin integrar.</p></div>
+        <div class="card"><h4>El panel</h4><p>Se abre o cierra con <code>/arnes-panel</code>. Trae la cronología con duración y costo por etapa, el promedio de las últimas corridas, los ayudantes con un botón "ver" que muestra su conversación, el gate por workspace, los worktrees, el título del plan, la timeline y "Lo que sigue".</p></div>
+        <div class="card"><h4>La línea de estado</h4><p>La etapa actual, o <code>listo</code>. El propio Claude Code le pone el prefijo <code>⚠arnes-ui:</code>.</p></div>
+        <div class="card"><h4>Los avisos</h4><p>Toasts (cajitas que aparecen y se van) al cambiar de etapa. Los que importan (Stop bloqueado, gate en rojo, zona de riesgo tocada, contexto compactado) van además como línea en el transcript, porque en algunas superficies el toast no se ve: en la terminal de Muxentra dentro de VS Code no apareció ninguno.</p></div>
+      </div>
+
+      <h3>De dónde sale cada cosa, sin adivinar por texto</h3>
+      <ul>
+        <li>La etapa de una skill: de los <code>start</code> y <code>end</code> que la skill anota en la timeline.</li>
+        <li>Construyendo, Revisando, Escribiendo tests: de cuando se lanza el ayudante <code>dev</code>, <code>reviewer</code> o <code>test-writer</code>.</li>
+        <li>Verificando: de los comandos del arnés o del manifiesto en la terminal. Las columnas tsc y tests las marca la salida de <code>ci-gate</code>; un <code>npx jest</code> suelto que falla por los rojos conocidos ya no levanta "gate en rojo".</li>
+        <li>El aviso del Stop: de la nota <code>bloqueado</code> que deja el guardia en la timeline.</li>
+      </ul>
+
+      <h3>La timeline y el costo, y para qué sirve medir</h3>
+      <p>La <dfn>timeline</dfn> es <code>.tmp/harness/timeline.jsonl</code>: una línea por evento (inicio, fin o nota de cada etapa). La escriben las skills y los guardias, así que existe aunque el mod no esté; <code>/arnes:timeline</code> la imprime como texto con la duración por etapa y la espera de la persona aparte.</p>
+      <ul>
+        <li><strong>Costo por etapa:</strong> la diferencia del costo total de la sesión entre el inicio y el fin de la etapa.</li>
+        <li><strong>Costo por ayudante:</strong> la misma resta entre que se lanza y que termina. Es exacto si corre solo; con ayudantes en paralelo, cada uno incluye lo que gastaron los otros en ese rato.</li>
+        <li><strong>Al cerrar cada turno,</strong> el transcript trae un resumen: <code>arnes · corrida: … · más lenta: … · más cara: … ($…)</code>. Las últimas 20 corridas se guardan para el promedio.</li>
+      </ul>
+      <p>¿Para qué medir? Para ver en qué etapa se va el tiempo y distinguir una demora puntual de un cuello de botella que se repite (el plan pone de ejemplo un revisor en opus que se lleve siempre el 40 %). Y porque esa medición es la entrada para decidir qué pieza del arnés quitar o abaratar. Ya sirvió una vez: la prueba manual midió 16m01s de plan, y resultó que incluía la espera de la aprobación humana. Ahora plan cierra su etapa al escribir el plan y anota la espera aparte.</p>
+    </section>
+
+    <!-- 11 -->
+    <section id="persona">
+      <p class="kicker">11</p>
+      <h2>Lo que haces tú, y lo que ya no tienes que hacer</h2>
+      <div class="grid">
+        <div class="card">
+          <h4><span class="badge b-persona">Lo que haces</span></h4>
+          <ul>
+            <li><strong>Escribir el issue</strong> en lenguaje normal, o pasar su número o URL.</li>
+            <li><strong>Aprobar el plan</strong> y responder sus preguntas cerradas (cada una trae recomendación y alternativa).</li>
+            <li><strong>Aprobar un permiso</strong> cuando Claude Code pregunta por un comando que no está en tu lista, como <code>npm run acl:generar</code> en la prueba. Aprobarlo en el chat no sirve: tiene que ser en el diálogo de permisos.</li>
+            <li><strong>Pedir el ship</strong> con <code>/arnes:ship</code>, y decir que sí antes del push.</li>
+            <li><strong>Integrar worktrees</strong> y <strong>traer main</strong> (<code>/arnes:worktree</code>, <code>/arnes:sync</code>), si hacen falta.</li>
+            <li><strong>La revisión humana obligatoria</strong> cuando se tocó una zona de riesgo: leer de verdad ese cambio en el merge request.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4><span class="badge b-script">Lo que ya no haces</span></h4>
+          <ul>
+            <li>Pedir "ahora planea", "ahora verifica", "ahora revisa": Claude carga esas skills solo.</li>
+            <li>Acordarte de correr lint, typecheck y tests antes de commitear: sin bandera, no hay commit.</li>
+            <li>Decidir qué tests correr: los elige <code>test-select</code> según lo que tocaste.</li>
+            <li>Separar a mano los rojos de antes de los nuevos.</li>
+            <li>Acordarte de qué ramas de ayudantes quedaron sin integrar.</li>
+            <li>Pedir los tests que faltan para el código nuevo: verify llama al test-writer.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>Sobre la revisión humana obligatoria:</strong> no es un adorno. Si un archivo tocado cae en <code>riskPaths</code>, la frase <code>REVISIÓN HUMANA OBLIGATORIA</code> sale en el plan, en el reporte del revisor, en el chequeo de ship y en la primera línea del merge request. En la prueba la disparó el catálogo de permisos (<code>acl-catalogo.generated.ts</code> y <code>acl-overrides.ts</code>). Y la regla de aprobación en GitLab es parte del mínimo de adopción.
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section id="instalar">
+      <p class="kicker">12</p>
+      <h2>Cómo instalar y cómo adoptar un repo</h2>
+      <h3>Instalar</h3>
+      <p>El repo vive en GitLab. La forma corta <code>owner/repo</code> siempre apunta a github.com, así que va la URL completa con el tag al final:</p>
+      <pre><code>claude plugin install arnes --marketplace https://gitlab.com/preupdv/apps/agentic-harness.git#vX.Y.Z
+claude plugin install arnes-ui@agentic-harness
+claude plugin install arnes-mod@agentic-harness</code></pre>
+      <ul>
+        <li>El primero añade el marketplace fijado a ese tag e instala <code>arnes</code>. Los otros dos son opcionales.</li>
+        <li>Claude Code clona con git sin preguntar credenciales: la de GitLab tiene que estar guardada antes (Git Credential Manager), o usar la forma SSH <code>git@gitlab.com:preupdv/apps/agentic-harness.git#vX.Y.Z</code>.</li>
+        <li>Para fijar la versión en un repo, va en su <code>.claude/settings.json</code> (<code>extraKnownMarketplaces</code> con el <code>ref</code> del tag y <code>enabledPlugins</code>).</li>
+        <li>El auto-update viene apagado y se deja así.</li>
+      </ul>
+      <h3>Permisos recomendados</h3>
+      <p>Sin ellos el arnés funciona igual, pero pregunta a cada rato. Van en <code>~/.claude/settings.json</code>, en <code>permissions.allow</code>:</p>
+      <ul>
+        <li>los <code>node</code> de los scripts del plugin, con la ruta de la caché de plugins;</li>
+        <li>git de lectura (<code>status</code>, <code>diff</code>, <code>log</code>, <code>show</code>, <code>rev-parse</code>, <code>ls-files</code>, <code>merge-base</code>);</li>
+        <li>los comandos de typecheck, lint y test del manifiesto;</li>
+        <li>las consultas de graphify y la lectura del issue con <code>glab</code> o <code>gh</code>.</li>
+      </ul>
+      <p>Y una regla <code>ask</code> para <code>npx eslint *--fix*</code>, que se evalúa antes y obliga a preguntar. <code>git commit</code> y <code>git push</code> quedan fuera a propósito. La lista completa está en el README.</p>
+      <h3>Adoptar un repo</h3>
+      <ol>
+        <li>Quitar los hooks del arnés anterior del <code>.claude/settings.json</code> del repo (y de la carpeta, si tiene). Si no, pelean con los del plugin.</li>
+        <li>Correr <code>/arnes:init</code>: detecta los repos, el stack, los comandos y el formato de los tests, y escribe un borrador de manifiesto. Te pregunta en un mensaje lo que no puede inferir (<code>riskPaths</code>, <code>contract</code>, <code>integration</code>, <code>sharedPaths</code>, <code>memory</code>). Nunca inventa comandos. Valida cada archivo contra el schema. No commitea.</li>
+        <li>Correr <code>/arnes:init --check</code>: el mínimo de adopción. No modifica nada.</li>
+      </ol>
+      <p>El mínimo de adopción son ocho comprobaciones:</p>
+      <ol>
+        <li>Manifiesto válido contra el schema.</li>
+        <li><code>CLAUDE.md</code> con reglas duras del stack (200 líneas como máximo) y <code>.claude/rules/</code> con <code>paths:</code>.</li>
+        <li>Typecheck y lint que corren, sin <code>--fix</code>.</li>
+        <li>Un job de CI que corre <code>ci-gate.js</code> y bloquea el merge request si falla; merge solo con pipeline en verde, squash al mergear a main y detección de secretos.</li>
+        <li><code>riskPaths</code> declaradas y regla de aprobación en GitLab o Bitbucket.</li>
+        <li>El plugin fijado a un tag.</li>
+        <li>Ningún hook del <code>.claude/settings.json</code> corre scripts propios de <code>.claude/hooks/</code>.</li>
+        <li>La línea base de tests commiteada, con los saltos declarados por nombre.</li>
+      </ol>
+      <p>Cada una sale como <code>ok</code>, <code>FALTA</code>, <code>MANUAL</code> (configuración del host git que no se puede ver desde tu máquina) o <code>NO ADOPTABLE</code> (un repo sin manifiesto propio). Solo <code>FALTA</code> cuenta como falta.</p>
+      <h3>Versionado por tags</h3>
+      <ul>
+        <li>Un tag <code>vX.Y.Z</code> del repo cubre los tres plugins, con su entrada en el CHANGELOG. Es lo que fija el equipo.</li>
+        <li>El campo <code>version</code> del <code>plugin.json</code> de cada plugin va igual al tag. Claude Code compara ese campo, no los commits: pushear código sin subirlo no le llega a nadie.</li>
+        <li>Subir o bajar de versión es quitar el marketplace (<code>claude plugin marketplace remove agentic-harness</code>, que desinstala sus plugins) y añadirlo en el otro tag.</li>
+        <li>El CLI de Claude Code y el arnés se suben juntos, nunca uno solo. El README trae la tabla de qué tag se probó con qué versión del CLI: <code>v0.5.0</code> con 2.1.304 y Node 24.</li>
+      </ul>
+    </section>
+
+    <!-- 13 -->
+    <section id="estado">
+      <p class="kicker">13</p>
+      <h2>En qué va el proyecto</h2>
+      <ul class="phases">
+        <li class="done"><span class="ph">Fase 0</span><span class="tag">cerrada · v0.1.0</span><br>El repo con el marketplace, los tres plugins vacíos, el README y el CI que valida.</li>
+        <li class="done"><span class="ph">Fase 1</span><span class="tag">cerrada · 0.2.0</span><br>El schema de los dos manifiestos, los scripts deterministas y <code>/arnes:init</code>, probados en academico (3 repos) y renova365 (2 repos).</li>
+        <li class="done"><span class="ph">Fase 2</span><span class="tag">cerrada · 0.3.0</span><br>Los guardias clásicos, con prueba manual en api-academico.</li>
+        <li class="done"><span class="ph">Fase 2b</span><span class="tag">cerrada · 0.4.0</span><br>El mod <code>arnes-ui</code> y <code>/arnes:timeline</code>.</li>
+        <li class="done"><span class="ph">Fase 3</span><span class="tag">cerrada · v0.5.0, 2026-10-20</span><br>Plan, build, verify, review, ship, worktree, memory y sync; los cuatro ayudantes; el registro de worktrees; la línea base de tests; el aviso de sesión concurrente. Probada de punta a punta con el CRUD de talleres.</li>
+        <li class="now"><span class="ph">Ahora: correcciones antes del piloto</span><span class="tag">rama feature/pre-piloto</span><br>Lo que salió de la prueba manual: plan y build corren cada comando solo (un comando encadenado pide permiso aparte); plan cierra su etapa al escribir el plan y anota la espera de la persona; en <code>arnes-ui</code>, la etapa de las skills sale de la timeline, el rojo lo dice el gate, se limpia la línea <code>Plan:</code> del panel y cada ayudante muestra su costo.</li>
+        <li class="todo"><span class="ph">Fase 4: el piloto</span><span class="tag">pendiente</span><br>Un issue de back de un patrón conocido, hecho por un dev de front con el arnés. Sale con cuatro números anotados: hallazgos del revisor, hallazgos del humano en el plan, defectos que llegaron a QA y minutos por etapa. Qué issue y qué persona sigue abierto.</li>
+        <li class="todo"><span class="ph">Fase 5: el mod de comportamiento</span><span class="tag">pendiente</span><br><code>arnes-mod</code>, con dos piezas y nada más: el protocolo del arnés dentro del system prompt, y un revisor determinista que se lanza solo al cerrar un turno con cambios y sin revisión, para que el modelo no decida si se revisa. Desactivado, el plugin sigue completo.</li>
+        <li class="todo"><span class="ph">Fase 6: migración</span><span class="tag">pendiente</span><br>graphify por repo, la memoria en markdown, un script de setup por carpeta, y migrar renova365 y api-academico (borrar sus <code>.claude/</code> viejos, limpiar worktrees huérfanos, quitar permisos de push, sacar una contraseña de <code>settings.local.json</code>). Sale cuando las tres carpetas corren el mismo tag.</li>
+        <li class="todo"><span class="ph">Fase 7: publicación</span><span class="tag">pendiente</span><br>Licencia MIT, README en español e inglés con una comparación honesta con otros arneses, limpieza de todo lo personal, CI público y espejo en GitHub. El tag 1.0.0 sale solo cuando el piloto haya pasado y las tres carpetas corran el mismo tag.</li>
+      </ul>
+
+      <h3>Limitaciones conocidas de esta versión</h3>
+      <ul>
+        <li><code>arnes-mod</code> no existe todavía: hoy el protocolo llega por el arranque de sesión y la revisión depende de que Claude cargue la skill.</li>
+        <li>Un plugin interno de Claude Code se salta los enganches <code>classic.Stop</code> y <code>skill.prompt</code> de los mods. El mod ya no depende de ellos, pero es un hecho de la plataforma, no del arnés.</li>
+        <li>Que un toast se vea depende de dónde corras Claude Code; los avisos importantes van también al transcript.</li>
+        <li>El mod no puede calcular la vigencia exacta de la bandera (no ve la carpeta del otro plugin): la muestra vencida si un archivo cambiado se modificó después. Quien decide de verdad son el guardia y el Stop.</li>
+        <li>El costo por ayudante es inexacto con ayudantes en paralelo.</li>
+        <li>Los worktrees no copian <code>.env</code> ni enlazan <code>node_modules</code>.</li>
+        <li>Lo que ni tsc ni jest ven (como un cambio de inyección de dependencias) no se detecta sin arrancar la app.</li>
+        <li>La bandera cubre solo los archivos tocados; la garantía de todo el árbol es el CI.</li>
+        <li>El texto corrupto de la línea <code>Plan:</code> que se vio en la prueba (<code>Plnd CRUD dw talleres</code>) no se pudo reproducir; se quitaron sus causas conocidas y se confirma en la próxima prueba manual.</li>
+        <li>Lanzar <code>claude -p</code> desde una sesión depende de cómo lo juzgue el modo de permisos.</li>
+      </ul>
+
+      <h3>Cómo reportar un problema</h3>
+      <p>El repo vive en GitLab, en <code>gitlab.com/preupdv/apps/agentic-harness</code>. La guía de prueba pide reportar así: por cada paso, si salió como está escrito, y si no, el texto exacto que viste. No son fallos los conteos o fechas distintos porque las ramas avanzaron, ni que el plan, el dev o el revisor redacten distinto. Sí son fallos:</p>
+      <ul>
+        <li>tener que invocar plan, build, verify, review o memory para que corran;</li>
+        <li>una bandera escrita con un paso en rojo;</li>
+        <li>un revisor con terminal, o que edite archivos;</li>
+        <li>un ship que commitee sin bandera vigente, con bloqueantes o con worktrees del issue sin integrar;</li>
+        <li>un push fuera de donde debía ir.</li>
+      </ul>
+      <p>Si te sirve para el reporte, <code>/arnes:timeline</code> te da la cronología tal cual.</p>
+    </section>
+
+    <!-- 14 -->
+    <section id="esceptico">
+      <p class="kicker">14</p>
+      <h2>Preguntas de alguien escéptico, con respuestas honestas</h2>
+      <details class="faq">
+        <summary>¿Me va a cambiar código sin avisar?</summary>
+        <div>
+          <p>Antes de tocar código, no: el plan se escribe, se te muestra y espera tu respuesta. La skill lo dice literal: no edites código ni lances agentes antes de esa respuesta. Y build se niega a arrancar si el plan no dice <code>Aprobado:</code>.</p>
+          <p>Después de que apruebas, sí edita archivos de tu árbol sin pedirte permiso por cada uno: ese es el trabajo. Lo que no hace es commitear: eso solo pasa con <code>/arnes:ship</code>, que solo puedes invocar tú. Al final te dice qué tocó (con <code>archivo:línea</code> por criterio) y que no hizo commit. Si algo no te gusta, está todo en tu árbol sin commitear.</p>
+        </div>
+      </details>
+      <details class="faq">
+        <summary>¿Puede hacer push o borrar algo?</summary>
+        <div>
+          <p>El guardia de comandos niega siempre <code>git reset --hard</code>, el push forzado, <code>git clean -f</code>, borrar una rama o un worktree con commits sin integrar, y leer secretos. Eso vale aunque no haya manifiesto.</p>
+          <p>Un push normal no lo niega el guardia: lo frena que ship pide un sí explícito antes de cualquier push o merge request, nunca usa <code>--force</code>, y que <code>git push</code> no está en los permisos recomendados, así que Claude Code te pregunta. En la prueba, además, el push estaba denegado y todo corría contra un repo de mentira en <code>.tmp</code>.</p>
+          <p>Lo honesto: el guardia no juzga un borrado de archivos común (un <code>rm</code>, por ejemplo). Eso queda en los permisos de Claude Code, como sin el arnés. Lo que sí no se pierde son los commits: ni las ramas ni los worktrees con trabajo sin integrar se dejan borrar.</p>
+        </div>
+      </details>
+      <details class="faq">
+        <summary>¿Qué pasa si me equivoco en el plan?</summary>
+        <div>
+          <p>Antes de aprobar, pides cambios y el plan se ajusta (y vuelve a esperar), o lo descartas. Las preguntas son cerradas y cada una trae una recomendación con su motivo y una alternativa real con lo que cuesta.</p>
+          <p>Si apruebas algo equivocado, el arnés lo va a construir bien hecho y en verde. El revisor comprueba que el código cumpla los criterios del plan, no que el plan sea correcto para el negocio. Por eso el plan está escrito para que lo apruebe alguien que no conoce el stack: frases cortas, cada término técnico explicado. Ejemplo real: el issue pedía "solo ADMIN y COORDINADOR". El plan lo tradujo a permisos <code>taller.*</code>, porque las reglas del repo prohíben comparar nombres de rol, y dejó pendiente otorgarlos en el mantenedor de roles. Esa clase de decisión es la que tienes que leer.</p>
+        </div>
+      </details>
+      <details class="faq">
+        <summary>¿Cuánto cuesta una corrida?</summary>
+        <div>
+          <p>El único número medido es el de la corrida automática del CRUD de talleres: <strong>$13.36</strong> en seis turnos, con estos repartos por etapa: plan $1.43, build $1.44, verify $1.95, review $3.93 y ship $0.36. Fuera de toda etapa quedaron $4.26 (la aprobación, el catálogo de permisos, las correcciones entre rondas y los reportes). Esa corrida tuvo tres rondas de revisión, y review fue la etapa más cara.</p>
+          <p>De la prueba manual hay tiempos pero no un costo anotado en la guía. Con <code>arnes-ui</code> ves el costo de cada etapa y de cada ayudante mientras pasa, y el promedio de las últimas corridas. Medir esto es justo lo que va a hacer el piloto.</p>
+        </div>
+      </details>
+      <details class="faq">
+        <summary>¿Y si el arnés se cae?</summary>
+        <div>
+          <ul>
+            <li>Si un guardia tiene un error propio, sale con código 0 y no actúa: un guardia roto nunca bloquea la sesión. El error queda en el log.</li>
+            <li>Si el mod de interfaz falla, anota el error en el transcript y deja pasar todo; el arnés sigue igual. Y el arnés funciona completo sin el mod.</li>
+            <li>Si no hay manifiesto (o no valida), el arnés no verifica ni bloquea nada, salvo git destructivo y la lectura de secretos, y te dice cómo arreglarlo.</li>
+            <li>Si el arnés deja pasar algo que no debía, el CI corre los mismos scripts sobre el merge request y bloquea el merge si falla. Esa es la red de abajo.</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <!-- 15 -->
+    <section id="glosario">
+      <p class="kicker">15</p>
+      <h2>Glosario</h2>
+      <dl class="gloss">
+        <dt>Adoptado</dt><dd>Un repo con su propio manifiesto que cumple el mínimo de adopción que revisa <code>/arnes:init --check</code>.</dd>
+        <dt>Agente / subagente</dt><dd>Un ayudante que Claude llama para un trabajo puntual, con su propio contexto, sus herramientas y su modelo. El arnés trae dev, test-writer, reviewer y test-runner.</dd>
+        <dt>Arnés</dt><dd>Lo que se le pone alrededor a Claude Code para que trabaje siempre igual: recetas, ayudantes, guardias y scripts.</dd>
+        <dt>Bandera</dt><dd>El archivo <code>.tmp/harness/gate/&lt;ws&gt;.json</code> que dice que un workspace, tal como está, pasó la verificación. Vence a los 30 minutos o con cualquier cambio. Sin ella no hay commit.</dd>
+        <dt>Bloqueante</dt><dd>Un hallazgo del revisor que cae en la lista cerrada de reglas. Con bloqueantes, ship no entrega.</dd>
+        <dt>CI</dt><dd>El servidor (en GitLab, el pipeline) que vuelve a correr las comprobaciones cuando subes un cambio. Corre el mismo <code>ci-gate.js</code> que la sesión.</dd>
+        <dt>Claude Code</dt><dd>Claude trabajando en tu terminal: lee, edita y corre comandos.</dd>
+        <dt>CLAUDE.md</dt><dd>El archivo de reglas de un repo que Claude lee al trabajar ahí.</dd>
+        <dt>Composición</dt><dd>El manifiesto de una carpeta con varios repos: los lista y agrega solo lo que existe entre ellos (contrato e integración).</dd>
+        <dt>Contrato</dt><dd>Los archivos que forman la API que un repo provee y otro consume. Romperlo sin cambiar el otro lado es bloqueante.</dd>
+        <dt>Diagnóstico</dt><dd>Cada error que reporta el typecheck.</dd>
+        <dt>Evento</dt><dd>Un momento fijo de la sesión en que corren los hooks: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop y SessionEnd.</dd>
+        <dt>Foto de typecheck</dt><dd>El resultado del typecheck sobre el commit de base, guardado para comparar contra tu árbol por diagnóstico.</dd>
+        <dt>Gate</dt><dd>La verificación de <code>ci-gate.js</code>: typecheck, lint y tests contra la base. Verde o rojo según su código de salida.</dd>
+        <dt>Gotcha</dt><dd>Una trampa conocida, anotada en <code>docs/gotchas.md</code> con síntoma, causa y qué hacer.</dd>
+        <dt>graphify</dt><dd>Herramienta externa que arma un mapa del código de cada repo, que el plan consulta antes de abrir archivos.</dd>
+        <dt>Grafo</dt><dd>Un mapa de qué cosa del código se relaciona con cuál.</dd>
+        <dt>Hook</dt><dd>Un programa chiquito que Claude Code corre solo en un evento fijo, sin preguntarle al modelo. En esta página, un guardia.</dd>
+        <dt>Huella (hash)</dt><dd>Un código corto que cambia si cambia cualquier cosa de lo que resume.</dd>
+        <dt>Issue</dt><dd>Un pedido de trabajo, en GitLab o GitHub o escrito a mano.</dd>
+        <dt>Línea base de tests</dt><dd><code>tests/baseline.json</code>, commiteado: cuántos tests pasan, fallan y se saltan por spec. Tener menos tests que ahí es rojo.</dd>
+        <dt>Manifiesto</dt><dd><code>.claude/harness.json</code>: el archivo que le dice al arnés los comandos, las zonas de riesgo y lo prohibido de un repo.</dd>
+        <dt>Marketplace</dt><dd>Una lista de plugins que vive en un repo de git y de donde Claude Code instala.</dd>
+        <dt>MCP</dt><dd>Un servidor de herramientas extra que se le conecta a Claude. El arnés no depende de ninguno.</dd>
+        <dt>Mod</dt><dd>Un módulo de código que vive dentro de Claude Code y puede envolver casi cualquier evento y dibujar en pantalla. <code>arnes-ui</code> es uno.</dd>
+        <dt>Modelo</dt><dd>La versión de Claude que mueve a un agente: opus (la más capaz), sonnet (el medio) o haiku (la más rápida y barata).</dd>
+        <dt>No adoptable todavía</dt><dd>Un repo listado en la composición sin manifiesto propio: se ve, pero no se verifica ni bloquea.</dd>
+        <dt>Plugin</dt><dd>Un paquete que le agrega skills, agentes y hooks a Claude Code, fijado a una versión.</dd>
+        <dt>Rama efímera</dt><dd>La rama <code>wt/&lt;rama-issue&gt;/&lt;slug&gt;</code> de un worktree, que existe solo mientras dura la tarea.</dd>
+        <dt>Registro (ledger)</dt><dd><code>.tmp/harness/worktrees.json</code>: la lista de worktrees abiertos, integrados y cerrados.</dd>
+        <dt>Revisión humana obligatoria</dt><dd>La marca que sale cuando se tocó una zona de riesgo: una persona tiene que leer ese cambio.</dd>
+        <dt>Rojos conocidos</dt><dd>Los tests que ya fallaban, en <code>tests/known-failures.txt</code> con fecha. No ponen rojo; solo cuentan si coinciden exacto.</dd>
+        <dt>Skill</dt><dd>Una receta escrita en un archivo corto que Claude lee y sigue. Unas las carga Claude solo; otras solo las invocas tú.</dd>
+        <dt>Spec</dt><dd>Un archivo de tests, como <code>taller.service.spec.ts</code>.</dd>
+        <dt>Tag</dt><dd>Una etiqueta de git que fija una versión, como <code>v0.5.0</code>.</dd>
+        <dt>Timeline</dt><dd><code>.tmp/harness/timeline.jsonl</code>: una línea por inicio, fin o nota de cada etapa. Existe sin el mod.</dd>
+        <dt>Turno</dt><dd>Todo lo que pasa entre que mandas un mensaje y Claude te devuelve el control.</dd>
+        <dt>Typecheck</dt><dd>El programa que revisa que los tipos cuadren; en TypeScript, <code>tsc</code>.</dd>
+        <dt>Workspace</dt><dd>Una parte del proyecto con sus propios comandos; en una carpeta multi-repo, cada repo.</dd>
+        <dt>Worktree</dt><dd>Una segunda carpeta de trabajo del mismo repo, en otra rama, sin clonar de nuevo.</dd>
+        <dt>Zona de riesgo (riskPaths)</dt><dd>Rutas declaradas en el manifiesto cuyo cambio exige revisión humana: migraciones, autenticación, permisos.</dd>
+      </dl>
+    </section>
+
+    <footer>
+      Hecho a partir de <code>docs/PLAN.md</code>, <code>README.md</code>, <code>CHANGELOG.md</code>, <code>plugins/arnes</code>, <code>plugins/arnes-ui</code> y <code>docs/PRUEBA-FASE-3.md</code>. Si algo de aquí no coincide con esos archivos, mandan los archivos.
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  // Tema: claro, oscuro o el del sistema; se recuerda si se puede.
+  var root = document.documentElement;
+  var themeBtn = document.getElementById('theme-toggle');
+  function systemDark() { return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+  function isDark() { var t = root.getAttribute('data-theme'); return t ? t === 'dark' : systemDark(); }
+  function paint() { themeBtn.textContent = isDark() ? 'Modo claro' : 'Modo oscuro'; }
+  try { var saved = localStorage.getItem('arnes-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  paint();
+  themeBtn.addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('arnes-theme', next); } catch (e) {}
+    paint();
+  });
+
+  // Índice: abrir en el celular y marcar la sección visible.
+  var toc = document.getElementById('toc');
+  var tocBtn = document.getElementById('toc-toggle');
+  tocBtn.addEventListener('click', function () {
+    var open = toc.classList.toggle('open');
+    tocBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  toc.addEventListener('click', function (e) {
+    if (e.target.closest('a')) { toc.classList.remove('open'); tocBtn.setAttribute('aria-expanded', 'false'); }
+  });
+  var links = Array.prototype.slice.call(toc.querySelectorAll('a'));
+  var sections = links.map(function (a) { return document.querySelector(a.getAttribute('href')); });
+  function mark() {
+    var y = window.scrollY + 120, cur = 0;
+    sections.forEach(function (s, i) { if (s && s.offsetTop <= y) cur = i; });
+    links.forEach(function (a, i) { a.classList.toggle('active', i === cur); });
+  }
+  window.addEventListener('scroll', mark, { passive: true });
+  mark();
+
+  // La historia del issue.
+  var WHO = {
+    persona: ['b-persona', 'la persona'],
+    claude: ['b-claude', 'Claude solo'],
+    ayudante: ['b-ayudante', 'un ayudante'],
+    script: ['b-script', 'un script que no piensa']
+  };
+  var steps = [
+    {
+      short: 'Arranque',
+      who: ['script'],
+      time: 'al abrir la sesión',
+      title: 'La sesión arranca y el arnés se presenta',
+      body: '<p>Antes de que escribas nada, corre el guardia de arranque (<code>session-start.js</code>). Sube desde la carpeta hasta encontrar <code>.claude/harness.json</code>, lo valida y le inyecta a Claude un contexto de 40 líneas como máximo: el proyecto, cada workspace con su rama y si tiene cambios, los worktrees sin integrar, las decisiones recientes y el protocolo del arnés. Escribe además el candado de esta sesión en <code>.tmp/harness/sessions/</code>.</p>',
+      out: 'arnes · api-academico · repo · raíz &lt;PDV&gt;\\agentic-harness\\.tmp\\api-academico\n- api-academico (.) · rama feature/crud-talleres · limpio · nestjs-prisma\nProtocolo del arnés:\n1. Manda el manifiesto de cada repo: sus comandos, riskPaths y forbidden. …'
+    },
+    {
+      short: 'Pedido',
+      who: ['persona', 'script'],
+      time: 'un mensaje',
+      title: 'Escribes el pedido; el guardia de cada mensaje adjunta el estado',
+      body: '<p>Escribes el pedido en lenguaje normal, sin comandos. Antes de que Claude lo lea, corre <code>prompt-context.js</code>: si hay código o zonas de riesgo tocadas, adjunta una línea de estado por workspace, y siempre saca la foto del turno que después usa el Stop. Aquí el árbol está limpio, así que no agrega nada.</p>'
+    },
+    {
+      short: 'Plan',
+      who: ['claude'],
+      time: 'plan: 16m01s en la prueba manual, con la espera; 6m06s en la automática',
+      title: 'Claude carga el plan solo y consulta el grafo',
+      body: '<p>Nadie escribió <code>/arnes:plan</code>: Claude reconoce que la descripción de la skill ("Implementar, corregir o agregar algo a partir de un issue…") encaja con el pedido y la carga. Anota el inicio en la timeline, lee el manifiesto, el <code>CLAUDE.md</code> y las rules del repo, y le pregunta a graphify antes de abrir archivos.</p><p>Lo que descubrió en el código: el modelo es <code>taller</code> en minúsculas y hoy solo tiene un repositorio con <code>findById</code>, sin endpoints; las inscripciones son <code>usuario_taller</code>; y el acceso no va por nombre de rol sino con permisos <code>taller.*</code>, que el catálogo todavía no tenía.</p>'
+    },
+    {
+      short: 'Aprobación',
+      who: ['claude', 'persona'],
+      time: 'espera de la persona',
+      title: 'El plan pregunta y espera tu aprobación',
+      body: '<p>Escribe <code>.tmp/harness/plan.md</code> con criterios de aceptación marcados <code>[literal]</code> o <code>[inferido]</code>, el contrato de la API, los datos (sin migración), los archivos previstos, las zonas de riesgo con <code>REVISIÓN HUMANA OBLIGATORIA</code> por <code>src/common/constants/acl*.ts</code>, preguntas cerradas con recomendación y alternativa, y lo que queda fuera de alcance. En la prueba manual salieron cinco preguntas; en la automática, 12 criterios y 8 preguntas.</p><p>Te lo muestra y espera. No toca código ni lanza ayudantes. Respondes: <em>"Apruebo el plan con las recomendaciones de todas las preguntas. Constrúyelo y déjalo listo para entregar."</em> El plan pasa las respuestas a <code>## Decisiones</code> y escribe <code>Aprobado:</code>.</p><p class="small">En la prueba manual, los 16m01s de plan incluían esta espera. Ahora plan cierra su etapa al escribir el plan y anota la espera aparte.</p>'
+    },
+    {
+      short: 'Build',
+      who: ['claude', 'ayudante'],
+      time: 'build: 8m13s',
+      title: 'El ayudante dev construye leyendo las reglas del repo',
+      body: '<p>Claude carga <code>build</code>, que se niega sin <code>Aprobado:</code>. Lanza un ayudante <code>arnes:dev</code> en sonnet, uno por workspace (si hubiera front, el back va primero y su contrato viaja textual al front).</p><p>El dev lee el <code>CLAUDE.md</code>, las rules y el manifiesto, copia la forma de un módulo vecino y escribe el código de producción. No escribe tests, no commitea y no lee secretos. Tras cada edición, el guardia de después de editar le devuelve el lint del archivo, y él lo corrige. Al final corre el typecheck una vez y el lint de sus archivos.</p><p>Vuelve con seis secciones: contrato resultante, archivos tocados, desviaciones del plan, cobertura de cada criterio con <code>archivo:línea</code>, riesgo y pendiente para verify. Claude abre dos o tres de esas líneas para comprobar que dicen lo que el dev afirma. Aquí pidió <code>npm run acl:generar</code> y <code>npm run acl:check</code>, que la persona aprobó en el diálogo de permisos.</p>'
+    },
+    {
+      short: 'Stop',
+      who: ['script'],
+      time: 'al cerrar un turno',
+      title: 'El guardia del final bloquea una vez si no se verificó',
+      body: '<p>Si Claude intenta cerrar un turno con código cambiado y sin bandera vigente, el Stop (<code>stop-gate.js</code>) lo frena una sola vez y le dice que verifique con <code>/arnes:verify</code>. Deja la nota <code>bloqueado</code> en la timeline. En la corrida automática pasó una vez durante build.</p>',
+      out: 'turno bloqueado sin verificar: api-academico (… archivo(s) de código: …)'
+    },
+    {
+      short: 'Verify',
+      who: ['claude', 'script'],
+      time: 'verify: 4m21s',
+      title: 'Verify corre el mismo gate que el CI y escribe la bandera',
+      body: '<p>Claude carga <code>verify</code> solo. Por cada workspace tocado corre <code>ci-gate.js --ws api-academico --base HEAD</code>, un script que no piensa:</p><ul><li>el typecheck contra la foto del HEAD, por diagnóstico;</li><li>el lint de los archivos tocados;</li><li>los tests que elige <code>test-select</code>, juzgados contra la línea base y los rojos conocidos.</li></ul><p>Solo si sale con código 0 escribe la bandera con <code>gate-flag.js write</code>. Este es el último gate de la corrida automática:</p>',
+      out: '  base       ff7377f753 (--base HEAD) · 25 tocado(s), 25 de código\n  typecheck  ok · sin diagnósticos nuevos (base 0, ahora 0) · foto del base reutilizada\n  lint       ok · 25 archivo(s)\n  tests      ok · 5 spec(s) · 61 pasan, 0 fallan, 0 saltados · base 23 pasan, 0 fallan, 0 saltados\n\nresultado: VERDE. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.'
+    },
+    {
+      short: 'Tests',
+      who: ['ayudante'],
+      time: 'dentro de verify',
+      title: 'El ayudante que solo sabe escribir tests',
+      body: '<p>Antes del gate, verify pregunta qué código nuevo no tiene spec (<code>test-select --missing</code>). Si hay, lanza una vez al <code>arnes:test-writer</code> en sonnet, con la lista y el plan.</p><p>Busca el estándar de tests del repo, mira specs vecinos y escribe un spec por archivo, donde <code>specPattern</code> lo va a encontrar. No toca código de producción, no salta tests ni actualiza snapshots. Si un test falla por el código, lo deja y lo reporta como posible defecto. En la prueba manual escribió tres specs; los DTO, constantes, interfaz, módulo y mocks quedaron sin spec porque el estándar del repo no los pide.</p>'
+    },
+    {
+      short: 'Review',
+      who: ['claude', 'script', 'ayudante'],
+      time: 'review: 2m05s',
+      title: 'El revisor lee todo con la lista de reglas',
+      body: '<p>Claude carga <code>review</code>. Primero corre <code>review.js input</code> (un script), que arma lo que el revisor no puede sacar sin terminal: los tocados, el diff, las rules del repo, el contrato y las zonas de riesgo tocadas.</p><p>Después lanza una sola vez al <code>arnes:reviewer</code> en opus, que solo puede leer. Juzga el árbol final contra una lista cerrada: contrato roto, escritura en varias tablas sin transacción, migración sin vuelta atrás, criterio no implementado, string de negocio a mano, secreto en código, y las reglas duras del repo. Todo lo demás es sugerencia. Revisa además cada criterio del plan con ✅, ⚠️ o ❌.</p><p>Como se tocó el catálogo de permisos, su primera línea es la marca. En la prueba manual: cero bloqueantes y cinco sugerencias.</p>',
+      out: 'REVISIÓN HUMANA OBLIGATORIA: src/common/constants/acl-catalogo.generated.ts, src/common/constants/acl-overrides.ts\n…\nBLOQUEANTES: 0'
+    },
+    {
+      short: 'Rondas',
+      who: ['claude', 'ayudante'],
+      time: 'según los bloqueantes',
+      title: 'Las rondas de corrección',
+      body: '<p>Si hay bloqueantes, Claude los corrige sin que se lo pidas: los de specs con el test-writer, los de código con el dev. Después vuelve a verify y a review, hasta <code>BLOQUEANTES: 0</code>. <code>review.js</code> acota las rondas de corrección al diff de la corrección, y tras la tercera ronda con bloqueantes se niega.</p><p>En la corrida automática fueron tres rondas: 3 bloqueantes (el catálogo sin regenerar y dos datos escritos a mano en specs), después 1 (otro dato a mano) y al final 0. En la prueba manual no hizo falta ninguna.</p><p>El reporte final empieza con <code>REVISIÓN HUMANA OBLIGATORIA</code>, dice que no hizo commit, lista lo que queda fuera del código (otorgar los permisos <code>taller.*</code> en el mantenedor de roles y confirmar que el rol COORDINADOR existe) y cierra con la frase del verde.</p>'
+    },
+    {
+      short: 'Ship',
+      who: ['persona', 'script', 'claude'],
+      time: 'ship: 19s',
+      title: 'Ship commitea solo con bandera y revisión, y pide permiso antes de publicar',
+      body: '<p>Ship no lo carga Claude: lo escribes tú. En la prueba, <code>/arnes:ship --solo-commit</code>.</p><ul><li><code>ship.js check</code> exige bandera vigente, revisión del árbol actual sin bloqueantes, ningún <code>.env</code> o log en el stage, y ningún worktree del issue abierto.</li><li>Usa la rama con el prefijo del manifiesto y agrega solo los archivos tocados, nunca <code>git add .</code>.</li><li>Hace un commit por workspace con la convención del repo. El guardia lo deja pasar porque la bandera está vigente.</li></ul><p>Resultado de la prueba manual: el commit <code>8127c99</code> con 22 archivos, sin push. Sin <code>--solo-commit</code>, antes de cualquier push o merge request te muestra la rama, el remoto y el cuerpo de cada MR, y espera un sí explícito.</p>',
+      out: '   bandera: vigente\n   revisión: revisión hecha, sin bloqueantes\n   riskPaths tocadas: … → REVISIÓN HUMANA OBLIGATORIA en el MR\n   worktrees abiertos del issue: ninguno\n   resultado: LISTO'
+    }
+  ];
+
+  var rail = document.getElementById('rail');
+  var stepEl = document.getElementById('step');
+  var prev = document.getElementById('prev');
+  var next = document.getElementById('next');
+  var count = document.getElementById('count');
+  var story = document.getElementById('story');
+  var cur = 0;
+  var buttons = steps.map(function (s, i) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    b.textContent = (i + 1) + '. ' + s.short;
+    b.addEventListener('click', function () { show(i); });
+    rail.appendChild(b);
+    return b;
+  });
+  function show(i) {
+    cur = Math.max(0, Math.min(steps.length - 1, i));
+    var s = steps[cur];
+    var badges = s.who.map(function (w) { return '<span class="badge ' + WHO[w][0] + '">' + WHO[w][1] + '</span>'; }).join(' ');
+    stepEl.innerHTML =
+      '<div class="meta">' + badges + '<span class="time">' + s.time + '</span></div>' +
+      '<h4>' + s.title + '</h4>' + s.body +
+      (s.out ? '<pre class="out"><code>' + s.out + '</code></pre>' : '');
+    buttons.forEach(function (b, j) {
+      b.classList.toggle('on', j === cur);
+      if (j <= cur) b.classList.add('seen');
+      b.setAttribute('aria-selected', j === cur ? 'true' : 'false');
+    });
+    var bt = buttons[cur];
+    if (bt.offsetLeft < rail.scrollLeft || bt.offsetLeft + bt.offsetWidth > rail.scrollLeft + rail.clientWidth) rail.scrollLeft = bt.offsetLeft - 16;
+    prev.disabled = cur === 0;
+    next.disabled = cur === steps.length - 1;
+    count.textContent = 'Paso ' + (cur + 1) + ' de ' + steps.length;
+  }
+  prev.addEventListener('click', function () { show(cur - 1); });
+  next.addEventListener('click', function () { show(cur + 1); });
+  story.setAttribute('tabindex', '0');
+  story.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') { show(cur + 1); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { show(cur - 1); e.preventDefault(); }
+  });
+  show(0);
+})();
+</script>
+</body>
+</html>
