@@ -71,7 +71,9 @@ const total = (c) => c.pass + c.fail + c.skip;
 // tests: el detalle de --verbose, con el nombre armado como jest arma el de una falla (describe ›
 // test). failed: las cabeceras "●" de cada falla, que salen con o sin --verbose. summary: la suma de
 // las líneas "Tests:" (una por corrida si la lista de specs se partió). El bloque de console.log
-// sale antes de la cabecera del archivo y nunca lleva ícono, así que no se cuenta como test.
+// sale antes de la cabecera del archivo y nunca lleva ícono, así que no se cuenta como test. Con más
+// de 20 suites, jest repite las fallas en "Summary of all failing tests" con la ruta relativa a su
+// rootDir y no al cwd: ese bloque se salta hasta la línea "Tests:", porque ya se leyó arriba.
 function parseJest(text) {
   const tests = [];
   const failed = [];
@@ -80,8 +82,12 @@ function parseJest(text) {
   let spec = null;
   let stack = [];
   let inTree = false;
+  let repeated = false;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(ANSI, '').replace(/\s+$/, '');
+    if (line.startsWith('Summary of all failing tests')) repeated = true;
+    if (repeated && !SUMMARY.test(line)) continue;
+    repeated = false;
     const h = line.match(HEADER);
     if (h) {
       spec = h[2].replace(/\\/g, '/');

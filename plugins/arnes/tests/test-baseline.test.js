@@ -79,6 +79,26 @@ test('parseJest: íconos de Unix, varias corridas suman, "● Console" no es una
   assert.deepEqual(r.tests.map((t) => t.name), ['X › debe uno', 'X › debe dos', 'debe tres']);
 });
 
+test('parseJest salta el "Summary of all failing tests", que repite las fallas con la ruta relativa al rootDir', () => {
+  const out = [
+    'FAIL src/common/x.spec.ts',
+    '  ● Test suite failed to run',
+    '',
+    'PASS src/y.spec.ts',
+    '  ✓ debe tres',
+    'Summary of all failing tests',
+    'FAIL common/x.spec.ts',
+    '  ● Test suite failed to run',
+    '',
+    'Test Suites: 1 failed, 1 passed, 2 total',
+    'Tests:       1 passed, 1 total',
+  ].join('\n');
+  const r = tbl.parseJest(out);
+  assert.deepEqual(r.failed, [{ spec: 'src/common/x.spec.ts', name: 'Test suite failed to run' }]);
+  assert.deepEqual(r.summary, { pass: 1, fail: 0, skip: 0 });
+  assert.deepEqual([...new Set(r.tests.map((t) => t.spec))], ['src/y.spec.ts']);
+});
+
 test('capture escribe conteos por spec y saltos por nombre, válidos contra el schema', () => {
   const dir = repo();
   const r = run(dir, ['capture', 'api']);
