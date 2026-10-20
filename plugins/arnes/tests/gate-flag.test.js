@@ -28,9 +28,10 @@ test('write pass → check 0, aunque la bandera viva dentro del repo sin ignorar
   const { dir, flag } = repo();
   assert.equal(gate(dir, ['write', 'api', '--result', 'pass']).status, 0);
   const f = JSON.parse(fs.readFileSync(flag, 'utf8'));
-  assert.deepEqual(Object.keys(f).sort(), ['at', 'head', 'result', 'touchedHash']);
+  assert.deepEqual(Object.keys(f).sort(), ['at', 'contentHash', 'head', 'result', 'touchedHash']);
   assert.match(f.head, /^[0-9a-f]{40}$/);
   assert.match(f.touchedHash, /^[0-9a-f]{64}$/);
+  assert.match(f.contentHash, /^[0-9a-f]{64}$/);
   const r = gate(dir, ['check', 'api']);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -42,6 +43,29 @@ test('un archivo tocado nuevo después de verificar → 1', () => {
   const r = gate(dir, ['check', 'api']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /lista de archivos tocados cambió/);
+});
+
+test('el contenido de un tocado cambia después de verificar, trackeado o no → 1', () => {
+  const { dir } = repo();
+  h.write(dir, 'src/nuevo.ts', 'sin trackear\n');
+  gate(dir, ['write', 'api', '--result', 'pass']);
+  assert.equal(gate(dir, ['check', 'api']).status, 0);
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'otro cambio\n');
+  const r = gate(dir, ['check', 'api']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /el contenido de un archivo tocado cambió/);
+  gate(dir, ['write', 'api', '--result', 'pass']);
+  h.write(dir, 'src/nuevo.ts', 'editado\n');
+  assert.match(gate(dir, ['check', 'api']).stderr, /el contenido de un archivo tocado cambió/);
+});
+
+test('una bandera escrita antes de la huella de contenido no vale → 1', () => {
+  const { dir, flag } = repo();
+  gate(dir, ['write', 'api', '--result', 'pass']);
+  const f = JSON.parse(fs.readFileSync(flag, 'utf8'));
+  delete f.contentHash;
+  fs.writeFileSync(flag, JSON.stringify(f));
+  assert.match(gate(dir, ['check', 'api']).stderr, /el contenido de un archivo tocado cambió/);
 });
 
 test('HEAD distinto → 1', () => {

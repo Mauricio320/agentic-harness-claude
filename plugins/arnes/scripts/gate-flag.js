@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Bandera de verificación por workspace: la escribe verify y la consulta el guard antes de un
-// commit. Archivo: <raíz del proyecto>/.tmp/harness/gate/<ws>.json = { head, touchedHash, result, at }
+// commit. Archivo: <raíz del proyecto>/.tmp/harness/gate/<ws>.json = { head, touchedHash, contentHash, result, at }
 //   head         HEAD del repo del workspace al escribirla
 //   touchedHash  sha256 de la lista ordenada de tocados respecto de HEAD (la de touched-files)
-// Vigente = existe, result "pass", mismo HEAD, mismo touchedHash y menos de 30 minutos. No lleva
-// huella del contenido del árbol: el CI garantiza la honestidad, no la bandera (docs/PLAN.md §6.1).
+//   contentHash  sha256 de "ruta\0sha256 del contenido" de cada tocado, trackeado o no
+// Vigente = existe, result "pass", mismo HEAD, mismos touchedHash y contentHash, y menos de 30
+// minutos. La huella cubre solo los tocados, no el árbol entero: el CI garantiza la honestidad, no
+// la bandera (docs/PLAN.md §6.1, §11).
 //
 // Uso: node gate-flag.js write <ws> --result pass|fail
 //      node gate-flag.js check <ws>
@@ -35,14 +37,17 @@ function stateOf(project, ws) {
   if (head.status !== 0) return { error: `git rev-parse HEAD falló en ${ws.name}: ${firstLine(head.stderr)}` };
   const t = touched(ws, 'HEAD', project);
   if (t.error) return { error: t.error };
-  const touchedHash = crypto.createHash('sha256').update(t.files.join('\n')).digest('hex');
-  return { head: head.stdout.trim(), touchedHash };
+  const sha = (data) => crypto.createHash('sha256').update(data).digest('hex');
+  const file = (f) => path.join(ws.dir, f);
+  const touchedHash = sha(t.files.join('\n'));
+  const contentHash = sha(t.files.map((f) => `${f}\0${fs.existsSync(file(f)) ? sha(fs.readFileSync(file(f))) : '-'}`).join('\n'));
+  return { head: head.stdout.trim(), touchedHash, contentHash };
 }
 
 function writeFlag(project, ws, result, now = new Date()) {
   const s = stateOf(project, ws);
   if (s.error) return s;
-  const flag = { head: s.head, touchedHash: s.touchedHash, result, at: now.toISOString() };
+  const flag = { head: s.head, touchedHash: s.touchedHash, contentHash: s.contentHash, result, at: now.toISOString() };
   const file = flagPath(project, ws);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(flag, null, 2) + '\n');
@@ -66,6 +71,7 @@ function checkFlag(project, ws, now = new Date()) {
   if (s.error) return s;
   if (s.head !== flag.head) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
   if (s.touchedHash !== flag.touchedHash) return { ok: false, reason: 'la lista de archivos tocados cambió desde la verificación' };
+  if (s.contentHash !== flag.contentHash) return { ok: false, reason: 'el contenido de un archivo tocado cambió desde la verificación' };
   return { ok: true };
 }
 
