@@ -5,11 +5,15 @@
 //
 // Uso: node timeline.js start <etapa> [--ws <nombre>] [--detail <texto>]
 //      node timeline.js end <etapa> [--result <ok|fail|texto>] [--ws <nombre>] [--detail <texto>]
+//      node timeline.js note <etapa> [--result <texto>] [--ws <nombre>] [--detail <texto>]
 //      node timeline.js print
 // Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"? }
-// "note" lo escriben los hooks (por ejemplo, el Stop que deja pasar un turno sin verificar).
+// "note" lo escriben los hooks (por ejemplo, el Stop que deja pasar un turno sin verificar) y las
+// skills: plan anota "esperando" al pedir la aprobación, ya fuera de su etapa, para que la
+// medición no le cargue el tiempo de la persona.
 // print: una línea por evento en hora local; cada fin lleva la duración desde su inicio (misma
-// etapa y mismo workspace), y al final va el total por etapa y lo que sigue sin fin.
+// etapa y mismo workspace), y el evento que sigue a una nota "esperando" lleva la espera. Al final
+// van el total por etapa, la espera de la persona y lo que sigue sin fin o esperando.
 // Exit: 0 anotado o impreso · 2 uso inválido o sin manifiesto
 
 'use strict';
@@ -61,11 +65,20 @@ function duration(ms) {
 function format(entries) {
   const open = new Map();
   const total = new Map();
+  const waiting = new Map();
+  const waited = new Map();
   const out = [];
   for (const e of entries) {
     const at = new Date(e.at);
     const k = `${e.stage}\u0000${e.ws || ''}`;
     let took = '';
+    if (waiting.has(k)) {
+      const ms = at - waiting.get(k).at;
+      waiting.delete(k);
+      waited.set(e.stage, (waited.get(e.stage) || 0) + ms);
+      took = `(espera ${duration(ms)})`;
+    }
+    if (e.event === 'note' && e.result === 'esperando') waiting.set(k, { stage: e.stage, ws: e.ws, at });
     if (e.event === 'start') open.set(k, { stage: e.stage, ws: e.ws, at });
     else if (e.event === 'end' && open.has(k)) {
       const ms = at - open.get(k).at;
@@ -77,7 +90,9 @@ function format(entries) {
     out.push(parts.filter(Boolean).join(' '));
   }
   if (total.size) out.push(`por etapa: ${[...total].map(([stage, ms]) => `${stage} ${duration(ms)}`).join(' · ')}`);
+  if (waited.size) out.push(`espera de la persona: ${[...waited].map(([stage, ms]) => `${stage} ${duration(ms)}`).join(' · ')}`);
   for (const o of open.values()) out.push(`sin fin: ${o.stage}${o.ws ? ` · ${o.ws}` : ''} desde ${stamp(o.at)}`);
+  for (const o of waiting.values()) out.push(`esperando: ${o.stage}${o.ws ? ` · ${o.ws}` : ''} desde ${stamp(o.at)}`);
   return out;
 }
 
@@ -102,7 +117,7 @@ function main() {
     console.log(entries.length ? [`timeline · ${file}`, ...format(entries)].join('\n') : `timeline vacía: ${file}`);
     return;
   }
-  if (!['start', 'end'].includes(event) || !stage) die('uso: timeline.js start|end <etapa> [--ws n] [--result r] [--detail t] | timeline.js print');
+  if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] | timeline.js print');
   if (event === 'start' && args.values.result) die('timeline: --result solo va con end');
   const project = requireProject();
   append(project.root, {

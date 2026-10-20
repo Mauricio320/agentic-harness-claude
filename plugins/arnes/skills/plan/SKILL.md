@@ -31,12 +31,13 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - `## Zonas de riesgo`: coteja cada archivo previsto con los globs de `riskPaths` de su workspace y lista los que caen, con el glob. Si cae alguno, escribe `REVISIÓN HUMANA OBLIGATORIA`. Si el workspace no declara `riskPaths`, dilo, y marca igual lo que toque migraciones, autenticación o permisos.
    - `## Preguntas`: solo cerradas (sí o no, o elegir una opción). Cada una lleva `Recomendación:` con su motivo, y `Alternativa:` real, con lo que cuesta o lo que cambia. Nada de preguntas abiertas.
    - `## Fuera de alcance`: lo que el issue no pide y no se hace.
-6. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. No edites código ni lances agentes antes de esa respuesta.
-7. Con la respuesta:
-   - Pasa las preguntas respondidas a `## Decisiones`, con lo elegido.
-   - Ajusta los criterios.
-   - Escribe `Aprobado: <fecha> por la persona` bajo el título.
-   - Anota el fin: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end plan --result ok`, o `--result cancelado` si la persona lo descarta.
-   - Si la persona aprobó construir, sigue con la skill build.
+6. Con el plan escrito, cierra la etapa y anota la espera. Desde aquí el tiempo es de la persona, no del plan:
+   - `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end plan --result ok --detail "plan escrito"`
+   - `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" note plan --result esperando --detail "aprobación de la persona"`
+7. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. No edites código ni lances agentes antes de esa respuesta.
+8. Con la respuesta, anota en la timeline lo que decidió la persona, con el mismo `timeline.js`:
+   - **Si aprueba:** `note plan --result aprobado`. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título. Si aprobó construir, sigue con la skill build.
+   - **Si pide cambios:** `start plan --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
+   - **Si lo descarta:** `note plan --result cancelado`.
 
 Si `.tmp/harness/plan.md` ya existe y es de otro issue, pregunta antes de pisarlo. Una decisión de arquitectura que salga del plan se guarda después con la skill memory, no aquí.
