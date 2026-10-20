@@ -2,6 +2,37 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [Sin publicar]
+
+Fase 3, primera mitad: verify, review y ship con sus agentes. `version` sigue en 0.4.0; la fase 3 completa sube a 0.5.0. Probado con Claude Code 2.1.304 y Node 24, con tests de juguete y en un clon local de api-academico (`docs/PRUEBA-FASE-3A.md`).
+
+### Añadido
+- `/arnes:verify`, invocable por el modelo. Por cada workspace tocado corre `ci-gate.js --base HEAD`: el typecheck contra una foto del HEAD, el lint de los tocados y los specs de test-select con la línea base. Lanza `arnes:test-writer` solo si hay código nuevo sin spec, escribe la bandera solo si el gate salió con 0 y anota la etapa en la timeline.
+- `/arnes:review`, invocable por el modelo. Lanza `arnes:reviewer` una sola vez sobre el árbol final, con la entrada de `review.js input` y el plan si existe. Marca la revisión con `review.js mark` y resume los hallazgos por archivo, bloqueantes primero.
+- `/arnes:ship`, solo por la persona:
+  - exige bandera vigente y revisión del árbol actual sin bloqueantes;
+  - usa la misma rama con el prefijo del manifiesto en los workspaces tocados;
+  - hace un commit por workspace, back antes que front, con la convención del repo;
+  - pide confirmación explícita antes de cualquier push o MR. Los MR van por `glab` o `gh`, con los enlaces cruzados y REVISIÓN HUMANA OBLIGATORIA si tocó riskPaths.
+  `--solo-commit` se detiene después de commitear. La condición de worktrees abiertos queda preparada para el ledger.
+- Agentes, cada uno con su `model` y su `effort`:
+  - `reviewer` (opus): solo lectura con Read, Grep y Glob. Aplica la lista cerrada de bloqueantes de §6.4 y las reglas duras de `.claude/rules`, revisa el cumplimiento de criterios si hay plan y marca REVISIÓN HUMANA OBLIGATORIA.
+  - `test-writer` (sonnet): specs solo para código nuevo o cambiado, contra el estándar de tests del repo.
+  - `test-runner` (haiku): corre `test-baseline.js check` y copia la salida sin reclasificar.
+- `test-baseline.js` (mejora 1 de §6.1): la línea base de tests commiteada.
+  - Guarda conteos por spec y los saltos por nombre, con el formato `$defs.testBaselineFile` del schema y la ruta `testBaseline` opcional en el workspace.
+  - Un test borrado o saltado, o un spec de la base que ya no existe, pone el gate en rojo.
+  - Las fallas que coinciden exacto con una línea fechada de `tests/known-failures.txt` salen como preexistentes y no ponen rojo.
+- `review.js` (input, mark, check) y `ship.js` (check, branch, stage).
+- `test-select --missing` y `touched-files --workspaces`.
+- `adoption-check` comprobación 8: la línea base de tests, válida y commiteada.
+- Tests con `node --test` para todo lo anterior, incluida la salida real de jest 30 en Windows como fixture, y un test de presupuesto y política de invocación de skills y agentes.
+
+### Cambiado
+- `ci-gate` juzga sus tests con `test-baseline.js`. Un spec de la base borrado o una base ilegible ya no pasan como "sin cambios de código".
+- El validador de `lib/manifest.js` admite `additionalProperties` como schema y `minimum`, y valida contra una definición de `$defs` (`validateDef`).
+- `docs/PLAN.md` §4, §6.1, §6.3 y §6.4 registran los cambios de la fase 3a.
+
 ## [0.4.0] - sin etiquetar
 
 Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude Code 2.1.303. `claude plugin validate` y `claude plugin test` corrieron con 2.1.304, porque el CLI se actualizó solo durante la sesión. La prueba manual (`docs/PRUEBA-FASE-2B.md`) se hizo el 2026-10-19 con 2.1.304; su resultado está al final de la guía. La repetición tras las correcciones salió como está escrita, y la fase 2b queda cerrada.

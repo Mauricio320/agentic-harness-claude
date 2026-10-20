@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 2. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas, `/arnes:init` y los hooks clásicos: una sesión normal lintea al editar, no deja commitear sin bandera de verificación y no cierra un turno con código sin verificar sin avisar una vez. Todavía no hay agentes ni el resto de las skills.
+Estado: fase 3, primera mitad. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas, `/arnes:init`, los hooks clásicos, el mod `arnes-ui` y `/arnes:timeline`. A eso se suman `/arnes:verify`, `/arnes:review` y `/arnes:ship`, con los agentes `reviewer`, `test-writer` y `test-runner` y la línea base de tests commiteada. Faltan `plan`, `build`, `worktree`, `memory` y `sync`, el agente `dev`, el ledger de worktrees y el aviso de sesión concurrente.
 
 ## Principios
 

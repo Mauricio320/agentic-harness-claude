@@ -93,7 +93,10 @@ agentic-harness/
         merged-files.js                  # intersección real tras un merge
         worktree-ledger.js               # registro de worktrees por issue; pendientes de integrar
         gate-flag.js                     # escribe/valida la bandera de verificación
-        adoption-check.js                # las 7 comprobaciones del mínimo
+        test-baseline.js                 # línea base de tests commiteada: capture y check (§6.1)
+        review.js                        # entrada del reviewer sin Bash y marca de revisión hecha
+        ship.js                          # check, rama y stage de ship
+        adoption-check.js                # las 8 comprobaciones del mínimo
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
         hooks/{session-start,prompt-context,after-edit,guard,read-guard,stop-gate,worktree-remove}.js
       tests/                             # repos de juguete + node --test; corre en CI del arnés
@@ -196,6 +199,7 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 - `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada; ningún hook del `.claude/settings.json` de un repo o de la carpeta que corra scripts propios de `.claude/hooks/`. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
 - `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cachear la foto por SHA del merge-base queda como mejora posterior, fuera de la fase 1.
 - Línea base de tests commiteada (mejora tomada de coding-agent-harness; se construye en la fase 3). `ci-gate` y `verify` comparan los totales de tests que pasan, fallan y se saltan contra una línea base commiteada en el repo: `tests/baseline.json`, o la ruta que fije el schema. Si el total cae por debajo de la base, el gate se pone rojo aunque lo que queda esté verde, porque un test borrado o saltado es una regresión silenciosa. Los saltos se declaran por nombre en la base. Un commit que cambia la base lleva el prefijo `gates:` en el asunto.
+  Cambio de la fase 3a (2026-10-19): la base guarda los conteos por spec, no solo los totales, porque `verify` y `ci-gate` corren solo los specs de `test-select`. Se compara la suma de los specs que corrieron contra la suma de esos mismos specs en la base, y un spec de la base que ya no existe es rojo aunque no haya otro código tocado. El formato es `$defs.testBaselineFile` del schema y la ruta se cambia con `testBaseline` en el workspace. Las fallas preexistentes salen de `tests/known-failures.txt`, con una línea `AAAA-MM-DD | <spec> | <nombre completo>` por test: solo cuenta la coincidencia exacta, no ponen rojo y salen en el reporte con su fecha. Una línea sin fecha no absuelve.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
 | Evento | Script | Hace |
@@ -216,13 +220,18 @@ Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. S
 - `verify`: scripts del §6.1 sobre los workspaces tocados; `test-writer` solo si hay código nuevo sin spec; escribe la bandera. Reporta "verde = compila y testea".
 - `review`: `reviewer` una vez sobre el árbol final, con el plan y la lista de tocados; sección de cumplimiento de criterios; si toca `riskPaths`, marca `REVISIÓN HUMANA OBLIGATORIA` en el reporte y en el cuerpo del MR.
 - `ship`: misma rama en todos los workspaces tocados, commits back → front, push y MR/PR cruzados; se niega si el ledger tiene worktrees abiertos del issue; convención de commits del repo (lee `commitlint`/`CLAUDE.md`).
+- Cambio de la fase 3a (2026-10-19):
+  - `verify` corre `ci-gate.js --ws <ws> --base HEAD` por workspace tocado: el mismo motor que el CI, sobre los cambios sin commitear. La foto del HEAD sale de `git archive`, con la clave y los conteos de `typecheck-baseline`.
+  - "Código nuevo sin spec" son los archivos agregados o sin trackear sin spec (`test-select --missing`).
+  - `review` prepara con `review.js input` lo que el reviewer, sin Bash, no puede sacar: el diff contra HEAD, los tocados, las riskPaths tocadas y las reglas. Después marca la revisión con la misma huella de la bandera.
+  - `ship` exige la revisión del árbol actual y sin bloqueantes, y hace un solo commit por workspace, porque el guard pide bandera vigente en cada commit y el primero cambia el HEAD.
 - `worktree`: §7.
 - `memory`: `decision` escribe `docs/decisions/YYYY-MM-DD-<slug>.md` (qué, por qué, alternativa descartada); `gotcha` añade a `docs/gotchas.md`; `recall` consulta esos archivos y graphify. Sin MCP.
 - `sync`: versión de 60 líneas del `sync-branch` actual: respaldo, fetch, merge contra `origin/<rama>`, `merged-files`, verify.
 - `timeline`: imprime `.tmp/harness/timeline.jsonl` como texto, con duración por etapa. Cada skill anota su inicio y su fin con `lib/timeline.js`, así la medición existe aunque `arnes-ui` no esté instalado (CI, otra máquina, sesión sin mods); el mod solo la dibuja.
 
 ### 6.4 Agentes
-`dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.
+`dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.
 
 ### 6.5 Mod `arnes-mod` (fase 5, dos piezas, nada más)
 1. `prompt.compose`: sección `arnes:protocol` (≤ 25 líneas) en el system prompt, `scope: session`.
