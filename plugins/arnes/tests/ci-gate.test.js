@@ -202,3 +202,42 @@ test('--base HEAD, como lo corre verify: los cambios sin commitear contra el HEA
   assert.match(r.stdout, /--base HEAD\) · 1 tocado\(s\), 1 de código/);
   assert.match(r.stdout, /tests\s+ok · 1 spec\(s\) · 2 pasan, 0 fallan, 0 saltados · base 2 pasan, 0 fallan, 0 saltados/);
 });
+
+// ---------- foto del base reutilizada por hash ----------
+
+test('la foto del base se reutiliza mientras el hash sea el mismo y se captura cuando cambia', () => {
+  const { dir } = repo();
+  const log = path.join(h.tmp('tsc-log'), 'corridas.txt');
+  const runs = () => (fs.existsSync(log) ? h.lines(fs.readFileSync(log, 'utf8')).length : 0);
+  const verify = () => h.run('ci-gate.js', ['--base', 'HEAD'], { cwd: dir, env: h.withPath(BIN, { CI_MERGE_REQUEST_DIFF_BASE_SHA: '', TSC_LOG: log }) });
+  const photo = path.join(dir, '.tmp', 'harness', 'typecheck', 'api.txt');
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'b\n');
+  let r = verify();
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /typecheck\s+ok · sin diagnósticos nuevos \(base 1, ahora 1\) · foto del base capturada/);
+  assert.equal(runs(), 2, 'la foto del base y el árbol actual');
+  assert.match(fs.readFileSync(photo, 'utf8'), new RegExp(`^BASELINE: ${h.git(dir, 'rev-parse', 'HEAD')}$`, 'm'));
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'c\n');
+  r = verify();
+  assert.match(r.stdout, /typecheck\s+ok · sin diagnósticos nuevos \(base 1, ahora 1\) · foto del base reutilizada/);
+  assert.equal(runs(), 3, 'solo el árbol actual');
+  h.commitAll(dir);
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'd\n');
+  r = verify();
+  assert.match(r.stdout, /foto del base capturada/);
+  assert.equal(runs(), 5, 'el HEAD cambió: se captura otra vez');
+  assert.match(fs.readFileSync(photo, 'utf8'), new RegExp(`^BASELINE: ${h.git(dir, 'rev-parse', 'HEAD')}$`, 'm'));
+});
+
+test('una foto del base que no llegó a correr no se guarda', () => {
+  const { dir } = repo();
+  fs.writeFileSync(path.join(dir, 'tsc-out.txt'), '');
+  fs.writeFileSync(path.join(dir, 'tsc-exit.txt'), '1');
+  h.commitAll(dir, 'tsc roto en el base');
+  fs.rmSync(path.join(dir, 'tsc-exit.txt'));
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'b\n');
+  const r = gate(dir, ['--base', 'HEAD']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /el typecheck del base no corrió/);
+  assert.ok(!fs.existsSync(path.join(dir, '.tmp', 'harness', 'typecheck', 'api.txt')));
+});

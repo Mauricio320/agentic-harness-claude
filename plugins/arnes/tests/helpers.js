@@ -106,7 +106,9 @@ function withPath(dir, extra = {}) {
 }
 
 // tsc falso: imprime tsc-out.txt del cwd; sale con el número de tsc-exit.txt, o 2 si hay errores.
+// Con TSC_LOG, anota cada corrida en ese archivo.
 const FAKE_TSC = `const fs = require('fs');
+if (process.env.TSC_LOG) fs.appendFileSync(process.env.TSC_LOG, process.cwd() + '\\n');
 const out = fs.existsSync('tsc-out.txt') ? fs.readFileSync('tsc-out.txt', 'utf8') : '';
 process.stdout.write(out);
 process.exit(fs.existsSync('tsc-exit.txt') ? Number(fs.readFileSync('tsc-exit.txt', 'utf8')) : /error TS/.test(out) ? 2 : 0);

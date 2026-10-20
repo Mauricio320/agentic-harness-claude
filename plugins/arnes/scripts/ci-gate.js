@@ -4,7 +4,8 @@
 //   1. typecheck: foto del base contra el árbol actual, misma clave y conteos que typecheck-baseline.
 //      La foto sale de `git archive <base>` a un directorio temporal (no toca .git, ni crea ramas ni
 //      worktrees), con node_modules enlazado: symlink en CI, junction en Windows, copia si no se
-//      puede enlazar. Cachearla por SHA del merge-base queda para después de la fase 1.
+//      puede enlazar. Queda en .tmp/harness/typecheck/<ws>.txt y se reutiliza mientras el hash del
+//      base sea el mismo.
 //   2. lint sobre los tocados que caen en codeGlobs
 //   3. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
 //      test-baseline.js: contra la línea base de tests commiteada, si el workspace la tiene, y con
@@ -24,7 +25,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, sh, quote, runExpanded, firstLine, tail, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
@@ -99,17 +100,41 @@ function baseTypecheck(ws, hash, cmds) {
   }
 }
 
-function stepTypecheck(ws, base) {
+// Foto del base en .tmp/harness/typecheck/<ws>.txt, con el formato de typecheck-baseline: la salida,
+// BASELINE: <hash> y TYPECHECK_EXIT: <n>. Se reutiliza si su hash es el del base, y solo se captura
+// cuando cambió; verify corre con --base HEAD y sin ella cada verify corría el typecheck dos veces.
+// No se guarda una corrida que no llegó a correr. Un cambio de node_modules con el mismo HEAD no la
+// vence: borrar el archivo fuerza la captura. En CI, .tmp no persiste y siempre se captura.
+function photoPath(project, ws) {
+  return path.join(harnessDir(project), 'typecheck', `${ws.name}.txt`);
+}
+
+function cachedPhoto(file, hash) {
+  if (!fs.existsSync(file)) return null;
+  const text = fs.readFileSync(file, 'utf8');
+  const b = text.match(/^BASELINE: (\S+)$/m);
+  const e = text.match(/^TYPECHECK_EXIT: (-?\d+)$/m);
+  return b && e && b[1] === hash ? { out: text, exit: Number(e[1]) } : null;
+}
+
+function stepTypecheck(project, ws, base) {
   const cmds = ws.commands.typecheck;
   if (!cmds) return { status: 'omitido', detail: 'sin commands.typecheck' };
   const { parse, error } = tb.workspaceParser(cmds);
   if (error) return { status: 'falla', detail: error };
-  const before = baseTypecheck(ws, base.hash, cmds);
+  const file = photoPath(project, ws);
+  const cached = cachedPhoto(file, base.hash);
+  const before = cached || baseTypecheck(ws, base.hash, cmds);
   if (before.error) return { status: 'falla', detail: before.error };
   const baseCounts = tb.countDiagnostics(parse(before.out));
   if (tb.invalidRunReason(baseCounts, before.exit)) {
     return { status: 'falla', detail: `el typecheck del base no corrió; no hay contra qué comparar`, out: tail(before.out, 10) };
   }
+  if (!cached) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${before.out}BASELINE: ${base.hash}\nTYPECHECK_EXIT: ${before.exit}\n`);
+  }
+  const photo = `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
   const now = tb.runTypecheck(cmds, ws.dir);
   const nowCounts = tb.countDiagnostics(parse(now.out));
   const bad = tb.invalidRunReason(nowCounts, now.exit);
@@ -117,9 +142,9 @@ function stepTypecheck(ws, base) {
   const nuevos = tb.diffCounts(baseCounts, nowCounts);
   if (nuevos.length) {
     const out = nuevos.map((n) => `${n.file} · ${n.code} · ${n.msg}${n.delta > 1 ? ` (×${n.delta})` : ''}`).join('\n');
-    return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s)`, out };
+    return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s) · ${photo}`, out };
   }
-  return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)})` };
+  return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)}) · ${photo}` };
 }
 
 function stepLint(ws, code) {
@@ -178,7 +203,7 @@ function main() {
       continue;
     }
     for (const [name, step] of [
-      ['typecheck', () => stepTypecheck(ws, base)],
+      ['typecheck', () => stepTypecheck(project, ws, base)],
       ['lint', () => stepLint(ws, code)],
       ['tests', () => stepTests(ws, files)],
     ]) {
