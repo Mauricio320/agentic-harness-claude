@@ -30,8 +30,12 @@ export type GateRow = {
   flag?: Flag
 }
 
-// Lo leído de .tmp/harness: la primera línea de plan.md y las últimas líneas de la timeline.
-export type Files = { plan?: string; timeline: { at: number; text: string }[] }
+// Un worktree abierto del registro .tmp/harness/worktrees.json, el de worktree-ledger.js.
+export type Worktree = { ws: string; branch: string; target: string }
+
+// Lo leído de .tmp/harness: la primera línea de plan.md, las últimas líneas de la timeline y los
+// worktrees sin integrar.
+export type Files = { plan?: string; timeline: { at: number; text: string }[]; worktrees: Worktree[] }
 
 // Una corrida cerrada: las etapas de un turno del hilo principal.
 export type Run = { at: number; reason: string; stages: StageDone[] }

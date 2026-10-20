@@ -6,7 +6,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Agent, Files, GateRow, Mark, Run } from '../types'
 import { AGENTS, CODE_GLOBS, MANIFEST, SKILLS, agentText, blankRow, bandText, classify, fresh, globRe, join, key, label, locate, mins, nextStep,
-  paneText, parseStatus, slash, stopBlocks, summary, timelineLines, tokensOf } from './lib'
+  openWorktrees, paneText, parseStatus, slash, stopBlocks, summary, timelineLines, tokensOf, wtText } from './lib'
 import type { Probe, Ws } from './lib'
 
 type $ = EngineInterface
@@ -17,7 +17,7 @@ const done = atom({ plugin: 'arnes-ui', key: 'done' } as const, [])
 const agents = atom({ plugin: 'arnes-ui', key: 'agents' } as const, [])
 const gate = atom({ plugin: 'arnes-ui', key: 'gate' } as const, [])
 const thinking = atom({ plugin: 'arnes-ui', key: 'thinking' } as const, false)
-const files = atom({ plugin: 'arnes-ui', key: 'files' } as const, { timeline: [] })
+const files = atom({ plugin: 'arnes-ui', key: 'files' } as const, { timeline: [], worktrees: [] })
 const history = atom({ plugin: 'arnes-ui', key: 'history' } as const, [])
 const now = atom({ plugin: 'arnes-ui', key: 'now' } as const, 0)
 
@@ -79,7 +79,7 @@ async function gitState($: $, w: Ws): Promise<Partial<GateRow>> {
   return { ...row, changedAt: Math.max(0, ...mtimes) }
 }
 
-// Relee .tmp/harness (banderas, plan.md, timeline) y, si hace falta, el estado git de cada workspace.
+// Relee .tmp/harness (banderas, plan.md, timeline, worktrees.json) y, si hace falta, el git de cada workspace.
 async function refresh($: $, withGit: boolean): Promise<void> {
   if (!root) return
   const dir = join(root, '.tmp/harness')
@@ -99,7 +99,8 @@ async function refresh($: $, withGit: boolean): Promise<void> {
   for (const b of seenBlock === Infinity ? [] : stopBlocks(text, seenBlock)) alert($, `arnes: el Stop bloqueó el turno · ${b.detail}`)
   seenBlock = Math.max(0, ...stopBlocks(text, 0).map((b) => b.at))
   const plan = (await readText($, join(dir, 'plan.md'))).split('\n').find((l) => l.trim())
-  const next: Files = { plan: plan?.replace(/^#+\s*/, '').trim(), timeline: timelineLines(text) }
+  const worktrees = openWorktrees(await readJson($, join(dir, 'worktrees.json')))
+  const next: Files = { plan: plan?.replace(/^#+\s*/, '').trim(), timeline: timelineLines(text), worktrees }
   if (JSON.stringify(next) === JSON.stringify(await read($, files))) return
   const t = await $.clock.now()
   await update($, files, () => next)
@@ -179,10 +180,7 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'arnes-panel' }, async ($) => {
-    if ((await $.ui.panes()).some((p) => p.id === PANE && p.isPlaced)) {
-      await $.ui.close({ id: PANE })
-      return { text: 'Panel del arnés cerrado.' }
-    }
+    if ((await $.ui.panes()).some((p) => p.id === PANE && p.isPlaced)) return (await $.ui.close({ id: PANE }), { text: 'Panel del arnés cerrado.' })
     const opened = await $.ui.open({ id: PANE, title: 'arnes' })
     return { text: opened.isPlaced ? 'Panel del arnés abierto.' : `El panel no se pudo mostrar: ${opened.reason}` }
   }).catch(() => ({ text: 'arnes-ui: el panel falló; el arnés sigue igual.' }))
@@ -264,7 +262,7 @@ export const register: Register = (on) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || !(await read($, project))) return next(e)
     const { Text } = $.ui.resolve(e)
-    const text = bandText(await read($, stage), await read($, thinking), await read($, agents), await read($, gate), await read($, now))
+    const text = bandText(await read($, stage), await read($, thinking), await read($, agents), await read($, gate), await read($, now), (await read($, files)).worktrees)
     return <Text dimColor wrap="truncate">{text}</Text>
   })
 
@@ -290,10 +288,12 @@ export const register: Register = (on) => {
         {e.props.view.agentId !== undefined && <Button key="ver-principal" label="volver a la conversación" onPress={() => void $.ui.view({})} />}
         <Text bold>Gate</Text>
         {p.gate.map((g) => line(g))}
+        {fl.worktrees.length > 0 && <Text bold>Worktrees sin integrar</Text>}
+        {fl.worktrees.map((w) => line(wtText(w)))}
         {fl.plan && line(`Plan: ${fl.plan}`)}
         {fl.timeline.length > 0 && <Text bold>Timeline</Text>}
         {fl.timeline.map((x) => line(`  hace ${mins(Math.max(0, t - x.at))} · ${x.text}`, true))}
-        <Text color="suggestion" wrap="truncate">{`Lo que sigue: ${nextStep(rows, t)}`}</Text>
+        <Text color="suggestion" wrap="truncate">{`Lo que sigue: ${nextStep(rows, t, fl.worktrees)}`}</Text>
       </Box>
     )
   })

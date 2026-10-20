@@ -1,6 +1,6 @@
 // Lo puro de arnes-ui: rutas, globs, formatos y la lectura de comandos y de git. No toca $: lo usan
 // register.tsx y los tests.
-import type { Agent, GateRow, Mark, Run, Stage, StageDone } from '../types'
+import type { Agent, GateRow, Mark, Run, Stage, StageDone, Worktree } from '../types'
 
 export type Ws = { name: string; dir: string; gitRoot: string; commands: Record<string, unknown>; riskPaths: string[]; codeGlobs: string[] }
 export type Probe = { label: string; ws?: string; col?: 'tsc' | 'tests' }
@@ -162,15 +162,27 @@ export function summary(stages: StageDone[]): string {
   return `arnes · corrida: ${list.map((s) => `${s.name} ${mins(s.ms)}`).join(' · ')} · más lenta: ${slow.name} · más cara: ${dear.name} (${money(dear.usd)})`
 }
 
-// La banda: una línea con la etapa (o Pensando…), los agentes vivos y el gate de cada workspace.
-export function bandText(st: Stage | null, isThinking: boolean, ags: Agent[], rows: GateRow[], t: number): string {
+// Los abiertos de worktrees.json ({ version, worktrees: [{ ws, branch, target, status, … }] }):
+// abierto es sin integrar, como en `worktree-ledger.js pending`. Sin registro, ninguno.
+export function openWorktrees(data: unknown): Worktree[] {
+  const list = (data as { worktrees?: unknown } | null)?.worktrees
+  return (Array.isArray(list) ? list : [])
+    .filter((e) => e?.status === 'abierto')
+    .map((e) => ({ ws: String(e.ws), branch: String(e.branch), target: String(e.target) }))
+}
+
+export const wtText = (w: Worktree) => `  ${w.ws} · ${w.branch} → ${w.target}`
+
+// La banda: una línea con la etapa (o Pensando…), los agentes vivos, el gate de cada workspace y
+// los worktrees sin integrar.
+export function bandText(st: Stage | null, isThinking: boolean, ags: Agent[], rows: GateRow[], t: number, wts: Worktree[] = []): string {
   const head = st ? `${label(st)} ${clock(t - st.startedAt)}` : isThinking ? 'Pensando…' : 'listo'
   const live = ags.filter((a) => !a.endedAt).map((a) => `${short(a.type, a.model)} ${clock(t - a.startedAt)}`)
   const flag = (r: GateRow) => (!r.flag ? '' : !fresh(r, t) ? 'flag vencida' : r.flag.result === 'pass' ? '✓flag' : '✗flag')
   const marks = rows.map((r) =>
     [r.ws, ...(['tsc', 'tests', 'review'] as const).filter((c) => r[c]).map((c) => sym(r[c]) + c), r.edited.length ? `✎${r.edited.length}` : '', flag(r)]
       .filter(Boolean).join(' '))
-  return ['arnes ▸ ' + head, ...live, ...marks].join(' · ')
+  return ['arnes ▸ ' + head, ...live, ...marks, ...(wts.length ? [`${wts.length} wt sin integrar`] : [])].join(' · ')
 }
 
 // El texto del panel: la cronología de la corrida con duración y costo, el promedio por etapa de
@@ -192,9 +204,10 @@ export function paneText(st: Stage | null, ds: StageDone[], runs: Run[], rows: G
 export const agentText = (a: Agent, t: number) =>
   `  ${short(a.type, a.model)} ${clock((a.endedAt ?? t) - a.startedAt)}${a.lastTool ? ` · ${a.lastTool}` : ''}${a.tokens ? ` · ${Math.round(a.tokens / 1000)}k tok` : ''} `
 
-export function nextStep(rows: GateRow[], t: number): string {
+export function nextStep(rows: GateRow[], t: number, wts: Worktree[] = []): string {
   const bad = rows.find((r) => r.tsc === 'fail' || r.tests === 'fail' || (fresh(r, t) && r.flag?.result === 'fail'))
   if (bad) return `corregir y volver a verificar ${bad.ws}`
+  if (wts.length) return `falta integrar ${wts[0]!.branch}${wts.length > 1 ? ` y ${wts.length - 1} más` : ''} (/arnes:worktree integrate)`
   const pending = rows.find((r) => r.code > 0 && !(fresh(r, t) && r.flag?.result === 'pass'))
   if (pending) return `falta verificar ${pending.ws} (${pending.code} archivo(s) de código)`
   return rows.some((r) => r.code > 0) ? 'verificado: listo para commit' : 'nada pendiente'

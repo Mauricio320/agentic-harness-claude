@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { bandText, classify, parseStatus, timelineLines } from '../hooks/lib'
+import { bandText, classify, openWorktrees, parseStatus, timelineLines } from '../hooks/lib'
 import type { Ws } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
@@ -185,6 +185,24 @@ test('una edición fuera de Edit/Write vence la bandera por la fecha de modifica
   expect(await bandOf($)).toBe('arnes ▸ listo · api flag vencida')
 })
 
+const LEDGER = `${ROOT}/.tmp/harness/worktrees.json`
+const entry = (slug: string, status: string) => ({ ws: 'api', path: `${ROOT}/.tmp/harness/worktrees/api/${slug}`, branch: `wt/feature/x/${slug}`, target: 'feature/x', issue: '#7', openedAt: '2026-10-19T14:00:00Z', status })
+
+test('los worktrees sin integrar del registro salen en la banda, en el panel y en lo que sigue', async ($, on) => {
+  const { clock, files } = world(on, { ...FILES, [LEDGER]: JSON.stringify({ version: 1, worktrees: [entry('tarifas', 'abierto'), entry('viejo', 'integrado')] }) })
+  await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
+  expect(await bandOf($)).toBe('arnes ▸ listo · api · 1 wt sin integrar')
+  const props = { title: 'arnes', isFocused: true, bodyColumns: 120, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {} }
+  const ui = await $.ui.mount({ plugin: 'arnes-ui', surface: 'terminal', component: 'Pane', requestId: 'arnes', props })
+  expect((await ui.find({ type: 'Text', text: 'Worktrees sin integrar' }))?.text).toBe('Worktrees sin integrar')
+  expect((await ui.find({ type: 'Text', text: /wt\/feature/ }))?.text).toBe('  api · wt/feature/x/tarifas → feature/x')
+  expect((await ui.find({ type: 'Text', text: /^Lo que sigue/ }))?.text).toBe('Lo que sigue: falta integrar wt/feature/x/tarifas (/arnes:worktree integrate)')
+  await ui.unmount()
+  files[LEDGER] = JSON.stringify({ version: 1, worktrees: [entry('tarifas', 'integrado')] })
+  await clock.advance(3000)
+  expect(await bandOf($)).toBe('arnes ▸ listo · api')
+})
+
 test('la timeline del panel muestra la edad real desde el primer dibujo', async ($, on) => {
   world(on, { ...FILES, [TIMELINE]: note('2026-10-19T14:58:00Z', 'pendiente', 'turno cerrado sin verificar: api') })
   await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
@@ -209,6 +227,9 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   const own = `${STATUS}? .tmp/harness/gate/api.json\n`
   expect(parseStatus(own, both[1]!, `${ROOT}/api-academico/.tmp/harness`).paths).toEqual(['src/a.ts', 'notas.md'])
   expect(bandText(null, true, [], [], 0)).toBe('arnes ▸ Pensando…')
+  expect(openWorktrees(null)).toEqual([])
+  expect(openWorktrees({ worktrees: 'roto' })).toEqual([])
+  expect(openWorktrees({ worktrees: [{ ws: 'api', branch: 'wt/a/b', target: 'a', status: 'abierto' }, { status: 'cerrado' }] })).toEqual([{ ws: 'api', branch: 'wt/a/b', target: 'a' }])
   const note = '{"at":"2026-10-19T20:51:39.290Z","event":"note","stage":"stop-gate","result":"pendiente","detail":"turno cerrado sin verificar: api"}'
   expect(timelineLines(`${note}\n{"at": "cortada`)).toEqual([{ at: Date.parse('2026-10-19T20:51:39.290Z'), text: 'stop-gate nota pendiente · turno cerrado sin verificar: api' }])
 })
