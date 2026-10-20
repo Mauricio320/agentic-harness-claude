@@ -3,14 +3,31 @@
 // ✓ terminó bien · ✗ terminó en error · ⏳ corriendo
 export type Mark = 'ok' | 'fail' | 'run'
 
-// Etapa en curso: desde cuándo y cuánto marcaba /cost al entrar (para el costo de la etapa).
-export type Stage = { name: string; detail?: string; startedAt: number; usd: number }
+// Etapa abierta en la timeline: desde cuándo, su clave (etapa|workspace) y, si el mod vio su
+// inicio, cuánto marcaba /cost entonces (para su costo hasta ahora).
+export type Stage = { name: string; detail?: string; startedAt: number; id?: string; usd?: number }
 
-export type StageDone = { name: string; detail?: string; ms: number; usd: number }
+// Etapa cerrada: su duración y, si arnes-ui anotó la nota de costo, cuánto costó.
+export type StageDone = { name: string; detail?: string; ms: number; usd?: number }
+
+// La espera de la persona en la corrida: lo sumado entre cada cierre de turno y su respuesta, y
+// desde cuándo se espera ahora (null si no se espera).
+export type Wait = { ms: number; n: number; since: number | null }
+
+// La corrida actual, calculada de la timeline: desde el último start de plan, o desde que empezó la
+// sesión si no hubo plan.
+export type Corrida = { since: number; stages: StageDone[]; open: Stage | null; wait: Wait }
+
+// El reloj y el costo de la sesión, de $.session.usage().
+export type Session = { startedAt: number; usd?: number }
+
+// Los tokens de un agente sumados en todos sus requests: fresh es entrada, salida y escritura de
+// caché; cached, las lecturas de caché.
+export type Tokens = { fresh: number; cached: number }
 
 // Un subagente lanzado en la sesión; endedAt marca que terminó y tokens lo que costó su turno. usd es
 // lo que marcaba /cost al lanzarlo y cost la diferencia al terminar: la fórmula de las etapas.
-export type Agent = { id: string; type: string; model: string; startedAt: number; usd?: number; endedAt?: number; lastTool?: string; tokens?: number; cost?: number }
+export type Agent = { id: string; type: string; model: string; startedAt: number; usd?: number; endedAt?: number; lastTool?: string; tokens?: Tokens; cost?: number }
 
 // La bandera de .tmp/harness/gate/<ws>.json, con `at` en milisegundos.
 export type Flag = { result: string; at: number; head?: string }
@@ -38,15 +55,15 @@ export type Worktree = { ws: string; branch: string; target: string }
 // worktrees sin integrar.
 export type Files = { plan?: string; timeline: { at: number; text: string }[]; worktrees: Worktree[] }
 
-// Una corrida cerrada: las etapas de un turno del hilo principal.
+// Una corrida cerrada al terminar ship: sus etapas.
 export type Run = { at: number; reason: string; stages: StageDone[] }
 
 declare module 'claude-code' {
   interface PluginState {
     'arnes-ui': {
       project: { name: string; root: string } | null
-      stage: Stage | null
-      done: StageDone[]
+      run: Corrida
+      session: Session | null
       agents: Agent[]
       gate: GateRow[]
       thinking: boolean
