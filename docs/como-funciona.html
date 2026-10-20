@@ -419,15 +419,16 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
       <h3>Hook clásico</h3>
       <p>Un <dfn>hook</dfn> es un programa chiquito que Claude Code corre solo en un momento fijo, sin preguntarle al modelo. Recibe un JSON con lo que está pasando y puede responder "agrega este contexto", "no dejes correr esto" o "no termines todavía". En esta página les decimos <strong>guardias</strong>. El arnés los escribe todos en Node, sin bash, para que corran igual en PowerShell, Git Bash y el CI.</p>
-      <p>Estos son los momentos (<dfn>eventos</dfn>) de una sesión, en orden:</p>
+      <p>Estos son los momentos (<dfn>eventos</dfn>) de una sesión, en orden, y el guardia del arnés que Claude Code dispara en cada uno según <code>hooks/hooks.json</code>. Son ocho guardias en seis eventos: <code>PreToolUse</code> tiene tres, uno por tipo de herramienta.</p>
       <div class="turn">
-        <div class="ev"><code>SessionStart</code><div>Cuando abres la sesión (o después de un <code>/clear</code>). Antes de que escribas nada.</div></div>
-        <div class="ev"><code>UserPromptSubmit</code><div>Cada vez que mandas un mensaje, antes de que Claude lo lea.</div></div>
-        <div class="ev"><code>PreToolUse</code><div>Justo antes de que Claude use una herramienta: correr un comando, leer un archivo, salir de un worktree. Aquí se puede negar.</div></div>
-        <div class="ev"><code>PostToolUse</code><div>Justo después de que la herramienta terminó, por ejemplo después de editar un archivo.</div></div>
-        <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".</div></div>
-        <div class="ev"><code>SessionEnd</code><div>Cuando cierras la sesión.</div></div>
+        <div class="ev"><code>SessionStart</code><div>Cuando abres la sesión (o después de un <code>/clear</code>), antes de que escribas nada.<br><span class="badge b-script">session-start.js</span> Lee el manifiesto y le inyecta a Claude el estado del proyecto y el protocolo del arnés. Además escribe el candado de la sesión.</div></div>
+        <div class="ev"><code>UserPromptSubmit</code><div>Cada vez que mandas un mensaje, antes de que Claude lo lea.<br><span class="badge b-script">prompt-context.js</span> Adjunta una línea por workspace con lo tocado, si la bandera está vigente y si se tocó una zona de riesgo. También saca la foto del turno. Nunca bloquea.</div></div>
+        <div class="ev"><code>PreToolUse</code><div>Justo antes de que Claude use una herramienta. Aquí se puede negar.<br><span class="badge b-script">guard.js</span> Antes de cada comando de Bash o PowerShell: niega git destructivo, leer secretos con <code>cat</code> y compañía, lo que el manifiesto marca como <code>forbidden</code> y un <code>git commit</code> sin bandera.<br><span class="badge b-script">read-guard.js</span> Antes de Read, Glob o Grep: niega abrir o buscar en archivos de secretos.<br><span class="badge b-script">worktree-remove.js</span> Antes de ExitWorktree: niega borrar un worktree con commits sin integrar.</div></div>
+        <div class="ev"><code>PostToolUse</code><div>Justo después de que la herramienta terminó.<br><span class="badge b-script">after-edit.js</span> Después de cada Edit o Write: pasa el lint por el archivo editado y le devuelve a Claude lo que encontró. Nunca bloquea.</div></div>
+        <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".<br><span class="badge b-script">stop-gate.js</span> Bloquea una vez por turno si quedó código sin verificar o worktrees con commits sin integrar.</div></div>
+        <div class="ev"><code>SessionEnd</code><div>Cuando cierras la sesión.<br><span class="badge b-script">session-start.js</span> El mismo script del arranque: aquí borra el candado de la sesión.</div></div>
       </div>
+      <p>El detalle de cada uno (qué mira, qué bloquea y qué nunca bloquea) está en la <a href="#guardias">sección 5</a>.</p>
       <p>Un <dfn>turno</dfn> es todo lo que pasa entre que mandas un mensaje y Claude te devuelve el control: pueden ser muchos pasos con herramientas en medio. Los hooks no piden permiso: corren fuera del sistema de permisos.</p>
 
       <h3>Mod</h3>
