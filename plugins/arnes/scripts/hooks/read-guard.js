@@ -9,7 +9,7 @@
 // Con manifiesto, además, los globs `secretPaths` del workspace, relativos a él.
 // Read se juzga por file_path; Glob por path y por pattern; Grep por path y por glob. Un Grep sobre
 // una carpeta entera no se deniega: ripgrep salta lo que ignora .gitignore, que es donde viven
-// estos archivos. Un `cat .env` por Bash tampoco: este hook no mira comandos.
+// estos archivos. Un `cat .env` por Bash no lo mira este hook: lo juzga guard.js con secretPath.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
 'use strict';
@@ -85,6 +85,6 @@ function readGuard(input) {
   );
 }
 
-module.exports = { readGuard, secretName };
+module.exports = { readGuard, secretName, secretPath };
 
 if (require.main === module) run('read-guard', readGuard);

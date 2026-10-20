@@ -85,3 +85,75 @@ test('usa el cwd del evento, no el del proceso ni CLAUDE_PROJECT_DIR', () => {
   const r = start(api, { cwd: h.tmp('otro'), env: { CLAUDE_PROJECT_DIR: h.tmp('otro-mas') } });
   assert.match(text(r), /^arnes · carpeta/);
 });
+
+// ---------- worktrees del registro ----------
+
+test('lista los worktrees sin integrar del registro y avisa de los de más de 7 días sin commits nuevos', () => {
+  const dir = h.tmp('start-wt');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
+  h.git(dir, 'checkout', '-q', '-b', 'feature/x');
+  for (const slug of ['viejo', 'nuevo']) assert.equal(h.run('worktree-ledger.js', ['open', slug], { cwd: dir }).status, 0);
+  const file = path.join(dir, '.tmp', 'harness', 'worktrees.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.worktrees[0].openedAt = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
+  fs.writeFileSync(file, JSON.stringify(data));
+  const nuevo = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'nuevo');
+  h.write(nuevo, 'b.ts', 'b\n');
+  h.commitAll(nuevo, 'trabajo');
+  const t = text(start(dir));
+  assert.match(t, /^Worktrees sin integrar \(2\): \/arnes:worktree integrate <slug>, o close si no tienen commits propios\.$/m);
+  assert.match(t, /^- api wt\/feature\/x\/viejo → feature\/x · 0 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2} · 10 días sin commits nuevos: intégralo o ciérralo, nunca se borra solo$/m);
+  assert.match(t, /^- api wt\/feature\/x\/nuevo → feature\/x · 1 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2}$/m);
+  assert.match(text(start(nuevo)), /Worktrees sin integrar \(2\)/, 'una sesión dentro del worktree ve el mismo registro');
+  assert.ok(t.split('\n').length <= 40);
+});
+
+// ---------- sesión concurrente ----------
+
+const as = (cwd, session, pid, event = 'SessionStart') =>
+  h.hook('session-start', { hook_event_name: event, source: 'startup', session_id: session, cwd }, { env: { CLAUDE_PID: pid == null ? '' : String(pid) } });
+const lockPath = (dir, session) => path.join(dir, '.tmp', 'harness', 'sessions', `${session}.json`);
+
+test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un worktree; SessionEnd suelta el lock', () => {
+  const { root, api } = folder();
+  const a = as(root, 'sesion-a', process.pid);
+  assert.doesNotMatch(text(a), /Aviso: hay otra sesión/);
+  const lock = JSON.parse(fs.readFileSync(lockPath(root, 'sesion-a'), 'utf8'));
+  assert.equal(lock.pid, process.pid);
+  assert.equal(lock.session, 'sesion-a');
+  assert.equal(lock.cwd, root.split(path.sep).join('/'));
+  assert.ok(!Number.isNaN(Date.parse(lock.at)));
+
+  const b = text(as(api, 'sesion-b', process.ppid));
+  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión debe trabajar en su propio worktree \(\/arnes:worktree open <slug>\), no en el mismo árbol:$/m);
+  assert.match(b, new RegExp(`^- ${root.split(path.sep).join('/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} desde \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\(pid ${process.pid}\\)$`, 'm'));
+  assert.ok(b.split('\n').length <= 40);
+
+  const end = as(root, 'sesion-a', process.pid, 'SessionEnd');
+  assert.equal(end.status, 0);
+  assert.equal(end.out, null);
+  assert.ok(!fs.existsSync(lockPath(root, 'sesion-a')));
+  assert.doesNotMatch(text(as(api, 'sesion-b', process.ppid)), /Aviso/, 'sin la otra sesión, sin aviso');
+});
+
+test('un lock de un proceso que ya no existe, o de más de 24 h, se borra sin avisar; sin pid vale por su fecha', () => {
+  const dir = h.tmp('start-lock');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api') });
+  const dead = require('child_process').spawnSync(process.execPath, ['-e', '']).pid;
+  const at = new Date().toISOString();
+  h.write(dir, '.tmp/harness/sessions/muerta.json', JSON.stringify({ pid: dead, cwd: 'x', at }));
+  h.write(dir, '.tmp/harness/sessions/vieja.json', JSON.stringify({ pid: process.pid, cwd: 'x', at: '2020-01-01T00:00:00.000Z' }));
+  h.write(dir, '.tmp/harness/sessions/rota.json', 'no es json');
+  assert.doesNotMatch(text(as(dir, 'nueva', process.ppid)), /Aviso/);
+  for (const s of ['muerta', 'vieja', 'rota']) assert.ok(!fs.existsSync(lockPath(dir, s)), `${s} borrado`);
+  h.write(dir, '.tmp/harness/sessions/sin-pid.json', JSON.stringify({ pid: null, cwd: 'otra/carpeta', at }));
+  assert.match(text(as(dir, 'nueva', null)), /^- otra\/carpeta desde \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
+});
+
+test('un lock con el mismo pid es de esta misma sesión (un /clear cambia el session_id): no avisa', () => {
+  const dir = h.tmp('start-clear');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api') });
+  as(dir, 'antes', process.pid);
+  assert.doesNotMatch(text(as(dir, 'despues', process.pid)), /Aviso/);
+  assert.ok(!fs.existsSync(lockPath(dir, 'antes')));
+});
