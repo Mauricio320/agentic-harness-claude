@@ -380,3 +380,20 @@ Hallazgos, sin corregir:
 - **`skill.prompt` de arnes-ui no corre.** `cc-plugin-sec-default` lo salta, como al `classic.Stop` en la fase 2b. La banda no muestra las etapas que solo se ven al cargar una skill: Planeando, Entregando, Guardando memoria y Sincronizando. Construyendo, Verificando y Revisando sí salen, por los agentes y las herramientas.
 - **arnes-ui avisa `gate en rojo: ✗ jest`** cuando el modelo corre la suite completa con rojos conocidos, porque no lee `tests/known-failures.txt`.
 - **plan y build encadenan comandos.** Las dos skills no traen la línea de verify, review y ship que pide correr cada comando solo, y el plan corrió `cd … && node … ; echo "---"; node …`. En una sesión interactiva eso pide permisos aparte.
+
+## Resultado de la prueba manual
+
+2026-10-20, con Claude Code 2.1.304, en una sesión interactiva con `arnes` y `arnes-ui` por `--plugin-dir` sobre el clon. La persona hizo los pasos 1, 3, 4, 5 y 10, y salieron como están escritos:
+- **Paso 1:** `CLAUDE_PID` llega a los hooks también en una sesión interactiva. El lock traía un `pid` numérico.
+- **Paso 3:** el pedido en lenguaje natural cargó `arnes:plan` por su cuenta. El plan consultó graphify y salió con los criterios, el contrato, los datos sin migración, la zona de riesgo en `acl*.ts` y cinco preguntas, cada una con recomendación y alternativa. Pidió aprobación sin tocar código.
+- **Paso 4:** con la aprobación corrieron solos build con el dev, verify con tres specs del test-writer y el gate en verde, y review con cero bloqueantes y cinco sugerencias. El reporte empezó con `REVISIÓN HUMANA OBLIGATORIA` y no hizo commit.
+- **Paso 5:** `/arnes:ship --solo-commit` dio `LISTO` y creó el commit `8127c99` con 22 archivos, sin push.
+- **Paso 10:** la timeline cerró con `plan 16m01s · build 8m13s · verify 4m21s · review 2m05s · ship 19s`.
+
+Los pasos 2 y 6 a 9 no se repitieron en esta pasada.
+
+Hallazgos, para la ronda de correcciones antes del piloto:
+- **La línea `Plan:` del panel mostró texto corrupto:** `Plnd CRUD dw talleres`.
+- **Los 16m01s de plan incluyen la espera de la aprobación.** La etapa cierra cuando la persona aprueba, así que la medición le carga al plan el tiempo del humano.
+
+La fase 3 queda cerrada con la versión 0.5.0 (tag `v0.5.0`).

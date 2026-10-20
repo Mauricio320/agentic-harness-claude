@@ -2,9 +2,9 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
-## [0.5.0] - sin etiquetar
+## [0.5.0] - 2026-10-20
 
-Fase 3: el flujo completo plan → build → verify → review → ship, con los cuatro agentes, los worktrees por issue, la memoria en markdown y la línea base de tests. Se construyó en dos mitades en paralelo, la 3a (verify, review y ship) y la 3b (plan, build, worktree, memory y sync), y se integró en `feature/fase-3`. Probado con Claude Code 2.1.304 y Node 24, con tests de juguete y de punta a punta sobre un clon local de api-academico. La fase se cierra cuando la persona confirme la prueba manual de `docs/PRUEBA-FASE-3.md`.
+Fase 3: el flujo completo plan → build → verify → review → ship, con los cuatro agentes, los worktrees por issue, la memoria en markdown y la línea base de tests. Se construyó en dos mitades en paralelo, la 3a (verify, review y ship) y la 3b (plan, build, worktree, memory y sync), y se integró en `feature/fase-3`. Probado con Claude Code 2.1.304 y Node 24, con tests de juguete y de punta a punta sobre un clon local de api-academico. La prueba manual de `docs/PRUEBA-FASE-3.md` se hizo el 2026-10-20 en una sesión interactiva; su resultado está al final de la guía, y la fase 3 queda cerrada.
 
 ### Añadido
 - `/arnes:plan` y `/arnes:build`, invocables por el modelo:

@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3, versión 0.5.0 sin etiquetar, a la espera de la prueba manual (`docs/PRUEBA-FASE-3.md`). Ya existen:
+Estado: fase 3 cerrada, versión 0.5.0 (tag `v0.5.0`); la prueba manual está en `docs/PRUEBA-FASE-3.md`. Sigue el piloto (fase 4). Ya existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
 - las diez skills: `/arnes:init`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
@@ -120,4 +120,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 | v0.2.0 (sin etiquetar) | 2.1.303 | 24 | Fase 1: schema de los dos niveles de manifiesto, scripts deterministas con tests (`node --test`) y `/arnes:init` completa; probado en academico (3 repos) y renova365 (2 repos) |
 | v0.3.0 (sin etiquetar) | 2.1.303 | 24 | Fase 2: hooks clásicos (guard, after-edit, session-start, prompt-context, stop-gate, worktree-remove) con tests por stdin; la prueba manual en una sesión interactiva está en `docs/PRUEBA-FASE-2.md`, hecha en api-academico el 2026-10-19 |
 | v0.4.0 (sin etiquetar) | 2.1.303 (tipos de la API de mods) y 2.1.304 (`validate` y `plugin test`) | 24 | Fase 2b: mod `arnes-ui` (banda, panel con `/arnes-panel`, status, toasts) con tests de `claude plugin test`, y `/arnes:timeline` en el plugin base; la prueba manual está en `docs/PRUEBA-FASE-2B.md`, hecha y repetida en api-academico y desde la raíz de academico el 2026-10-19 con 2.1.304; fase cerrada |
-| v0.5.0 (sin etiquetar) | 2.1.304 | 24 | Fase 3: plan, build, verify, review, ship, worktree, memory y sync, los agentes dev, reviewer, test-writer y test-runner, el registro de worktrees, la línea base de tests y el aviso de sesión concurrente. Probada de punta a punta sobre un clon de api-academico el 2026-10-20; la prueba manual está en `docs/PRUEBA-FASE-3.md` y falta confirmarla |
+| v0.5.0 | 2.1.304 | 24 | Fase 3: plan, build, verify, review, ship, worktree, memory y sync, los agentes dev, reviewer, test-writer y test-runner, el registro de worktrees, la línea base de tests y el aviso de sesión concurrente. Probada de punta a punta sobre un clon de api-academico el 2026-10-20, con `claude -p` y en una sesión interactiva; la prueba manual está en `docs/PRUEBA-FASE-3.md`; fase cerrada |
