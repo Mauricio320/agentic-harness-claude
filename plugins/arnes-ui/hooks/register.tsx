@@ -5,8 +5,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Agent, Files, GateRow, Mark, Run } from '../types'
-import { AGENTS, CODE_GLOBS, MANIFEST, SKILLS, agentText, blankRow, bandText, classify, fresh, globRe, join, key, label, locate, mins, nextStep,
-  openWorktrees, paneText, parseStatus, slash, stopBlocks, summary, timelineLines, tokensOf, wtText } from './lib'
+import { AGENTS, CODE_GLOBS, MANIFEST, agentText, blankRow, bandText, classify, columns, entries, fresh, gateMarks, globRe, join, key, label, locate,
+  mins, nextStep, openWorktrees, paneText, parseStatus, planTitle, settled, since, slash, stageOf, summary, timelineLines, tokensOf, wtText } from './lib'
 import type { Probe, Ws } from './lib'
 
 type $ = EngineInterface
@@ -25,12 +25,9 @@ const PANE = 'arnes'
 
 // Variables del módulo: una recarga las pierde y session.start las vuelve a llenar.
 let ws: Ws[] = []
-let root = ''
-let cwd = ''
-let needsGit = false
-let [ticks, seenBlock] = [0, Infinity]
-const said = new Set<string>()
-const warned = new Set<string>()
+let [root, cwd] = ['', '']
+let [needsGit, ticks, seen] = [false, 0, Infinity]
+const [said, warned] = [new Set<string>(), new Set<string>()]
 
 async function safe($: $, what: string, fn: () => unknown): Promise<void> {
   try {
@@ -89,22 +86,29 @@ async function refresh($: $, withGit: boolean): Promise<void> {
     const flag = f ? { result: String(f.result), at: Date.parse(f.at), head: f.head } : undefined
     patch.set(w.name, { flag, ...(withGit ? await gitState($, w) : {}) })
   }
-  for (const r of await read($, gate)) {
-    const f = patch.get(r.ws)?.flag
-    if (f?.result === 'fail' && f.at !== r.flag?.at) alert($, `arnes: gate en rojo en ${r.ws}: la bandera es fail`)
-  }
+  for (const r of await read($, gate))
+    if (patch.get(r.ws)?.flag?.result === 'fail' && patch.get(r.ws)?.flag?.at !== r.flag?.at) alert($, `arnes: gate en rojo en ${r.ws}: la bandera es fail`)
   await update($, gate, (rows) => ws.map((w) => ({ ...(rows.find((r) => r.ws === w.name) ?? blankRow(w.name)), ...patch.get(w.name) })))
   const text = await readText($, join(dir, 'timeline.jsonl'))
-  // La primera lectura solo fija desde dónde avisar: las notas viejas no levantan avisos.
-  for (const b of seenBlock === Infinity ? [] : stopBlocks(text, seenBlock)) alert($, `arnes: el Stop bloqueó el turno · ${b.detail}`)
-  seenBlock = Math.max(0, ...stopBlocks(text, 0).map((b) => b.at))
-  const plan = (await readText($, join(dir, 'plan.md'))).split('\n').find((l) => l.trim())
-  const worktrees = openWorktrees(await readJson($, join(dir, 'worktrees.json')))
-  const next: Files = { plan: plan?.replace(/^#+\s*/, '').trim(), timeline: timelineLines(text), worktrees }
+  await follow($, text)
+  const next: Files = { plan: planTitle(await readText($, join(dir, 'plan.md'))), timeline: timelineLines(text), worktrees: openWorktrees(await readJson($, join(dir, 'worktrees.json'))) }
   if (JSON.stringify(next) === JSON.stringify(await read($, files))) return
   const t = await $.clock.now()
   await update($, files, () => next)
   await update($, now, () => t)
+}
+
+// La etapa sale de los start y end que las skills anotan en la timeline, y el aviso del Stop de su
+// nota "bloqueado" (lib.since). `seen` se mueve antes de cualquier await: dos lecturas no repiten nada.
+async function follow($: $, text: string): Promise<void> {
+  const [news, last] = since(entries(text), seen)
+  seen = last
+  for (const x of news) {
+    if (x.stage === 'stop-gate' && x.result === 'bloqueado') alert($, `arnes: el Stop bloqueó el turno · ${x.detail ?? ''}`)
+    const name = stageOf(x)
+    if (name && x.event === 'start') await enter($, name, x.ws)
+    if (name && x.event === 'end' && (await read($, stage))?.name === name) await closeStage($).then(() => $.ui.status('listo'))
+  }
 }
 
 // Cada 3 s (git, tras una herramienta y cada 15 s); mientras algo corre, `now` avanza en pantalla.
@@ -185,32 +189,29 @@ export const register: Register = (on) => {
     return { text: opened.isPlaced ? 'Panel del arnés abierto.' : `El panel no se pudo mostrar: ${opened.reason}` }
   }).catch(() => ({ text: 'arnes-ui: el panel falló; el arnés sigue igual.' }))
 
-  on('skill.prompt', async ($, e, next) => {
-    const r = await next(e)
-    const name = e.skill.replace(/^arnes:/, '')
-    const st = name in SKILLS ? SKILLS[name] : name
-    if (st && (e.skill.startsWith('arnes:') || /^arnes(@|$)/.test(e.pluginName ?? ''))) await safe($, 'skill.prompt', () => enter($, st))
-    return r
-  }).catch(($, e, next) => next(e))
-
+  // Una verificación marca sus columnas (lib.settled). Tras un timeline.js, la timeline se lee en el
+  // acto, para que la etapa de la skill no llegue después que la herramienta.
   on('tool.call', async ($, e, next) => {
     let probe: Probe | undefined
+    let before: GateRow[] = []
     await safe($, 'tool.call', async () => {
       if (e.agentId) await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, lastTool: e.tool } : a)))
       if (e.tool === 'Bash' || e.tool === 'PowerShell') probe = classify(e.command, ws, cwd)
       if (!probe) return
       await enter($, 'Verificando', probe.label)
-      const { ws: name, col } = probe
-      if (name && col) await setRow($, name, (r) => ({ ...r, [col]: 'run' }))
+      before = await read($, gate)
+      for (const [name, col] of columns(probe, ws)) await setRow($, name, (r) => ({ ...r, [col]: 'run' }))
     })
     const r = await next(e)
     await safe($, 'tool.call', async () => {
-      const mark: Mark | undefined = r.deny !== undefined ? undefined : r.isError ? 'fail' : 'ok'
-      const { ws: name, col } = probe ?? {}
-      if (name && col) await setRow($, name, (row) => ({ ...row, [col]: mark }))
-      if (probe && mark === 'fail') alert($, `arnes: gate en rojo: ✗ ${probe.label}`)
+      const ok = r.deny === undefined && !r.isError
+      const marks = probe?.gate && r.deny === undefined ? gateMarks(String((r as { result?: { stdout?: unknown } }).result?.stdout ?? '')) : []
+      for (const [name, col, mark] of settled(probe, ws, before, marks, ok)) await setRow($, name, (row) => ({ ...row, [col]: mark }))
+      const failed = marks.flatMap((m) => m.failed).join(', ')
+      if (probe?.gate && r.isError) alert($, `arnes: gate en rojo: ✗ ${probe.label}${failed ? ` (${failed})` : ''}`)
       if (['Bash', 'PowerShell', 'Edit', 'Write'].includes(e.tool)) needsGit = true
-      if ((e.tool === 'Edit' || e.tool === 'Write') && mark === 'ok') await edited($, e.file_path)
+      if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
+      if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && /timeline\.js/.test(e.command)) await follow($, await readText($, join(root, '.tmp/harness/timeline.jsonl')))
     })
     return r
   }).catch(($, e, next) => next(e))
@@ -219,7 +220,7 @@ export const register: Register = (on) => {
     const r = await next(e)
     await safe($, 'agent.spawn', async () => {
       if (r.deny !== undefined || !r.agentId) return
-      const agent: Agent = { id: r.agentId, type: e.subagentType, model: r.model, startedAt: await $.clock.now() }
+      const agent: Agent = { id: r.agentId, type: e.subagentType, model: r.model, startedAt: await $.clock.now(), usd: await usd($) }
       await update($, agents, (l) => [...l.filter((a) => !a.endedAt), ...l.filter((a) => a.endedAt).slice(-4), agent])
       if (AGENTS[e.subagentType]) await enter($, AGENTS[e.subagentType]!, e.subagentType.replace(/^arnes:/, ''))
       if (e.subagentType === 'arnes:reviewer') await update($, gate, (rows) => rows.map((g) => ({ ...g, review: 'run' as const })))
@@ -235,9 +236,8 @@ export const register: Register = (on) => {
         needsGit = true
         return endRun($, e.reason)
       }
-      const tokens = tokensOf(e.usage)
-      const [t, was] = [await $.clock.now(), (await read($, agents)).find((a) => a.id === e.agentId)]
-      await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, endedAt: t, tokens } : a)))
+      const [t, was, u, tokens] = [await $.clock.now(), (await read($, agents)).find((a) => a.id === e.agentId), await usd($), tokensOf(e.usage)]
+      await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, endedAt: t, tokens, cost: a.usd === undefined ? undefined : u - a.usd } : a)))
       const review: Mark = e.reason === 'answer' ? 'ok' : 'fail'
       if (was?.type === 'arnes:reviewer') await update($, gate, (rows) => rows.map((g) => ({ ...g, review })))
     })

@@ -8,8 +8,9 @@ export type Stage = { name: string; detail?: string; startedAt: number; usd: num
 
 export type StageDone = { name: string; detail?: string; ms: number; usd: number }
 
-// Un subagente lanzado en la sesión; endedAt marca que terminó y tokens lo que costó su turno.
-export type Agent = { id: string; type: string; model: string; startedAt: number; endedAt?: number; lastTool?: string; tokens?: number }
+// Un subagente lanzado en la sesión; endedAt marca que terminó y tokens lo que costó su turno. usd es
+// lo que marcaba /cost al lanzarlo y cost la diferencia al terminar: la fórmula de las etapas.
+export type Agent = { id: string; type: string; model: string; startedAt: number; usd?: number; endedAt?: number; lastTool?: string; tokens?: number; cost?: number }
 
 // La bandera de .tmp/harness/gate/<ws>.json, con `at` en milisegundos.
 export type Flag = { result: string; at: number; head?: string }

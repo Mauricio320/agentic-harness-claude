@@ -3,7 +3,10 @@
 import type { Agent, GateRow, Mark, Run, Stage, StageDone, Worktree } from '../types'
 
 export type Ws = { name: string; dir: string; gitRoot: string; commands: Record<string, unknown>; riskPaths: string[]; codeGlobs: string[] }
-export type Probe = { label: string; ws?: string; col?: 'tsc' | 'tests' }
+export type Col = 'tsc' | 'tests'
+// gate: es ci-gate, que marca las dos columnas de su workspace (o de todos, sin --ws).
+export type Probe = { label: string; ws?: string; col?: Col; gate?: boolean }
+export type Entry = { at: number; event: string; stage: string; ws?: string; result?: string; detail?: string }
 
 export const MANIFEST = '.claude/harness.json'
 export const CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}']
@@ -84,30 +87,90 @@ export function parseStatus(stdout: string, w: Ws, skip = ''): Partial<GateRow> 
   }
 }
 
-// Las notas "bloqueado" del stop-gate posteriores a `after`: el aviso del Stop sale de la
-// timeline, no de un hook en classic.Stop, que otro plugin puede saltarse (docs/PLAN.md §3).
-export function stopBlocks(text: string, after: number): { at: number; detail: string }[] {
+// Las entradas de timeline.jsonl; una línea cortada se salta. De ellas salen la etapa (los start y
+// end de las skills) y el aviso del Stop (la nota "bloqueado"), no de los hooks skill.prompt y
+// classic.Stop de un mod, que un plugin interno del CLI salta (docs/PLAN.md §3).
+export function entries(text: string): Entry[] {
   return text.split('\n').flatMap((l) => {
     try {
       const x = JSON.parse(l)
-      const at = Date.parse(x.at)
-      return x.stage === 'stop-gate' && x.result === 'bloqueado' && at > after ? [{ at, detail: String(x.detail ?? '') }] : []
+      return [{ at: Date.parse(x.at), event: String(x.event), stage: String(x.stage), ws: x.ws, result: x.result, detail: x.detail }]
     } catch {
       return []
     }
   })
 }
 
+// Las entradas posteriores a `seen` y el `seen` nuevo. La primera lectura (seen = Infinity) solo fija
+// desde dónde: lo viejo no abre etapas ni levanta avisos.
+export function since(all: Entry[], seen: number): [Entry[], number] {
+  const from = seen === Infinity ? 0 : seen
+  return [seen === Infinity ? [] : all.filter((x) => x.at > seen), all.reduce((m, x) => (x.at > m ? x.at : m), from)]
+}
+
+// La etapa que abre o cierra una entrada de la timeline: la de su skill, y nada para las de los
+// hooks (stop-gate) o las que no son etapa (timeline).
+export const stageOf = (x: Entry) => (Object.hasOwn(SKILLS, x.stage) ? SKILLS[x.stage] : null)
+
+// Las marcas de tsc y tests de cada workspace en la salida de ci-gate (`== ws (ruta)` y una línea
+// por paso). El rojo lo dice el gate, que ya juzgó la línea base y los rojos conocidos de
+// tests/known-failures.txt, no el código de salida de jest o tsc. `failed` son los pasos en FALLA.
+export function gateMarks(out: string): { ws: string; tsc?: Mark; tests?: Mark; failed: string[] }[] {
+  const res: { ws: string; tsc?: Mark; tests?: Mark; failed: string[] }[] = []
+  for (const l of out.split(/\r?\n/)) {
+    const ws = /^== (\S+) \(/.exec(l)
+    if (ws) res.push({ ws: ws[1]!, failed: [] })
+    const step = /^ {2}(typecheck|lint|tests|FALLA)\s+(ok|FALLA)?/.exec(l)
+    const cur = res[res.length - 1]
+    if (ws || !step || !cur || (step[1] !== 'FALLA' && !step[2])) continue
+    if (step[1] === 'FALLA' || step[2] === 'FALLA') cur.failed.push(step[1] === 'FALLA' ? 'base' : step[1]!)
+    const mark: Mark = step[2] === 'ok' ? 'ok' : 'fail'
+    if (step[1] === 'typecheck') cur.tsc = mark
+    if (step[1] === 'tests') cur.tests = mark
+  }
+  return res
+}
+
+// La primera línea de plan.md para el panel, que ya pone "Plan:" delante: sin BOM, sin las marcas
+// de título ni el "Plan:" que escribe la skill, sin `*` ni backticks, sin caracteres de control,
+// de ancho cero ni selectores de variante, en NFC y cortada por puntos de código, nunca a mitad de
+// un carácter. Lo que queda tiene el mismo ancho para el motor y para la terminal.
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufe00-\ufe0f\ufeff]/g
+export function planTitle(text: string, max = 60): string | undefined {
+  const first = text.split(/\r?\n/).find((l) => l.replace(INVISIBLE, '').trim())
+  const clean = first?.normalize('NFC').replace(INVISIBLE, ' ').replace(/^\s*#+\s*/, '').replace(/^plan\s*:\s*/i, '').replace(/[*`]/g, '').replace(/\s+/g, ' ').trim()
+  const cps = [...(clean ?? '')]
+  return !cps.length ? undefined : cps.length > max ? `${cps.slice(0, max - 1).join('')}…` : clean
+}
+
+// Las columnas del gate que marca una verificación: ci-gate, tsc y tests de su workspace o, sin
+// --ws, de todos; un tsc o un test del manifiesto, la suya; lo demás, ninguna.
+export const columns = (p: Probe | undefined, wss: Ws[]): (readonly [string, Col])[] =>
+  p?.gate ? (p.ws ? [p.ws] : wss.map((w) => w.name)).flatMap((n) => [[n, 'tsc'] as const, [n, 'tests'] as const])
+    : p?.ws && p.col ? [[p.ws, p.col] as const] : []
+
+// La marca de cada columna al terminar una verificación. ci-gate pone la suya, que es la que manda.
+// Un tsc o un jest suelto pone ✓ si pasó; si falló, la columna queda como estaba, porque su rojo
+// puede ser de rojos conocidos que el gate absuelve. `before` son las filas de antes de correr.
+export const settled = (p: Probe | undefined, wss: Ws[], before: GateRow[], marks: ReturnType<typeof gateMarks>, ok: boolean) =>
+  columns(p, wss).map(([n, col]) => {
+    const prev = before.find((b) => b.ws === n)?.[col]
+    return [n, col, p?.gate ? (marks.find((m) => m.ws === n)?.[col] ?? prev) : ok ? 'ok' : prev] as const
+  })
+
 // Un Bash del modelo es verificación si corre ci-gate, typecheck-baseline o test-select, o si un
 // segmento (&&, ||, ;, |, salto de línea) empieza por un typecheck o un test del manifiesto: lo que
 // va antes de {files}/{specs}. El workspace sale de la carpeta donde corre el segmento: un `cd` de
 // un segmento anterior, `-C` o `--prefix` en el propio segmento, o el cwd. Si esa carpeta no cae en
 // un workspace que declare el comando, la etapa va sin workspace y no se marca ningún gate.
+// ci-gate toma el workspace de su --ws.
 const DIR = /\s(?:-C|--prefix)\s+("[^"]+"|'[^']+'|\S+)/
 const unquote = (d: string) => d.replace(/^["']|["']$/g, '')
 export function classify(cmd: string, wss: Ws[], cwd: string): Probe | undefined {
   const s = SCRIPTS.exec(cmd)
-  if (s) return { label: s[1]! }
+  const gateWs = s?.[1] === 'ci-gate' ? /\s--ws\s+("[^"]+"|'[^']+'|\S+)/.exec(cmd) : null
+  if (gateWs) return { label: `ci-gate ${unquote(gateWs[1]!)}`, ws: unquote(gateWs[1]!), gate: true }
+  if (s) return s[1] === 'ci-gate' ? { label: 'ci-gate', gate: true } : { label: s[1]! }
   let dir = slash(cwd)
   const at = (d: string) => (/^([a-z]:)?\//i.test(slash(d)) ? slash(d) : join(dir, d))
   for (const raw of cmd.split(/&&|\|\||[;|\n]/)) {
@@ -138,18 +201,13 @@ function commandOf(seg: string, w: Ws): { tool: string; col: 'tsc' | 'tests' } |
   return undefined
 }
 
-// Las últimas líneas de timeline.jsonl como texto, con las palabras de `timeline.js print`; una
-// línea cortada se salta.
+// Las últimas entradas de timeline.jsonl como texto, con las palabras de `timeline.js print`.
 const EVENT: Record<string, string> = { start: 'inicio', end: 'fin', note: 'nota' }
 export function timelineLines(text: string, n = 5): { at: number; text: string }[] {
-  return text.split('\n').filter((l) => l.trim()).slice(-n).flatMap((l) => {
-    try {
-      const x = JSON.parse(l)
-      return [{ at: Date.parse(x.at), text: [x.stage, EVENT[x.event] ?? x.event, x.result, x.ws && `· ${x.ws}`, x.detail && `· ${x.detail}`].filter(Boolean).join(' ') }]
-    } catch {
-      return []
-    }
-  })
+  return entries(text).slice(-n).map((x) => ({
+    at: x.at,
+    text: [x.stage, EVENT[x.event] ?? x.event, x.result, x.ws && `· ${x.ws}`, x.detail && `· ${x.detail}`].filter(Boolean).join(' '),
+  }))
 }
 
 // El resumen de una corrida por etapa, con la más lenta y la más cara.
@@ -202,7 +260,7 @@ export function paneText(st: Stage | null, ds: StageDone[], runs: Run[], rows: G
 }
 
 export const agentText = (a: Agent, t: number) =>
-  `  ${short(a.type, a.model)} ${clock((a.endedAt ?? t) - a.startedAt)}${a.lastTool ? ` · ${a.lastTool}` : ''}${a.tokens ? ` · ${Math.round(a.tokens / 1000)}k tok` : ''} `
+  `  ${short(a.type, a.model)} ${clock((a.endedAt ?? t) - a.startedAt)}${a.lastTool ? ` · ${a.lastTool}` : ''}${a.tokens ? ` · ${Math.round(a.tokens / 1000)}k tok` : ''}${a.cost !== undefined ? ` · ${money(a.cost)}` : ''} `
 
 export function nextStep(rows: GateRow[], t: number, wts: Worktree[] = []): string {
   const bad = rows.find((r) => r.tsc === 'fail' || r.tests === 'fail' || (fresh(r, t) && r.flag?.result === 'fail'))

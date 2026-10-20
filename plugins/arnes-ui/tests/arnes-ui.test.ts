@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { bandText, classify, openWorktrees, parseStatus, timelineLines } from '../hooks/lib'
+import { bandText, classify, entries, gateMarks, openWorktrees, parseStatus, planTitle, since, timelineLines } from '../hooks/lib'
 import type { Ws } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
@@ -61,40 +61,72 @@ const spawn = (subagentType: string) => ({
 const ended = (agentId?: string) => ({ answer: '', durationMs: 1, isAborted: false, turnId: 'turno', reason: 'answer' as const, agentId })
 const bash = (command: string) => ({ tool: 'Bash' as const, command })
 
-test('detecta la etapa por eventos, sin mirar texto libre, y cierra la corrida con su resumen', async ($, on) => {
-  const { clock, seen } = world(on)
-  const out = { stdout: '', stderr: '', interrupted: false }
-  on('tool.call', ($, e) => (e.tool === 'Bash' && e.command.includes('jest') ? { result: out, isError: true as const } : { result: out }))
+const TIMELINE = `${ROOT}/.tmp/harness/timeline.jsonl`
+const line = (at: string, event: string, stage: string, more: object = {}) => JSON.stringify({ at, event, stage, ...more }) + '\n'
+const TL = 'node "C:/x/plugins/arnes/scripts/lib/timeline.js"'
+const GATE = (tests: string) => [
+  'ci-gate · api-academico', '', '== api (.)', '  base       abc123 (--base HEAD) · 2 tocado(s), 1 de código',
+  '  typecheck  ok · sin diagnósticos nuevos (base 0, ahora 0)', '  lint       ok · 1 archivo(s)', `  tests      ${tests} · 1 spec(s)`,
+  '             falla nueva: src/a.spec.ts › a › b', '', `resultado: ${tests === 'ok' ? 'VERDE' : 'ROJO'}. Verde significa …`,
+].join('\n')
+
+test('la etapa sale de la timeline y de los eventos, sin mirar texto libre, y la corrida cierra con su resumen', async ($, on) => {
+  const { clock, seen, files } = world(on, { ...FILES, [TIMELINE]: line('2026-10-19T14:00:00Z', 'start', 'build') })
+  const out = (stdout = '') => ({ stdout, stderr: '', interrupted: false })
+  on('tool.call', ($, e) =>
+    e.tool !== 'Bash' ? { result: out() }
+      : e.command.includes('ci-gate') ? { result: out(GATE('FALLA')), isError: true as const }
+      : e.command.includes('jest') ? { result: out('Tests: 18 failed'), isError: true as const } : { result: out() })
   await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
   const band = () => bandOf($)
 
   expect(seen.logs).toEqual([])
   expect(seen.status).toEqual(['listo'])
-  await $.skill.prompt({ skill: 'commit', text: '' })
   expect(await band()).toBe('arnes ▸ listo · api')
-  await $.skill.prompt({ skill: 'arnes:plan', text: '' })
+  files[TIMELINE] += line('2026-10-19T15:00:00.500Z', 'start', 'plan', { detail: 'CRUD de talleres' })
+  await $.tool.call(bash(`${TL} start plan --detail "CRUD de talleres"`))
   await clock.advance(120_000)
   await $.tool.call(bash('echo "npx jest es texto libre"'))
   await $.tool.call(bash('ls'))
   expect(await band()).toBe('arnes ▸ Planeando 02:00 · api')
+  files[TIMELINE] += line('2026-10-19T15:02:00.500Z', 'end', 'plan', { result: 'ok', detail: 'plan escrito' })
+  files[TIMELINE] += line('2026-10-19T15:02:01Z', 'note', 'plan', { result: 'esperando' })
+  await $.tool.call(bash(`${TL} end plan --result ok --detail "plan escrito"`))
+  expect(await band()).toBe('arnes ▸ listo · api')
 
-  await $.tool.call(bash('cd api-academico && npx jest src/a.spec.ts --runTestsByPath'))
-  expect(await band()).toBe('arnes ▸ Verificando (jest api) 00:00 · api ✗tests')
-  expect(seen.toasts).toContain('arnes: gate en rojo: ✗ jest api')
+  await $.tool.call(bash('cd api-academico && npx jest'))
+  expect(await band()).toBe('arnes ▸ Verificando (jest api) 00:00 · api')
+  expect(seen.toasts.filter((t) => t.includes('gate en rojo'))).toEqual([])
+  await $.tool.call(bash('node "C:/x/plugins/arnes/scripts/ci-gate.js" --ws api --base HEAD'))
+  expect(await band()).toBe('arnes ▸ Verificando (ci-gate api) 00:00 · api ✓tsc ✗tests')
+  expect(seen.toasts).toContain('arnes: gate en rojo: ✗ ci-gate api (tests)')
 
   await clock.advance(60_000)
   await $.agent.spawn(spawn('arnes:reviewer'))
-  expect(await band()).toBe('arnes ▸ Revisando (reviewer) 00:00 · reviewer opus 00:00 · api ✗tests ⏳review')
+  expect(await band()).toBe('arnes ▸ Revisando (reviewer) 00:00 · reviewer opus 00:00 · api ✓tsc ✗tests ⏳review')
   await clock.advance(30_000)
   await $.turn.complete(ended('id-arnes:reviewer'))
-  expect(await band()).toBe('arnes ▸ Revisando (reviewer) 00:30 · api ✗tests ✓review')
+  expect(await band()).toBe('arnes ▸ Revisando (reviewer) 00:30 · api ✓tsc ✗tests ✓review')
 
   await $.turn.complete(ended())
-  expect(await band()).toBe('arnes ▸ listo · api ✗tests ✓review')
-  expect(seen.logs).toContain('arnes · corrida: Planeando 2m · Verificando 1m · Revisando 30s · más lenta: Planeando · más cara: Planeando ($0.25)')
+  expect(await band()).toBe('arnes ▸ listo · api ✓tsc ✗tests ✓review')
+  expect(seen.logs).toContain('arnes · corrida: Planeando 2m · Verificando 1m · Revisando 30s · más lenta: Planeando · más cara: Verificando ($0.75)')
   expect(seen.toasts).toEqual(expect.arrayContaining(['arnes ▸ Planeando', 'arnes ▸ Verificando (jest api)', 'arnes ▸ Revisando (reviewer)']))
-  expect(seen.logs).toContain('arnes: gate en rojo: ✗ jest api')
-  expect(seen.status).toEqual(['listo', 'Planeando', 'Verificando (jest api)', 'Revisando (reviewer)', 'listo'])
+  expect(seen.logs).toContain('arnes: gate en rojo: ✗ ci-gate api (tests)')
+  expect(seen.status).toEqual(['listo', 'Planeando', 'listo', 'Verificando (jest api)', 'Verificando (ci-gate api)', 'Revisando (reviewer)', 'listo'])
+})
+
+test('build por workspace: la etapa abre con el start de la timeline y cierra con su end', async ($, on) => {
+  const { clock, files } = world(on)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false } } as never))
+  await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
+  files[TIMELINE] = line('2026-10-19T15:00:01Z', 'start', 'build', { ws: 'api' })
+  await clock.advance(3000)
+  expect(await bandOf($)).toBe('arnes ▸ Construyendo (api) 00:00 · api')
+  await $.agent.spawn(spawn('arnes:dev'))
+  files[TIMELINE] += line('2026-10-19T15:00:05Z', 'end', 'build', { ws: 'api', result: 'ok' })
+  await clock.advance(3000)
+  expect(await bandOf($)).toBe('arnes ▸ listo · dev sonnet 00:03 · api')
 })
 
 test('la banda es una línea con la etapa, los agentes vivos y el gate, en terminal y en desktop', async ($, on) => {
@@ -116,8 +148,8 @@ test('la banda es una línea con la etapa, los agentes vivos y el gate, en termi
   expect(seen.toasts).toContain('arnes: zona de riesgo tocada en api (prisma/migrations/1/up.sql) · revisión humana obligatoria')
 })
 
-test('el panel valida en terminal y desktop, y "ver" lleva al transcript del agente', async ($, on) => {
-  world(on)
+test('el panel valida en terminal y desktop, "ver" lleva al transcript del agente, y el agente muestra su costo', async ($, on) => {
+  world(on, { ...FILES, [`${ROOT}/.tmp/harness/plan.md`]: '\uFEFF# Plan: CRUD de talleres\r\n\r\nIssue: #7\r\n' })
   const viewed: (string | undefined)[] = []
   on('ui.view', ($, e) => (viewed.push(e.agentId), { value: {} }))
   await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
@@ -132,11 +164,13 @@ test('el panel valida en terminal y desktop, y "ver" lleva al transcript del age
     await ui.unmount()
   }
   expect(viewed).toEqual(['id-arnes:reviewer', 'id-arnes:reviewer'])
+  await $.turn.complete({ ...ended('id-arnes:reviewer'), usage: { input_tokens: 40_000, output_tokens: 2_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } as never)
+  const ui = await $.ui.mount({ plugin: 'arnes-ui', surface: 'terminal', component: 'Pane', requestId: 'arnes', props })
+  expect((await ui.find({ type: 'Text', text: /^ {2}reviewer opus/ }))?.text).toBe('  reviewer opus 00:00 · 42k tok · $0.50 ')
+  expect((await ui.find({ type: 'Text', text: /^Plan: / }))?.text).toBe('Plan: CRUD de talleres')
 })
 
-const note = (at: string, result: string, detail: string) =>
-  JSON.stringify({ at, event: 'note', stage: 'stop-gate', result, detail }) + '\n'
-const TIMELINE = `${ROOT}/.tmp/harness/timeline.jsonl`
+const note = (at: string, result: string, detail: string) => line(at, 'note', 'stop-gate', { result, detail })
 
 test('el Stop bloqueado avisa desde la nota de la timeline, con toast y en el transcript; las notas viejas no', async ($, on) => {
   const { clock, seen, files } = world(on, { ...FILES, [TIMELINE]: note('2026-10-19T14:00:00Z', 'bloqueado', 'de antes') })
@@ -216,7 +250,9 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   const both = [ws('front', `${ROOT}/academico-front`), ws('api', `${ROOT}/api-academico`)]
   expect(classify('cd academico-front && npx tsc --noEmit', both, ROOT)?.ws).toBe('front')
   expect(classify('npx tsc --noEmit', both, `${ROOT}/api-academico/src`)?.ws).toBe('api')
-  expect(classify('node "C:/x/plugins/arnes/scripts/ci-gate.js"', both, ROOT)).toEqual({ label: 'ci-gate' })
+  expect(classify('node "C:/x/plugins/arnes/scripts/ci-gate.js"', both, ROOT)).toEqual({ label: 'ci-gate', gate: true })
+  expect(classify('node "C:/x/plugins/arnes/scripts/ci-gate.js" --ws api --base HEAD', both, ROOT)).toEqual({ label: 'ci-gate api', ws: 'api', gate: true })
+  expect(classify('node "C:/x/plugins/arnes/scripts/test-select.js" --ws api --missing', both, ROOT)).toEqual({ label: 'test-select' })
   expect(classify('npm run lint', both, ROOT)).toBe(undefined)
   expect(classify('npx tsc --noEmit', both, ROOT)).toEqual({ label: 'tsc' })
   expect(classify('npx --prefix api-academico tsc --noEmit', both, ROOT)).toEqual({ label: 'tsc api', ws: 'api', col: 'tsc' })
@@ -232,4 +268,24 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   expect(openWorktrees({ worktrees: [{ ws: 'api', branch: 'wt/a/b', target: 'a', status: 'abierto' }, { status: 'cerrado' }] })).toEqual([{ ws: 'api', branch: 'wt/a/b', target: 'a' }])
   const note = '{"at":"2026-10-19T20:51:39.290Z","event":"note","stage":"stop-gate","result":"pendiente","detail":"turno cerrado sin verificar: api"}'
   expect(timelineLines(`${note}\n{"at": "cortada`)).toEqual([{ at: Date.parse('2026-10-19T20:51:39.290Z'), text: 'stop-gate nota pendiente · turno cerrado sin verificar: api' }])
+})
+
+test('lib: la timeline desde lo visto, las marcas del gate y el título del plan', () => {
+  const all = entries(line('2026-10-19T15:00:00Z', 'start', 'plan') + line('2026-10-19T15:01:00Z', 'end', 'plan') + '{"cortada')
+  expect(since(all, Infinity)).toEqual([[], Date.parse('2026-10-19T15:01:00Z')])
+  expect(since(all, Date.parse('2026-10-19T15:00:00Z'))[0].map((x) => x.event)).toEqual(['end'])
+  expect(since([], Infinity)).toEqual([[], 0])
+
+  expect(gateMarks(GATE('ok'))).toEqual([{ ws: 'api', tsc: 'ok', tests: 'ok', failed: [] }])
+  const two = ['== api (.)', '  typecheck  FALLA · 2 diagnóstico(s) nuevo(s)', '  tests      omitido · sin commands.test', '== front (front)', '  FALLA      base irresoluble: x'].join('\n')
+  expect(gateMarks(two)).toEqual([{ ws: 'api', tsc: 'fail', failed: ['typecheck'] }, { ws: 'front', failed: ['base'] }])
+  expect(gateMarks('sin salida')).toEqual([])
+
+  expect(planTitle('\uFEFF# Plan: CRUD de talleres\r\n\r\nIssue: #7')).toBe('CRUD de talleres')
+  expect(planTitle('\n\n## plan:  `taller`  **activo**\tcon\u200b inscritos ⚠\uFE0F\n')).toBe('taller activo con inscritos ⚠')
+  expect(planTitle('# Talleres: cre\u0301ar')).toBe('Talleres: créar')
+  expect(planTitle(`# Plan: ${'á'.repeat(70)}`)).toBe(`${'á'.repeat(59)}…`)
+  expect(planTitle(`# ${'😀'.repeat(61)}`)).toBe(`${'😀'.repeat(59)}…`)
+  expect(planTitle('')).toBe(undefined)
+  expect(planTitle('\uFEFF\n   \n')).toBe(undefined)
 })
