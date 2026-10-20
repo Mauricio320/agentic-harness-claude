@@ -105,6 +105,7 @@ agentic-harness/
         review.js                        # entrada del reviewer sin Bash, rondas de corrección y marca de revisión hecha
         ship.js                          # check, rama y stage de ship
         adoption-check.js                # las 8 comprobaciones del mínimo
+        adopt.js                         # lo determinista de init: tests legibles, línea base, hooks viejos, permisos, CLAUDE.md de carpeta
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
         hooks/{session-start,prompt-context,after-edit,guard,read-guard,stop-gate,worktree-remove}.js   # session-start atiende también SessionEnd
       tests/                             # repos de juguete + node --test; corre en CI del arnés
@@ -421,6 +422,15 @@ Hallazgos de las pruebas de la fase 3 sobre clones de api-academico, para cuando
 - `main` trae specs con líneas que el propio Prettier del repo rechaza (fase 3a), así que tocar uno de esos specs pone rojo el lint hasta formatearlo.
 - El issue de talleres pedía "solo ADMIN y COORDINADOR". El plan lo tradujo a permisos `taller.*` más los otorgamientos en el mantenedor de roles, porque las rules del repo prohíben comparar nombres de rol (pregunta cerrada P3). `coordinador` existe como rol de datos (`acl_rol`), no como constante `ACL_ROL_*`.
 - Un cambio de inyección de dependencias, como mover `TallerRepository` a `PersistenciaModule` (regla §7 del repo), no lo detectan ni tsc ni jest: hace falta arrancar la app con base de datos. Para el arnés es la decisión abierta 9 de §12.
+
+Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida real: adoptar los dos repos de academico costó a mano. Hubo que quitar el hook del arnés anterior del settings, capturar la línea base, escribir `known-failures.txt` con los dieciocho rojos que ya había, poner los permisos, escribir el `CLAUDE.md` de la carpeta, instalar dependencias y descubrir que el jest del front solo imprime el detalle por test con `--reporters=default`. Ahora `/arnes:init`, después de los manifiestos, ofrece lo determinista con `scripts/adopt.js`, y lo que escribe lo corre solo con el sí de la persona:
+- `probe`: corre `commands.test` sobre un spec trackeado y comprueba que `test-baseline` lee su detalle. Si no, dice qué flag falta: `--verbose`, o `--reporters=default` cuando ya está `--verbose` y el detalle igual no sale. `adoption-check` hace lo mismo en la comprobación 3.
+- `baseline <ws> [--write]`: con el árbol sin código tocado, captura la línea base y agrega a `tests/known-failures.txt`, con la fecha de hoy, los rojos que encontró y no estaban.
+- `hooks [--remove]`: los hooks de `.claude/settings.json` del proyecto y de cada repo que corren `.claude/hooks/`. Con `--remove` los quita y deja los demás.
+- `permissions [--write]`: el bloque del README armado para el proyecto. Trae la regla de `node` sobre la carpeta del plugin sin su versión, git de lectura, el prefijo de cada comando del manifiesto, con `ask` para `--fix` del lint, graphify y la lectura del issue. Va a `.claude/settings.local.json` de la raíz del proyecto y no al `settings.json`, porque lleva la ruta del plugin en esta máquina y no se commitea. Avisa si git no lo ignora.
+- `claude-md [--write]`: en una carpeta multi-repo sin `CLAUDE.md`, el borrador de composición, con los repos, sus comandos, su contrato, la rama y el flujo. Nunca pisa uno existente.
+
+init no instala dependencias ni commitea.
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 

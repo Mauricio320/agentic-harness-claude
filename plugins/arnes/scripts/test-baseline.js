@@ -262,8 +262,13 @@ module.exports = {
   parseJest,
   parserFor,
   baselinePath,
+  knownPath,
   readBaseline,
   readKnown,
+  trackedSpecs,
+  runAndRead,
+  probeTests,
+  captureBaseline,
   missingSpecs,
   planTests,
   compare,
@@ -272,27 +277,57 @@ module.exports = {
 
 // ---------- CLI ----------
 
-function capture(project, ws) {
-  const own = [baselinePath(ws), knownPath(ws)].map((f) => posix(path.relative(ws.dir, f)));
-  const t = touched(ws, 'HEAD', project);
-  if (t.error) die(`test-baseline: ${t.error}`);
-  const dirty = t.files.filter((f) => matchAny(ws.codeGlobs, f) && !own.includes(f));
-  if (dirty.length) die(`${ws.name}: hay código tocado (${dirty.slice(0, 3).join(', ')}); la base tiene que describir un commit`, 3);
-  const head = git(ws.gitRoot, ['rev-parse', 'HEAD']);
-  if (head.status !== 0) die(`test-baseline: git rev-parse HEAD falló en ${ws.name}`);
+// Los specs trackeados del workspace según specPattern.
+function trackedSpecs(ws) {
   const ls = git(ws.dir, ['ls-files']);
-  if (ls.status !== 0) die(`test-baseline: git ls-files falló en ${ws.name}`);
+  if (ls.status !== 0) return { error: `test-baseline: git ls-files falló en ${ws.name}` };
   const res = [].concat(ws.specPattern).map(patternRegExp);
-  const specs = lines(ls.stdout).filter((f) => res.some((re) => re.test(f)));
+  return { specs: lines(ls.stdout).filter((f) => res.some((re) => re.test(f))) };
+}
+
+// Corre commands.test sobre `specs` y lee la salida; si el detalle por test no cuadra con el
+// resumen, dice qué flag falta: --verbose, o --reporters=default cuando la config de jest trae un
+// reporter propio que se come el detalle. → { out, run } o { error, code: 3 }
+function runAndRead(ws, specs) {
   const cmd = ws.commands.test;
   const parse = parserFor(cmd);
-  if (!parse) die(`${ws.name}: no hay parser de resultados para ${toolOf(cmd) || cmd}`);
+  if (!parse) return { error: `${ws.name}: no hay parser de resultados para ${toolOf(cmd) || cmd}`, code: 2 };
   const run = runExpanded(cmd, ws.dir, cmd.includes('{specs}') ? { specs } : {});
   const out = parse(run.out);
-  if (!out.summary) die(`${ws.name}: la salida no trae el resumen de jest. Últimas líneas:\n${tail(run.out, 10)}`, 3);
+  if (!out.summary) return { error: `${ws.name}: la salida no trae el resumen de jest. Últimas líneas:\n${tail(run.out, 10)}`, code: 3 };
   if (out.tests.length !== total(out.summary)) {
-    die(`${ws.name}: el detalle por test (${out.tests.length}) no cuadra con el resumen (${total(out.summary)}); ¿falta --verbose en commands.test?`, 3);
+    const flag = /\s--verbose\b/.test(cmd) ? '--reporters=default (un reporter propio de la config de jest se come el detalle)' : '--verbose';
+    return { error: `${ws.name}: el detalle por test (${out.tests.length}) no cuadra con el resumen (${total(out.summary)}); falta ${flag} en commands.test`, code: 3 };
   }
+  return { out, run };
+}
+
+// Corre commands.test sobre el primer spec trackeado y comprueba que su salida se puede leer: lo que
+// prueban /arnes:init (adopt.js probe) y adoption-check en el punto 3. → { ok } | { skip } | { error }
+function probeTests(ws) {
+  if (!ws.commands.test) return { skip: 'sin commands.test' };
+  if (!ws.specPattern) return { error: `${ws.name}: sin specPattern, no hay con qué elegir un spec` };
+  const t = trackedSpecs(ws);
+  if (t.error) return t;
+  if (!t.specs.length) return { skip: 'sin specs trackeados según specPattern' };
+  const r = runAndRead(ws, [t.specs[0]]);
+  return r.error ? { error: r.error } : { ok: `${t.specs[0]}: ${r.out.tests.length} test(s) leídos con su detalle` };
+}
+
+// La base sin imprimir nada: → { file, data, summary, failed, unknown } o { error, code }.
+function captureBaseline(project, ws) {
+  const own = [baselinePath(ws), knownPath(ws)].map((f) => posix(path.relative(ws.dir, f)));
+  const t = touched(ws, 'HEAD', project);
+  if (t.error) return { error: `test-baseline: ${t.error}`, code: 2 };
+  const dirty = t.files.filter((f) => matchAny(ws.codeGlobs, f) && !own.includes(f));
+  if (dirty.length) return { error: `${ws.name}: hay código tocado (${dirty.slice(0, 3).join(', ')}); la base tiene que describir un commit`, code: 3 };
+  const head = git(ws.gitRoot, ['rev-parse', 'HEAD']);
+  if (head.status !== 0) return { error: `test-baseline: git rev-parse HEAD falló en ${ws.name}`, code: 2 };
+  const tracked = trackedSpecs(ws);
+  if (tracked.error) return { ...tracked, code: 2 };
+  const r = runAndRead(ws, tracked.specs);
+  if (r.error) return r;
+  const { out } = r;
   const per = {};
   for (const x of out.tests) {
     per[x.spec] = per[x.spec] || { ...ZERO };
@@ -311,7 +346,14 @@ function capture(project, ws) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
   const known = readKnown(ws);
   const unknown = out.failed.filter((f) => !known.entries.some((e) => e.spec === f.spec && e.name === f.name));
-  console.log(`línea base de ${ws.name} en ${file}: ${Object.keys(per).length} spec(s), ${fmt(out.summary)}, HEAD ${data.head.slice(0, 10)}`);
+  return { file, data, summary: out.summary, failed: out.failed, unknown };
+}
+
+function capture(project, ws) {
+  const r = captureBaseline(project, ws);
+  if (r.error) die(r.error, r.code);
+  const { file, data, summary, unknown } = r;
+  console.log(`línea base de ${ws.name} en ${file}: ${Object.keys(data.specs).length} spec(s), ${fmt(summary)}, HEAD ${data.head.slice(0, 10)}`);
   if (unknown.length) {
     console.log(`${unknown.length} falla(s) que no están en ${KNOWN}; al tocar su spec ponen el gate en rojo:`);
     for (const f of unknown) console.log(`  ${f.spec} › ${f.name}`);

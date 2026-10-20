@@ -79,6 +79,17 @@ test('cada pieza que falta es una FALTA con su motivo, y el exit pasa a 1', () =
   }
 });
 
+test('comprobación 3: el comando de test corre sobre un spec y su detalle se lee; si no, FALTA con el flag', () => {
+  const env = h.withPath(h.fakeBin(h.tmp('bin-jest-ac'), 'jest', h.FAKE_JEST), { CLAUDE_CONFIG_DIR: h.tmp('cfg') });
+  const withTest = (test) => adopted({ commands: { typecheck: ['npx tsc --noEmit'], lint: 'npx eslint {files} --max-warnings=0', test }, specPattern: '{dir}/{name}.spec.ts' }, { 'src/a.spec.ts': 'pass|A|uno\n' });
+  let r = h.run('adoption-check.js', [], { cwd: withTest('jest {specs} --runTestsByPath'), env });
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /3\. Typecheck[\s\S]*FALTA\s+api: el detalle por test \(0\) no cuadra con el resumen \(1\); falta --verbose en commands\.test/);
+  r = h.run('adoption-check.js', [], { cwd: withTest('jest {specs} --runTestsByPath --verbose'), env });
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /ok\s+api: test sobre src\/a\.spec\.ts: 1 test\(s\) leídos con su detalle/);
+});
+
 test('sin lint declarado es FALTA; un CLAUDE.md de más de 200 líneas también', () => {
   const dir = adopted({ commands: { typecheck: ['npx tsc --noEmit'] } }, { 'CLAUDE.md': 'x\n'.repeat(250) });
   const r = check(dir);

@@ -39,7 +39,17 @@ Pasos:
 6. Recuerda dónde se versiona cada archivo:
    - El manifiesto de un repo se commitea en ese repo, cuando su equipo lo adopte. Tú no commiteas.
    - La composición va en el repo-workspace de la carpeta. Si la carpeta no es un repo, o si su repo es otro (como el del arnés en academico), va a su `.gitignore`.
-7. Ofrece correr `/arnes:init --check` para ver qué falta del mínimo de adopción.
+7. Sigue con lo determinista de la adopción, y después ofrece `/arnes:init --check` para ver qué falta del mínimo.
+
+## Después de los manifiestos: lo determinista
+
+Corre cada paso con `node "${CLAUDE_PLUGIN_ROOT}/scripts/adopt.js" <paso>` y muestra su salida tal cual. Los que escriben (`--write`, `--remove`) solo con un sí de la persona, pedido en un mensaje que los liste todos. init no instala dependencias ni commitea.
+1. **Tests legibles:** `probe` corre el test del manifiesto sobre un spec. Si dice FALTA con un flag (`--verbose`, `--reporters=default`), propón agregarlo a `commands.test`.
+2. **Hooks del arnés anterior:** `hooks` los lista; con el sí, `hooks --remove`.
+3. **Permisos:** `permissions` muestra los que faltan; con el sí, `permissions --write` los agrega a `.claude/settings.local.json`, que no se commitea.
+4. **CLAUDE.md de la carpeta:** en una carpeta multi-repo, `claude-md` muestra el borrador; con el sí, `claude-md --write`, y la persona lo completa.
+5. **Línea base:** por workspace, `baseline <ws>` dice si el árbol está limpio; con el sí, `baseline <ws> --write` escribe `tests/baseline.json` y agrega a `tests/known-failures.txt`, con la fecha de hoy, los rojos que ya había. Commitearlos, con `gates:` en el asunto, es de la persona.
+6. Si un comando no corre porque falta una dependencia, dilo con el comando: instalarla es de la persona.
 
 Un repo con solo `composer.json` (PHP) o sin typecheck ni test detectables no lleva manifiesto propio. Entra en la composición como no adoptable todavía, y eso no es un error.
 

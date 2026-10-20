@@ -2,7 +2,8 @@
 // Mínimo de adopción (docs/PLAN.md §8), por workspace del proyecto que se resuelve desde el cwd:
 //   1. manifiesto válido contra el schema, carpeta y repo git presentes
 //   2. CLAUDE.md (≤ 200 líneas) y .claude/rules/*.md con `paths:` en cada repo; CLAUDE.md raíz en una carpeta
-//   3. commands.typecheck y commands.lint declarados, ejecutables y sin --fix
+//   3. commands.typecheck y commands.lint declarados, ejecutables y sin --fix; commands.test, si
+//      está, corre sobre un spec y test-baseline lee su detalle (si no, dice el flag que falta)
 //   4. CI que corre ci-gate; detección de secretos (GitLab); el resto de la configuración del host, a mano
 //   5. riskPaths declaradas; regla de aprobación en el host (CODEOWNERS o a mano)
 //   6. plugin fijado a un tag en .claude/settings.json del proyecto o de un repo, o en el de usuario
@@ -25,7 +26,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, selectWorkspaces, MANIFEST, posix } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
-const { readBaseline } = require('./test-baseline.js');
+const { readBaseline, probeTests } = require('./test-baseline.js');
 
 const MAX_CLAUDE_MD = 200;
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
@@ -102,17 +103,21 @@ function pinnedRef(file) {
   }
 }
 
-// Hooks del settings.json que corren un script de .claude/hooks/, como `{ command: "node", args:
-// [".claude/hooks/git-guard.js"] }`; devuelve "<script> en <evento>". Lanza si el JSON no es válido.
+// El script de .claude/hooks/ que corre un hook, como `{ command: "node", args:
+// [".claude/hooks/git-guard.js"] }`, o null.
+function ownScript(hk) {
+  const m = [hk && hk.command, ...[].concat((hk && hk.args) || [])].join(' ').match(/\.claude[\\/]+hooks[\\/]+([^\s"'`]+)/);
+  return m ? `.claude/hooks/${m[1].replace(/\\/g, '/')}` : null;
+}
+
+// Hooks del settings.json que corren un script de .claude/hooks/; devuelve "<script> en <evento>".
+// Lanza si el JSON no es válido.
 function ownHooks(file) {
   const s = JSON.parse(fs.readFileSync(file, 'utf8'));
   const out = [];
   for (const [event, groups] of Object.entries(s.hooks || {})) {
     for (const g of [].concat(groups || [])) {
-      for (const hk of [].concat((g && g.hooks) || [])) {
-        const m = [hk.command, ...[].concat(hk.args || [])].join(' ').match(/\.claude[\\/]+hooks[\\/]+([^\s"'`]+)/);
-        if (m) out.push(`.claude/hooks/${m[1].replace(/\\/g, '/')} en ${event}`);
-      }
+      for (const hk of [].concat((g && g.hooks) || [])) if (ownScript(hk)) out.push(`${ownScript(hk)} en ${event}`);
     }
   }
   return out;
@@ -181,7 +186,7 @@ function main() {
     else say('ok', `${label}: ${r.withPaths} de ${r.total} regla(s) con paths:`);
   }
 
-  console.log('\n3. Typecheck y lint ejecutables, sin --fix');
+  console.log('\n3. Typecheck y lint ejecutables, sin --fix, y tests que se pueden leer');
   for (const ws of wss) {
     for (const key of ['typecheck', 'lint']) {
       const cmds = [].concat(ws.commands[key] || []);
@@ -194,6 +199,10 @@ function main() {
         say(problem ? 'FALTA' : 'ok', `${ws.name}: ${key} \`${cmd}\`${problem ? `: ${problem}` : ''}`);
       }
     }
+    // El comando de test sobre un spec: que corra y que test-baseline pueda leer su detalle.
+    const probe = probeTests(ws);
+    if (probe.ok) say('ok', `${ws.name}: test sobre ${probe.ok}`);
+    if (probe.error) say('FALTA', probe.error.startsWith(ws.name) ? probe.error : `${ws.name}: ${probe.error}`);
   }
 
   console.log('\n4. CI con el gate');
@@ -257,5 +266,7 @@ function main() {
 
   finish();
 }
+
+module.exports = { ownScript, ownHooks };
 
 if (require.main === module) main();
