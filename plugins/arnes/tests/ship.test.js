@@ -31,8 +31,8 @@ function folder() {
 
 const ship = (dir, args) => h.run('ship.js', args, { cwd: dir });
 // La revisión: la entrada, el reporte del reviewer que la skill guarda tal cual y la marca.
-const reviewed = (root, n) => {
-  assert.equal(h.run('review.js', ['input'], { cwd: root }).status, 0);
+const reviewed = (root, n, extra = []) => {
+  assert.equal(h.run('review.js', ['input', ...extra], { cwd: root }).status, 0);
   h.write(root, '.tmp/harness/review/report.md', `BLOQUEANTES: ${n}
 `);
   assert.equal(h.run('review.js', ['mark', '--blockers', String(n)], { cwd: root }).status, 0);
@@ -72,7 +72,7 @@ test('check: la revisión con bloqueantes, un .env o la base de tests tocada', (
   const { root, api } = folder();
   h.write(api, 'tests/baseline.json', '{}');
   ready(root);
-  reviewed(root, 1);
+  reviewed(root, 1, ['--completa']);
   let r = ship(root, ['check']);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /api: la revisión encontró 1 bloqueante/);

@@ -69,7 +69,7 @@ test('input deja al reviewer lo que no saca sin Bash: HEAD, tocados, borrados, r
     /- src\/a\.ts · modificado/,
     /- src\/b\.spec\.ts · nuevo sin trackear: léelo entero/,
     /Borrados:\n- src\/viejo\.ts/,
-    /-const a = 1;\n\+const a = 2;/,
+    / {6}-const a = 1;\n {4}1 \+const a = 2;/,
     /Plan: no hay/,
   ]) {
     assert.match(md, re);
@@ -89,6 +89,26 @@ test('input cita el plan si existe y corta un diff largo', () => {
   const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
   assert.match(md, new RegExp(`Plan: .*plan\\.md`));
   assert.match(md, /diff truncado en 400 líneas: lee el archivo entero/);
+});
+
+test('el diff lleva el número de línea del archivo en el árbol final: toda cita cae dentro del archivo', () => {
+  const lines = Array.from({ length: 600 }, (_, i) => `linea ${i + 1}`);
+  const dir = repo({ 'src/largo.ts': `${lines.join('\n')}\n` });
+  lines[9] = 'cambio arriba';
+  lines.splice(589, 1, 'cambio abajo', 'agregada abajo');
+  fs.writeFileSync(path.join(dir, 'src/largo.ts'), `${lines.join('\n')}\n`);
+  review(dir, ['input']);
+  const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.match(md, /Cita esos números/);
+  const block = md.split('diff --git a/src/largo.ts')[1].split('````')[0];
+  const cited = [...block.matchAll(/^ *(\d+) [+ ](.*)$/gm)].map((m) => [Number(m[1]), m[2]]);
+  assert.ok(cited.length > 10, 'el bloque trae líneas numeradas');
+  for (const [n, text] of cited) {
+    assert.ok(n >= 1 && n <= lines.length, `la línea ${n} cae dentro del archivo de ${lines.length}`);
+    assert.equal(text, lines[n - 1], `la línea ${n} es la del archivo`);
+  }
+  assert.deepEqual(cited.filter(([, x]) => x.startsWith('cambio') || x.startsWith('agregada')).map(([n]) => n), [10, 590, 591]);
+  assert.match(block, /^ {6}-linea 10$/m, 'la borrada va sin número');
 });
 
 test('mark y check: hecha sobre el árbol actual y sin bloqueantes → 0', () => {
@@ -161,11 +181,11 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
   assert.match(r.stdout, /ronda 2 de 3 · acotada: el diff de la corrección contra los 2 bloqueante\(s\) de la ronda 1/);
   const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
   for (const re of [
-    /Ronda 2 de 3, acotada: revisa solo el diff de la corrección/,
+    /Ronda 2 de 3, acotada: revisa solo el diff desde lo revisado en la ronda 1, contra sus 2 bloqueante\(s\)/,
     /## Reporte de la ronda 1\n\n- BLOQUEANTE \[línea 1\] · 5 · a vale 2 a mano/,
     /REVISIÓN HUMANA OBLIGATORIA: toca riskPaths: prisma\/migrations\/001\/migration\.sql/,
-    /Cambió en la corrección \(1\):\n- src\/a\.ts\n### Diff de la corrección, desde lo revisado en la ronda 1/,
-    /-const a = 2;\n\+const a = 3;/,
+    /Cambió desde la ronda 1 \(1\):\n- src\/a\.ts\n### Diff desde lo revisado en la ronda 1/,
+    / {6}-const a = 2;\n {4}1 \+const a = 3;/,
   ]) {
     assert.match(md, re);
   }
@@ -176,7 +196,7 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
 
   fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const a = 4;\n');
   assert.match(review(dir, ['input']).stdout, /ronda 3 de 3 · acotada: .* de la ronda 2/);
-  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), /-const a = 3;\n\+const a = 4;/);
+  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), / {6}-const a = 3;\n {4}1 \+const a = 4;/);
   report(dir, 1);
   assert.match(review(dir, ['mark', '--blockers', '1']).stdout, /tope: la ronda 3 terminó con bloqueantes después de dos rondas de corrección/);
 
@@ -185,6 +205,30 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
   assert.equal(r.status, 1);
   assert.match(r.stderr, /tope de rondas: la ronda 3 terminó con 1 bloqueante\(s\)/);
   assert.match(review(dir, ['input', '--completa']).stdout, /ronda 1 de 3 · completa\n/);
+});
+
+test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda acotada; salir de lo revisado vuelve a la 1', () => {
+  const dir = changed();
+  review(dir, ['input']);
+  report(dir, 0, '- sugerencia [línea 1] · usa una constante\n');
+  review(dir, ['mark', '--blockers', '0']);
+  let r = review(dir, ['input']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /nada cambió desde la ronda 1, que terminó sin bloqueantes: esa revisión sigue valiendo/);
+
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const A = 2;\n');
+  r = review(dir, ['input']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ronda 2 de 3 · acotada: el diff desde la ronda 1, que terminó sin bloqueantes/);
+  const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.match(md, /Ronda 2 de 3, acotada: revisa solo el diff desde lo revisado en la ronda 1, que terminó sin bloqueantes/);
+  assert.match(md, /## Reporte de la ronda 1\n\n- sugerencia \[línea 1\] · usa una constante/);
+  report(dir, 0);
+  review(dir, ['mark', '--blockers', '0']);
+
+  h.write(dir, 'src/nuevo.ts', 'otra cosa\n');
+  r = review(dir, ['input']);
+  assert.match(r.stdout, /ronda 1 de 3 · completa: el cambio tocó archivos fuera de lo revisado en la ronda 2: src\/nuevo\.ts/);
 });
 
 test('ronda de corrección completa si tocó archivos fuera del diff anterior; sin cambios se niega; con otro HEAD vuelve a la 1', () => {

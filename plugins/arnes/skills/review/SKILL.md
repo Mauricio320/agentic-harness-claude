@@ -1,6 +1,6 @@
 ---
 name: review
-description: Revisar el cambio antes de entregarlo o de abrir un MR. Lanza el reviewer del arnés una vez por ronda, la primera sobre el árbol final con los tocados y el plan si existe, y las de corrección solo sobre el diff de la corrección; marca REVISIÓN HUMANA OBLIGATORIA si toca riskPaths y resume los hallazgos por archivo, bloqueantes primero.
+description: Revisar el cambio antes de entregarlo o de abrir un MR. Lanza el reviewer del arnés una vez por ronda, la primera sobre el árbol final con los tocados y el plan si existe, y las siguientes solo sobre el diff desde la ronda anterior; marca REVISIÓN HUMANA OBLIGATORIA si toca riskPaths y resume los hallazgos por archivo, bloqueantes primero.
 ---
 
 # arnes:review
@@ -11,13 +11,13 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
 
 ## Pasos
 
-1. Anota el inicio: `node "S/lib/timeline.js" start review`.
-
-2. Prepara la entrada: `node "S/review.js" input`.
-   - **Qué deja:** `.tmp/harness/review/input.md`, con lo que el reviewer no puede sacar sin Bash: el HEAD de base, los tocados (los nuevos para leerlos enteros), los borrados, las riskPaths tocadas, el contrato, las reglas del repo y el diff contra HEAD.
+1. Prepara la entrada: `node "S/review.js" input`.
+   - **Qué deja:** `.tmp/harness/review/input.md`, con lo que el reviewer no puede sacar sin Bash: el HEAD de base, los tocados (los nuevos para leerlos enteros), los borrados, las riskPaths tocadas, el contrato, las reglas del repo y el diff numerado con las líneas del archivo.
    - **Qué imprime:** una línea por workspace, la ronda y su modo (`ronda <n> de 3 · completa` o `· acotada`), la ruta del plan o "no hay", y la ruta de `input.md`.
-   - **Si dice que no hay nada que revisar:** anota `end review --result ok --detail "sin tocados"` y termina.
-   - **Si sale con 1:** es el tope de rondas, o nada cambió desde la ronda con bloqueantes. Muestra el motivo, anota `end review --result fail --detail "<motivo>"` y termina.
+   - **Si dice que no hay nada que revisar:** anota `node "S/lib/timeline.js" note review --result ok --detail "sin tocados"` y termina.
+   - **Si sale con 1:** es el tope de rondas, o nada cambió desde la revisión anterior. Muestra el motivo, anota `note review --result fail --detail "<motivo>"` y termina.
+
+2. Anota el inicio con lo que decidió el script, nunca antes: `node "S/lib/timeline.js" start review --detail "ronda <n> <modo>"`.
 
 3. Lanza el agente `arnes:reviewer` **una sola vez** en esta ronda. El prompt lleva solo esto:
    ```
@@ -38,10 +38,16 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
 
 ## Rondas de corrección
 
-Con bloqueantes, se corrigen (los de specs con test-writer, los de código con dev), se corre verify entero, porque la bandera exige el contenido actual, y se vuelve a esta skill. `review.js input` decide la ronda:
+Con bloqueantes, se corrigen (los de specs con test-writer, los de código con dev), se corre verify entero, porque la bandera exige el contenido actual, y se vuelve a esta skill. Lo mismo si se aplican las sugerencias de una revisión sin bloqueantes. `review.js input` decide la ronda:
 - **Ronda 1, completa:** el árbol entero, con el reviewer en opus.
-- **Rondas 2 y 3, acotadas:** solo el diff de la corrección contra los bloqueantes de la ronda anterior, con su reporte como entrada, y el reviewer en sonnet. Si la corrección tocó archivos fuera del diff anterior, la ronda es completa y va en opus.
+- **Rondas 2 y 3, acotadas:** solo el diff desde lo revisado en la ronda anterior, con su reporte como entrada, y el reviewer en sonnet. Si el cambio tocó archivos fuera de lo ya revisado, la ronda es completa y va en opus.
 - **Tope: dos rondas de corrección.** Si mark dice `tope`, no corrijas más: reporta a la persona los bloqueantes que siguen y espera su decisión. `review.js input --completa` vuelve a la ronda 1; córrelo solo si la persona lo pide.
+
+## Al terminar
+
+Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`) no te detengas entre etapas, aunque el turno haya empezado con la respuesta de la persona a una pregunta tuya. Solo paras si ella lo pidió o si hace falta una decisión suya.
+- **Sin bloqueantes:** la etapa siguiente es ship, que corre la persona. Cierra con `Listo para /arnes:ship`.
+- **Con bloqueantes:** sigue con la corrección, verify y esta skill en el mismo turno, hasta el tope.
 
 ## Reporte
 

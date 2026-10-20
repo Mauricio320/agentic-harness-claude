@@ -9,11 +9,13 @@
 //          Del proyecto, el plan si existe .tmp/harness/plan.md. Guarda en input.json la huella de
 //          los tocados de cada workspace, la misma de gate-flag, y el árbol revisado: un árbol de
 //          git escrito con un índice temporal, que no toca el índice, las ramas ni el disco.
-//          Rondas (docs/PLAN.md §6.3): la 1 es completa. Si la revisión anterior tuvo bloqueantes
-//          y el HEAD no cambió, la que sigue es de corrección y va acotada: el diff de la corrección
-//          (del árbol revisado al actual) y el reporte anterior, en vez del diff contra HEAD. Es
-//          completa si la corrección tocó archivos fuera de los tocados de la ronda anterior. Tope:
-//          tras la ronda 3 con bloqueantes se niega. --completa revisa todo y vuelve a la ronda 1.
+//          Rondas (docs/PLAN.md §6.3): la 1 es completa. Si el HEAD no cambió desde la revisión
+//          anterior, la que sigue va acotada: el diff desde el árbol revisado y el reporte anterior,
+//          en vez del diff contra HEAD. Vale tras una ronda con bloqueantes (la corrección) y tras una
+//          sin bloqueantes (las sugerencias aplicadas). Si el cambio tocó archivos fuera de los
+//          tocados de la ronda anterior, es completa: la ronda siguiente tras bloqueantes, o la 1
+//          tras una limpia. Tope: tras la ronda 3 con bloqueantes se niega. --completa revisa todo y
+//          vuelve a la ronda 1. Los diffs llevan el número de línea del archivo (numbered).
 //   mark   escribe .tmp/harness/review.json con los bloqueantes, la ronda y la huella de input.json;
 //          se niega si el árbol cambió desde input, porque lo revisado ya no es lo que hay. Exige el
 //          reporte del reviewer tal cual en .tmp/harness/review/report.md, con su línea BLOQUEANTES
@@ -25,7 +27,7 @@
 //      node review.js check
 // Salida: una línea por workspace, con las riskPaths tocadas; input sigue con la ronda y su modo y
 // termina con la ruta de input.md.
-// Exit: 0 escrita o hecha · 1 input: tope de rondas o nada cambió desde la ronda con bloqueantes;
+// Exit: 0 escrita o hecha · 1 input: tope de rondas o nada cambió desde la revisión anterior;
 //       mark: el árbol cambió desde input; check: falta, no es del árbol actual o tuvo bloqueantes
 //       · 2 uso inválido, sin manifiesto, sin input previo, sin reporte o git falló
 
@@ -95,7 +97,26 @@ function rules(ws, files) {
     });
 }
 
-// El diff contra HEAD o, en una ronda acotada, el de la corrección: del árbol revisado al actual.
+// El diff con el número de línea del archivo en el árbol final a la izquierda de cada línea que
+// sigue en él (contexto y +); las borradas (-) van sin número. El reviewer cita esos números, no
+// la posición dentro del diff. Cuesta seis caracteres por línea, menos que leer el archivo entero.
+function numbered(text) {
+  let n = null;
+  return text
+    .split('\n')
+    .map((l) => {
+      const hunk = l.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (hunk) n = Number(hunk[1]);
+      if (hunk || n === null) return l;
+      if (l.startsWith('diff --git ')) return ((n = null), l);
+      if (l.startsWith('-')) return `      ${l}`;
+      if (l.startsWith('+') || l.startsWith(' ')) return `${String(n++).padStart(5)} ${l}`;
+      return l;
+    })
+    .join('\n');
+}
+
+// El diff contra HEAD o, en una ronda acotada, el del cambio: del árbol revisado al actual.
 function cappedDiff(ws, refs = ['HEAD']) {
   const r = git(ws.dir, ['diff', '--no-color', '--no-ext-diff', '--relative', ...refs, '--']);
   if (r.status !== 0) return { error: `git diff falló en ${ws.name}` };
@@ -103,7 +124,7 @@ function cappedDiff(ws, refs = ['HEAD']) {
   return {
     text: blocks
       .map((b) => {
-        const ls = b.replace(/\n$/, '').split('\n');
+        const ls = numbered(b.replace(/\n$/, '')).split('\n');
         return ls.length <= MAX_DIFF_LINES ? ls.join('\n') : [...ls.slice(0, MAX_DIFF_LINES), `… diff truncado en ${MAX_DIFF_LINES} líneas: lee el archivo entero`].join('\n');
       })
       .join('\n'),
@@ -141,10 +162,10 @@ function section(project, ws, files, corr) {
     `Tocados (${files.length}), rutas relativas a la carpeta:`,
     ...files.map((f) => `- ${f} · ${tag(f)}`),
     ...(gone.files.length ? ['Borrados:', ...gone.files.map((f) => `- ${f}`)] : []),
-    ...(corr ? [`Cambió en la corrección (${corr.files.length}):`, ...corr.files.map((f) => `- ${f}`)] : []),
-    corr ? `### Diff de la corrección, desde lo revisado en la ronda ${corr.from}` : '### Diff contra HEAD',
+    ...(corr ? [`Cambió desde la ronda ${corr.from} (${corr.files.length}):`, ...corr.files.map((f) => `- ${f}`)] : []),
+    corr ? `### Diff desde lo revisado en la ronda ${corr.from}` : '### Diff contra HEAD',
     '````diff',
-    diff.text || (corr ? '(la corrección no cambió nada en este workspace)' : '(sin diff de archivos trackeados)'),
+    diff.text || (corr ? '(nada cambió en este workspace desde esa ronda)' : '(sin diff de archivos trackeados)'),
     '````',
     '',
   ];
@@ -169,15 +190,20 @@ function treeOf(project, ws, paths) {
 }
 
 // La ronda que toca, a partir de review.json. now: { <ws>: { ws, files, head, tree } }.
-// → { round, mode, reason? } · { round, mode: 'acotada', from, changed } · { stop }
+// Después de una ronda con bloqueantes, la siguiente es de corrección. Después de una sin
+// bloqueantes, un cambio que no sale de lo ya revisado (las sugerencias aplicadas) también va
+// acotado; uno que sale es trabajo nuevo y vuelve a la ronda 1.
+// → { round, mode, reason? } · { round, mode: 'acotada', from, blockers, changed } · { stop }
 function roundOf(project, now, full) {
   const prev = readJson(reviewFile(project));
   const first = { round: 1, mode: 'completa' };
-  if (full || !prev || !(prev.blockers > 0) || !Number.isInteger(prev.round)) return first;
+  if (full || !prev || !(prev.blockers >= 0) || !Number.isInteger(prev.round)) return first;
   const names = Object.keys(now);
   const before = (n) => (prev.workspaces || {})[n];
   if (names.some((n) => before(n) && before(n).head !== now[n].head)) return first;
+  const clean = prev.blockers === 0;
   if (prev.round >= MAX_ROUNDS) {
+    if (clean) return first;
     return { stop: `tope de rondas: la ronda ${prev.round} terminó con ${prev.blockers} bloqueante(s) después de dos rondas de corrección. No se corrige más: decide la persona (review.js input --completa vuelve a la ronda 1).` };
   }
   const round = prev.round + 1;
@@ -189,9 +215,15 @@ function roundOf(project, now, full) {
     if (d.status !== 0) return { round, mode: 'completa', reason: `no está el árbol revisado en la ronda ${prev.round}` };
     changed[n] = lines(d.stdout);
   }
-  if (names.every((n) => !changed[n].length)) return { stop: `nada cambió desde la ronda ${prev.round}, que terminó con ${prev.blockers} bloqueante(s): corrige antes de revisar.` };
+  if (names.every((n) => !changed[n].length)) {
+    return { stop: clean
+      ? `nada cambió desde la ronda ${prev.round}, que terminó sin bloqueantes: esa revisión sigue valiendo (review.js input --completa revisa de nuevo).`
+      : `nada cambió desde la ronda ${prev.round}, que terminó con ${prev.blockers} bloqueante(s): corrige antes de revisar.` };
+  }
   const outside = names.flatMap((n) => changed[n].filter((f) => !before(n).files.includes(f)).map((f) => (names.length > 1 ? `${n}/${f}` : f)));
-  if (outside.length) return { round, mode: 'completa', reason: `la corrección tocó archivos fuera del diff anterior: ${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}` };
+  const list = `${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}`;
+  if (outside.length && clean) return { ...first, reason: `el cambio tocó archivos fuera de lo revisado en la ronda ${prev.round}: ${list}` };
+  if (outside.length) return { round, mode: 'completa', reason: `la corrección tocó archivos fuera del diff anterior: ${list}` };
   if (!fs.existsSync(roundReport(project, prev.round))) return { round, mode: 'completa', reason: `falta el reporte de la ronda ${prev.round}` };
   return { round, mode: 'acotada', from: prev.round, blockers: prev.blockers, changed };
 }
@@ -222,10 +254,11 @@ function input(project, full) {
     '',
     `Generada ${new Date().toISOString()} · proyecto ${project.name} · raíz ${project.root}`,
     bounded
-      ? `Ronda ${r.round} de ${MAX_ROUNDS}, acotada: revisa solo el diff de la corrección contra los ${r.blockers} bloqueante(s) del reporte de la ronda ${r.from}, que va abajo.`
+      ? `Ronda ${r.round} de ${MAX_ROUNDS}, acotada: revisa solo el diff desde lo revisado en la ronda ${r.from}, ${r.blockers ? `contra sus ${r.blockers} bloqueante(s)` : 'que terminó sin bloqueantes'}. Su reporte va abajo.`
       : `Ronda ${r.round} de ${MAX_ROUNDS}, completa${r.reason ? ` porque ${r.reason}` : ''}.`,
     fs.existsSync(plan) ? `Plan: ${plan}` : 'Plan: no hay (.tmp/harness/plan.md no existe); el reporte va sin la sección de criterios.',
-    `Lee el árbol final con Read: cada ruta de abajo es relativa a la carpeta de su workspace. ${bounded ? 'El diff es el de la corrección.' : 'El diff es contra el HEAD de base.'}`,
+    `Lee el árbol final con Read: cada ruta de abajo es relativa a la carpeta de su workspace. ${bounded ? 'El diff es el del cambio desde esa ronda.' : 'El diff es contra el HEAD de base.'}`,
+    'Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final; las borradas van sin número. Cita esos números.',
     '',
     ...(bounded ? [`## Reporte de la ronda ${r.from}`, '', fs.readFileSync(roundReport(project, r.from), 'utf8').trim(), ''] : []),
   ];
@@ -242,7 +275,8 @@ function input(project, full) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'input.md'), parts.join('\n'));
   fs.writeFileSync(path.join(dir, 'input.json'), JSON.stringify({ at: new Date().toISOString(), round: r.round, mode: r.mode, workspaces: marks }, null, 2) + '\n');
-  console.log(`ronda ${r.round} de ${MAX_ROUNDS} · ${r.mode}${bounded ? `: el diff de la corrección contra los ${r.blockers} bloqueante(s) de la ronda ${r.from}` : r.reason ? `: ${r.reason}` : ''}`);
+  const why = bounded ? (r.blockers ? `el diff de la corrección contra los ${r.blockers} bloqueante(s) de la ronda ${r.from}` : `el diff desde la ronda ${r.from}, que terminó sin bloqueantes`) : r.reason;
+  console.log(`ronda ${r.round} de ${MAX_ROUNDS} · ${r.mode}${why ? `: ${why}` : ''}`);
   console.log(`plan: ${fs.existsSync(plan) ? plan : 'no hay'}`);
   console.log(`entrada: ${path.join(dir, 'input.md')}`);
 }

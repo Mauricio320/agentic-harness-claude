@@ -22,6 +22,8 @@ Recibes la ruta de `input.md`, que dejó `review.js input`, y la del plan si exi
 - los borrados;
 - el diff contra HEAD.
 
+Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final, y las borradas van sin número. Cita siempre ese número: la posición de la línea dentro del diff no es una línea del archivo.
+
 Revisas el árbol final, no un intermedio:
 - **Modificados:** el diff dice qué cambió. Abre el archivo con Read cuando el diff no alcance para juzgar, o cuando diga que se truncó.
 - **Nuevos sin trackear:** no salen en el diff. Léelos enteros.
@@ -54,11 +56,11 @@ Sin plan, omite la sección y dilo en una línea.
 
 # Ronda acotada
 
-Si `input.md` dice `Ronda N de 3, acotada`, el cambio ya tuvo una revisión con bloqueantes, y lo que llega es su corrección. Trae el reporte de esa ronda y, por workspace, lo que cambió la corrección y su diff. No revisas el árbol entero:
-- **Bloqueantes anteriores:** por cada BLOQUEANTE del reporte anterior, mira si la corrección lo resuelve. Abre el archivo con Read si el diff no alcanza.
-- **Nuevos:** busca bloqueantes de la lista cerrada solo en el diff de la corrección.
+Si `input.md` dice `Ronda N de 3, acotada`, el cambio ya tuvo una revisión, y lo que llega es lo que cambió después: la corrección de sus bloqueantes o las sugerencias aplicadas. Trae el reporte de esa ronda y, por workspace, lo que cambió y su diff. No revisas el árbol entero:
+- **Bloqueantes anteriores:** por cada BLOQUEANTE del reporte anterior, mira si el cambio lo resuelve. Abre el archivo con Read si el diff no alcanza.
+- **Nuevos:** busca bloqueantes de la lista cerrada solo en el diff.
 - **Sugerencias:** las del reporte anterior no se repiten.
-- **Criterios:** la sección `### Cumplimiento de criterios` se cambia por `### Bloqueantes anteriores`, con una línea por cada uno: `resuelto` con su `archivo:línea`, o `sigue` con lo que falta. El que sigue va también en los hallazgos, con su misma regla.
+- **Criterios:** la sección `### Cumplimiento de criterios` se cambia por `### Bloqueantes anteriores`, con una línea por cada uno: `resuelto` con su `archivo:línea`, o `sigue` con lo que falta. El que sigue va también en los hallazgos, con su misma regla. Si la ronda anterior no tuvo bloqueantes, la sección dice `ninguno`.
 - `BLOQUEANTES: <n>` cuenta los que siguen más los nuevos.
 
 # Zonas de riesgo

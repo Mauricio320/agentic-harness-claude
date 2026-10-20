@@ -63,9 +63,19 @@ test('rondas de review: la skill guarda el reporte que exige mark y lanza las ac
   assert.match(skill, /\.tmp\/harness\/review\/report\.md/);
   assert.match(skill, /ronda acotada, pasa `model: "sonnet"`/);
   assert.match(skill, /Tope: dos rondas de corrección/);
+  assert.ok(skill.indexOf('review.js" input') < skill.indexOf('start review --detail "ronda <n> <modo>"'), 'el inicio se anota después de que review.js decide la ronda');
+  assert.doesNotMatch(skill, /timeline\.js" start review`/, 'sin un inicio anotado antes de decidir');
   const agent = fs.readFileSync(path.join(PLUGIN, 'agents', 'reviewer.md'), 'utf8');
   assert.match(agent, /^# Ronda acotada$/m);
   assert.match(agent, /### Bloqueantes anteriores/);
+});
+
+test('verify y review siguen a la etapa siguiente dentro de un issue en curso, aunque el turno empiece con una respuesta', () => {
+  for (const s of ['verify', 'review']) {
+    const text = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+    assert.match(text, /Dentro de un issue en curso \(`\.tmp\/harness\/plan\.md` con `Aprobado:`\)/, s);
+    assert.match(text, /aunque el turno haya empezado con la respuesta de la persona/, s);
+  }
 });
 
 test('cada script que nombra una skill existe', () => {

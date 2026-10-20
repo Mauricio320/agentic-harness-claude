@@ -39,6 +39,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 - **Una falla `preexistente (<fecha>)`:** no pone rojo. Repórtala aparte con su fecha.
 - **Sin bandera vigente:** el guard niega el `git commit` y el Stop bloquea una vez. No los rodees.
 
+## Al terminar en verde
+
+Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`), sigue con la skill review en el mismo turno. Hazlo aunque el turno haya empezado con la respuesta de la persona a una pregunta tuya, por ejemplo si borrabas una caché. Solo paras si ella lo pidió.
+
 ## Reporte
 
 Una sección por workspace verificado:
