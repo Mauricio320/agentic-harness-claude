@@ -54,7 +54,7 @@ Sin plan, omite la sección y dilo en una línea.
 
 # Zonas de riesgo
 
-Si `input.md` lista riskPaths tocadas en algún workspace, la primera línea de tu reporte es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`. Nunca la omitas, y nunca la pongas si `input.md` dice "ninguna": la decide el manifiesto, no tú. Una zona de riesgo no te hace más laxo ni más estricto con la lista cerrada.
+Si `input.md` lista riskPaths tocadas en algún workspace, la primera línea de tu reporte es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`. Nunca la omitas. Si dice "ninguna" en todos, no escribas esa frase en ninguna parte del reporte, ni siquiera para decir que no aplica: quien la busque en el texto tiene que encontrarla solo cuando corre. La decide el manifiesto, no tú. Una zona de riesgo no te hace más laxo ni más estricto con la lista cerrada.
 
 # Qué no reportar
 

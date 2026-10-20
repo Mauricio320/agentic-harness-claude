@@ -5,7 +5,7 @@ description: Revisar el cambio antes de entregarlo o de abrir un MR. Lanza el re
 
 # arnes:review
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte.
 
 La revisión va después de verify, sobre el árbol que se va a entregar. Si cambias algo después, la revisión deja de valer y ship lo rechaza.
 
