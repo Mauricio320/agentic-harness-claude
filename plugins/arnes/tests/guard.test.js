@@ -124,7 +124,8 @@ test('guard bloquea commit sin bandera y lo permite con bandera vigente de ese w
   const r = guard(api, 'git commit -m x');
   assert.ok(denied(r));
   assert.match(reason(r), /sin bandera de verificación vigente/);
-  assert.match(reason(r), /gate-flag\.js" write api --result pass\|fail/);
+  assert.match(reason(r), /Verifica con \/arnes:verify, que escribe la bandera solo si el gate pasa; nunca la escribas a mano/);
+  assert.doesNotMatch(reason(r), /gate-flag\.js/);
   flag(root, 'api');
   assert.ok(!denied(guard(api, 'git commit -m x')));
   assert.ok(denied(guard(client, 'git commit -m y')), 'la bandera de api no sirve para client');

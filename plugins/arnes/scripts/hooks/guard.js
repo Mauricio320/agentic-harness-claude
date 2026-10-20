@@ -38,7 +38,6 @@ const { secretPath } = require('./read-guard.js');
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
 const RUNNERS = [['npx'], ['bunx'], ['pnpm', 'exec'], ['pnpm', 'dlx'], ['yarn'], ['npm', 'exec']];
-const PLUGIN_SCRIPTS = path.resolve(__dirname, '..').split(path.sep).join('/');
 
 // Git Bash escribe C:\x como /c/x; ~ es el home.
 function toPath(dir, p) {
@@ -127,8 +126,7 @@ function judgeCommit(dir) {
   if (r.error || r.ok) return null;
   return (
     `git commit en ${ws.name} sin bandera de verificación vigente: ${r.reason}. ` +
-    `Verifica (typecheck, lint de los tocados, specs de test-select) y escribe la bandera con ` +
-    `node "${PLUGIN_SCRIPTS}/gate-flag.js" write ${ws.name} --result pass|fail.`
+    `Verifica con /arnes:verify, que escribe la bandera solo si el gate pasa; nunca la escribas a mano.`
   );
 }
 

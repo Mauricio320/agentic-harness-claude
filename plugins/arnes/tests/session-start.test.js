@@ -33,6 +33,10 @@ test('con una composición resume cada repo: rama, árbol sucio, stack y no adop
   assert.match(t, /- front \(front\) · rama feature\/x · limpio · nextjs · sin riskPaths/);
   assert.match(t, /- legacy \(legacy\) · rama main · no adoptable todavía/);
   assert.match(t, /Protocolo del arnés:/);
+  assert.match(t, /verifica con \/arnes:verify/);
+  assert.match(t, /revisa con \/arnes:review/);
+  assert.match(t, /\/arnes:worktree integrate <slug>, que corre la persona/);
+  assert.doesNotMatch(t, /gate-flag\.js write/, 'el protocolo no manda a escribir la bandera a mano');
   assert.match(t, /nunca que sea correcto en el negocio/);
   assert.ok(t.split('\n').length <= 40, `${t.split('\n').length} líneas`);
 });

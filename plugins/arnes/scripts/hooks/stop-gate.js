@@ -19,14 +19,12 @@
 const fs = require('fs');
 const path = require('path');
 const { run } = require('../lib/hook.js');
-const { loadProject, posix } = require('../lib/manifest.js');
+const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, turnChanged, turnPath } = require('../gate-flag.js');
 const ledger = require('../worktree-ledger.js');
-
-const SCRIPTS = posix(path.resolve(__dirname, '..'));
 
 function unverified(project) {
   const out = [];
@@ -102,14 +100,14 @@ function stopGate(input) {
   const parts = [];
   if (code.length) {
     parts.push(
-      `hay cambios de código sin verificación vigente en ${describe(code)}. Verifica el workspace (typecheck, lint de los tocados, ` +
-        `specs de test-select) y escribe la bandera con node "${SCRIPTS}/gate-flag.js" write <ws> --result pass|fail.`,
+      `hay cambios de código sin verificación vigente en ${describe(code)}. Verifica con /arnes:verify, que corre el gate de ` +
+        `cada workspace tocado y escribe la bandera solo si pasa; nunca la escribas a mano.`,
     );
   }
   if (wts.length) {
     parts.push(
-      `hay worktrees del issue con commits sin integrar: ${describeWt(wts)}. Intégralos en la rama del issue con ` +
-        `node "${SCRIPTS}/worktree-ledger.js" integrate <slug> (git merge --no-ff, nunca squash).`,
+      `hay worktrees del issue con commits sin integrar: ${describeWt(wts)}. Pídele a la persona /arnes:worktree integrate <slug>, ` +
+        `que los integra en la rama del issue (git merge --no-ff, nunca squash).`,
     );
   }
   return {

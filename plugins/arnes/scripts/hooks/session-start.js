@@ -29,10 +29,10 @@ const SCRIPTS = posix(path.resolve(__dirname, '..'));
 const PROTOCOL = [
   'Protocolo del arnés:',
   '1. Manda el manifiesto de cada repo: sus comandos, riskPaths y forbidden. No inventes comandos que no estén ahí.',
-  '2. Antes de cerrar un turno con cambios de código, verifica el workspace: typecheck (typecheck-baseline.js), lint de los tocados y los specs de test-select.js. Después escribe la bandera con gate-flag.js write <ws> --result pass|fail; nunca pass sin haber verificado. Sin bandera vigente, el Stop bloquea una vez.',
+  '2. Antes de cerrar un turno con cambios de código, verifica con /arnes:verify: corre el gate de cada workspace tocado y escribe la bandera solo si pasa. Nunca escribas la bandera a mano. Sin bandera vigente, el Stop bloquea una vez.',
   '3. git commit exige bandera vigente del workspace (mismo HEAD, misma lista de tocados, menos de 30 min); el guard lo deniega sin ella.',
   '4. Denegado siempre: git reset --hard, push forzado, clean -f, branch -D o borrar un worktree con commits sin integrar, y leer secretos (.env, llaves) con cat, type, Get-Content o head. Con manifiesto, además: forbidden del workspace y git add masivo con .env o logs.',
-  '5. Si tocas riskPaths, escribe REVISIÓN HUMANA OBLIGATORIA en el reporte.',
+  '5. Antes de entregar, revisa con /arnes:review; si tocas riskPaths, escribe REVISIÓN HUMANA OBLIGATORIA en el reporte. Los worktrees del issue con commits se integran con /arnes:worktree integrate <slug>, que corre la persona.',
   '6. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Repórtalo así.',
   `Scripts: node "${SCRIPTS}/<script>.js" --help`,
 ];

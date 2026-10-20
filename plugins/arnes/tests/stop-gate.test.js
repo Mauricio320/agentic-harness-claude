@@ -25,7 +25,8 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   assert.equal(r.status, 0);
   assert.equal(r.out.decision, 'block');
   assert.match(r.out.reason, /hay cambios de código sin verificación vigente en api \(1 archivo\(s\) de código: src\/a\.ts; sin bandera/);
-  assert.match(r.out.reason, /gate-flag\.js" write <ws> --result pass\|fail/);
+  assert.match(r.out.reason, /Verifica con \/arnes:verify, que corre el gate de cada workspace tocado y escribe la bandera solo si pasa; nunca la escribas a mano/);
+  assert.doesNotMatch(r.out.reason, /gate-flag\.js/);
   assert.match(r.out.reason, /una sola vez por turno/);
   const notes = tl.read(root);
   assert.equal(notes.length, 1);
@@ -126,7 +127,7 @@ test('(b) un worktree del issue con commits de este turno bloquea y dice cómo i
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
   assert.match(r.out.reason, /^arnes: hay worktrees del issue con commits sin integrar: api wt\/feature\/x\/tarea \(1 commit\(s\) fuera de feature\/x\)\./);
-  assert.match(r.out.reason, /worktree-ledger\.js" integrate <slug> \(git merge --no-ff, nunca squash\)/);
+  assert.match(r.out.reason, /Pídele a la persona \/arnes:worktree integrate <slug>, que los integra en la rama del issue \(git merge --no-ff, nunca squash\)/);
   assert.match(r.out.reason, /una sola vez por turno/);
   assert.doesNotMatch(r.out.reason, /sin verificación vigente/, 'el checkout principal no tiene código tocado');
   const [note] = tl.read(root);
