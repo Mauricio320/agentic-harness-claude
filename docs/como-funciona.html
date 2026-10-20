@@ -261,6 +261,19 @@ main > section:first-of-type { border-top: 0; }
   .term .pane { border-left: 0; border-top: 1px solid #333840; }
 }
 
+/* comandos */
+.cmds { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin: 14px 0; }
+.cmd { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
+.cmd h4 { margin: 0 0 6px; font-size: 1rem; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cmd .syn { display: block; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .8rem; background: var(--code-bg); border-radius: 6px; padding: 6px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmd p { margin: .5em 0; font-size: .93rem; }
+.cmd .ex { font-size: .85rem; color: var(--muted); }
+.cmd ul { margin: .3em 0; padding-left: 1.1em; font-size: .92rem; }
+.scripts { border-top: 1px solid var(--border); margin: 14px 0; }
+.scripts .s { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
+.scripts .s code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+@media (max-width: 640px) { .scripts .s { grid-template-columns: 1fr; gap: 2px; } .cmds { grid-template-columns: 1fr; } }
+
 /* mapa del ciclo */
 .loop { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 16px 0; }
 .loop .node { flex: 1 1 120px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: .88rem; box-shadow: var(--shadow); }
@@ -361,10 +374,11 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       <li><a href="#memoria"><span class="n">10</span>La memoria y el mapa</a></li>
       <li><a href="#pantalla"><span class="n">11</span>Lo que ves en pantalla</a></li>
       <li><a href="#persona"><span class="n">12</span>Lo que haces tú</a></li>
-      <li><a href="#instalar"><span class="n">13</span>Instalar y adoptar</a></li>
-      <li><a href="#estado"><span class="n">14</span>En qué va el proyecto</a></li>
-      <li><a href="#esceptico"><span class="n">15</span>Preguntas escépticas</a></li>
-      <li><a href="#glosario"><span class="n">16</span>Glosario</a></li>
+      <li><a href="#comandos"><span class="n">13</span>Los comandos</a></li>
+      <li><a href="#instalar"><span class="n">14</span>Instalar y adoptar</a></li>
+      <li><a href="#estado"><span class="n">15</span>En qué va el proyecto</a></li>
+      <li><a href="#esceptico"><span class="n">16</span>Preguntas escépticas</a></li>
+      <li><a href="#glosario"><span class="n">17</span>Glosario</a></li>
     </ol>
   </nav>
 
@@ -604,7 +618,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
           <div><span class="lbl">Queda escrito</span><span class="chip file">sessions/ sin esta sesión</span></div>
         </div>
       </div>
-      <p class="small">Todos los archivos de la columna derecha, salvo el código, los specs y el commit, viven en <code>.tmp/harness/</code> en la raíz del proyecto. Las skills que corres tú fuera de este camino (<code>/arnes:worktree</code>, <code>/arnes:sync</code> e <code>/arnes:init</code>) se explican en las secciones 9 y 13. El recorrido con el ejemplo real está en la <a href="#historia">sección 5</a>.</p>
+      <p class="small">Todos los archivos de la columna derecha, salvo el código, los specs y el commit, viven en <code>.tmp/harness/</code> en la raíz del proyecto. Las skills que corres tú fuera de este camino (<code>/arnes:worktree</code>, <code>/arnes:sync</code> e <code>/arnes:init</code>) se explican en las secciones 9 y 14. El recorrido con el ejemplo real está en la <a href="#historia">sección 5</a>.</p>
     </section>
 
     <!-- 3 -->
@@ -670,7 +684,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
 
       <h3>Adoptado y no adoptado</h3>
       <p>En el ejemplo, <code>academicoBitbuckett</code> (un repo PHP) aparece sin <code>contract</code> y no tiene manifiesto propio. Eso lo deja como <dfn>no adoptable todavía</dfn>: los scripts lo ven, lo muestran al arrancar ("no adoptable todavía: sin manifiesto propio, no se verifica"), pero no lo verifican ni lo bloquean. No es un error.</p>
-      <p>Un repo <dfn>adoptado</dfn> es uno que tiene su manifiesto y cumple el mínimo de adopción: ocho comprobaciones que corre <code>/arnes:init --check</code> (sección 13).</p>
+      <p>Un repo <dfn>adoptado</dfn> es uno que tiene su manifiesto y cumple el mínimo de adopción: ocho comprobaciones que corre <code>/arnes:init --check</code> (sección 14).</p>
     </section>
 
     <!-- 4 -->
@@ -1009,9 +1023,137 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       </div>
     </section>
 
+    <section id="comandos">
+      <p class="kicker">13</p>
+      <h2>Los comandos del arnés</h2>
+      <p>Un <dfn>comando de barra</dfn> es lo que escribes en el chat de Claude Code empezando con <code>/</code>. Cada skill del arnés es uno, con el prefijo <code>/arnes:</code>. Lo que va entre <code>&lt; &gt;</code> es obligatorio, lo que va entre <code>[ ]</code> es opcional y <code>|</code> separa opciones. Los argumentos salen del <code>argument-hint</code> de cada <code>SKILL.md</code>.</p>
+
+      <h3>Los que Claude corre solo (y que también puedes escribir tú)</h3>
+      <p>No hace falta escribirlos: Claude los carga cuando tu pedido encaja. Sirven a mano cuando quieres forzar un paso, por ejemplo cuando el Stop o ship te dicen "verifica con <code>/arnes:verify</code>".</p>
+      <div class="cmds">
+        <div class="cmd">
+          <h4><code>/arnes:plan</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:plan &lt;número o URL del issue, o el texto del pedido&gt;</span>
+          <p>Lee el issue y el código, escribe <code>.tmp/harness/plan.md</code> y espera tu aprobación. No toca código.</p>
+          <p class="ex">Normalmente lo dispara un mensaje como "Implementa este issue: CRUD de talleres…".</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:build</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:build [workspace]...</span>
+          <p>Construye el plan aprobado con un ayudante dev por workspace, primero el back. Si le das workspaces, construye solo esos. Sin <code>Aprobado:</code> en el plan, no arranca.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:verify</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:verify</span>
+          <p>Sin argumentos. Por cada workspace tocado: test-writer si falta spec, el gate (<code>ci-gate.js --base HEAD</code>) y la bandera, que solo se escribe si el gate pasa.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:review</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:review</span>
+          <p>Sin argumentos. Lanza al revisor una vez sobre el árbol final y marca la revisión con sus bloqueantes. Si cambias algo después, la revisión deja de valer y ship la rechaza.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:memory</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:memory decision &lt;título&gt; | gotcha &lt;texto&gt; | recall &lt;tema&gt;</span>
+          <ul>
+            <li><code>decision</code>: guarda una decisión en <code>docs/decisions/</code>.</li>
+            <li><code>gotcha</code>: anota una trampa en <code>docs/gotchas.md</code>.</li>
+            <li><code>recall</code>: busca lo que ya se decidió, sin escribir nada.</li>
+          </ul>
+          <p class="ex">En la prueba, "Deja registrada la decisión: un taller con alumnos inscritos no se borra, se desactiva" lo disparó sin comando.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:timeline</code> <span class="badge b-claude">Claude solo</span></h4>
+          <span class="syn">/arnes:timeline</span>
+          <p>Sin argumentos. Imprime la cronología del arnés con lo que duró cada etapa y la espera de la persona aparte. Funciona sin el mod.</p>
+        </div>
+      </div>
+
+      <h3>Los que solo escribes tú</h3>
+      <p>Estos llevan <code>disable-model-invocation</code>: Claude no puede dispararlos porque mueven ramas, commitean o crean archivos.</p>
+      <div class="cmds">
+        <div class="cmd">
+          <h4><code>/arnes:init</code> <span class="badge b-persona">solo tú</span></h4>
+          <span class="syn">/arnes:init [--check]</span>
+          <ul>
+            <li>Sin argumentos: genera los manifiestos, te pregunta lo que no puede inferir y los valida. No commitea.</li>
+            <li><code>--check</code>: revisa las ocho comprobaciones del mínimo de adopción sin modificar nada.</li>
+          </ul>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:ship</code> <span class="badge b-persona">solo tú</span></h4>
+          <span class="syn">/arnes:ship [--solo-commit] [&lt;rama&gt;]</span>
+          <ul>
+            <li>Comprueba la bandera, la revisión y los worktrees, y hace un commit por workspace.</li>
+            <li>Push y merge request solo con tu sí explícito.</li>
+            <li><code>--solo-commit</code>: se detiene después del commit.</li>
+            <li><code>&lt;rama&gt;</code>: el nombre de la rama; si no lo das, usa la que propone el chequeo. El prefijo del manifiesto se agrega solo.</li>
+          </ul>
+          <p class="ex">Ejemplo de la prueba: <code>/arnes:ship --solo-commit</code>.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:worktree</code> <span class="badge b-persona">solo tú</span></h4>
+          <span class="syn">/arnes:worktree open &lt;slug&gt; [--ws &lt;workspace&gt;]... [--issue &lt;ref&gt;]
+/arnes:worktree integrate &lt;slug&gt;
+/arnes:worktree close &lt;slug&gt;
+/arnes:worktree list
+/arnes:worktree pending</span>
+          <ul>
+            <li><code>open</code>: abre un worktree por repo (o los de <code>--ws</code>) en <code>wt/&lt;rama-issue&gt;/&lt;slug&gt;</code>.</li>
+            <li><code>integrate</code>: <code>merge --no-ff</code> en la rama del issue, borra el worktree y la rama, cierra el registro.</li>
+            <li><code>close</code>: cierra uno sin commits propios.</li>
+            <li><code>list</code> muestra los abiertos (<code>list --all</code>, también los cerrados); <code>pending</code> muestra lo que falta integrar.</li>
+          </ul>
+          <p class="ex">Ejemplo de la prueba: <code>/arnes:worktree open taller-select-activos --issue "CRUD de talleres"</code>.</p>
+        </div>
+        <div class="cmd">
+          <h4><code>/arnes:sync</code> <span class="badge b-persona">solo tú</span></h4>
+          <span class="syn">/arnes:sync [rama] [--ws &lt;workspace&gt;]...</span>
+          <p>Trae a tu rama lo nuevo de <code>origin/&lt;rama&gt;</code> (por defecto, la rama principal de cada workspace): respaldo, <code>fetch</code>, <code>merge</code> sin squash ni rebase, la lista de lo que cambiaron los dos lados y verify. No hace push. Volver atrás lo haces tú en tu terminal con <code>git reset --hard &lt;respaldo&gt;</code>, porque el guardia no se lo deja a Claude.</p>
+        </div>
+      </div>
+
+      <h3>El del mod de interfaz</h3>
+      <div class="cmds">
+        <div class="cmd">
+          <h4><code>/arnes-panel</code> <span class="badge b-persona">solo tú</span></h4>
+          <span class="syn">/arnes-panel</span>
+          <p>Abre o cierra el panel de <code>arnes-ui</code>. No lleva <code>arnes:</code> porque un comando que registra un mod no lleva prefijo de plugin. Solo existe si el mod está instalado.</p>
+        </div>
+      </div>
+
+      <h3>Los de Claude Code que aparecen en el flujo</h3>
+      <ul>
+        <li><code>/hooks</code>: lista los hooks que cargó la sesión. Sirve para comprobar que los del arnés están.</li>
+        <li><code>/clear</code>: limpia la conversación. Vuelve a correr el arranque, así que el contexto del arnés se inyecta de nuevo.</li>
+        <li><code>/exit</code>: cierra la sesión; corre el de fin de sesión, que suelta el candado.</li>
+        <li><code>/cost</code>: el costo total de la sesión. De ahí salen las restas que hace el mod para el costo por etapa.</li>
+      </ul>
+
+      <h3>Los scripts, para la terminal</h3>
+      <p>Debajo de las skills hay scripts en Node que también puedes correr tú desde la terminal, con <code>node "&lt;carpeta del plugin&gt;/scripts/&lt;script&gt;.js"</code>. Todos aceptan <code>--help</code>, que imprime su uso y sus códigos de salida. En general los corren las skills; los marcados con ★ son los que más te pueden servir a ti para mirar el estado.</p>
+      <div class="scripts">
+        <div class="s"><code>lib/manifest.js validate [archivo] | which &lt;ruta&gt; | show</code><div>★ Valida un manifiesto, dice a qué workspace pertenece una ruta, o muestra el proyecto resuelto.</div></div>
+        <div class="s"><code>adoption-check.js [--ws &lt;nombre&gt;]...</code><div>★ Las ocho comprobaciones del mínimo de adopción. Es lo que corre <code>/arnes:init --check</code>.</div></div>
+        <div class="s"><code>gate-flag.js check &lt;ws&gt;</code><div>★ Dice si la bandera está vigente y, si no, por qué. El <code>write</code> lo usa verify: nunca se escribe a mano.</div></div>
+        <div class="s"><code>worktree-ledger.js list [--all] | pending [--target &lt;rama&gt;]</code><div>★ Los worktrees del registro y lo que falta integrar. <code>open</code>, <code>integrate</code> y <code>close</code> van por <code>/arnes:worktree</code>.</div></div>
+        <div class="s"><code>lib/timeline.js print</code><div>★ La cronología, igual que <code>/arnes:timeline</code>. <code>start</code>, <code>end</code> y <code>note</code> los escriben las skills.</div></div>
+        <div class="s"><code>test-baseline.js capture &lt;ws&gt; | check &lt;ws&gt; [--base &lt;ref&gt;] [spec ...]</code><div>★ Captura la línea base de tests (decisión tuya; su commit lleva <code>gates:</code>) o compara contra ella.</div></div>
+        <div class="s"><code>ci-gate.js [--ws &lt;nombre&gt;]... [--base &lt;ref&gt;]</code><div>El gate completo: lo que corre el CI y verify. Sale con 0 en verde y con 1 en rojo.</div></div>
+        <div class="s"><code>touched-files.js [--ws] [--base] [--ext] [--relative] [--workspaces]</code><div>Los archivos tocados por workspace.</div></div>
+        <div class="s"><code>test-select.js --ws &lt;nombre&gt; [--base] [--missing] [archivo ...]</code><div>Los specs de lo tocado, o con <code>--missing</code>, el código nuevo sin spec.</div></div>
+        <div class="s"><code>typecheck-baseline.js capture|diff &lt;ws&gt; &lt;ref&gt; &lt;foto&gt;</code><div>La foto de typecheck y su comparación por diagnóstico.</div></div>
+        <div class="s"><code>review.js input [--completa] | mark --blockers &lt;n&gt; | check</code><div>La entrada del revisor, la marca de revisión hecha y su comprobación.</div></div>
+        <div class="s"><code>ship.js check | branch &lt;rama&gt; | stage &lt;ws&gt;</code><div>Lo determinista de ship: el chequeo, la rama y el stage.</div></div>
+        <div class="s"><code>merged-files.js [--ws] [--ref &lt;commit&gt;] [--json]</code><div>Lo que de verdad se combinó en un merge. Lo usa sync.</div></div>
+        <div class="s"><code>init-draft.js [--write] [--force]</code><div>Los borradores de manifiesto que usa <code>/arnes:init</code>.</div></div>
+      </div>
+      <p class="small">Los códigos de salida siguen una convención casi común a todos: 0 es bien, 1 es "no" (rojo, no vigente, no listo) y 2 es uso inválido o sin manifiesto. Cada script la detalla en su <code>--help</code>.</p>
+    </section>
+
     <!-- 12 -->
     <section id="instalar">
-      <p class="kicker">13</p>
+      <p class="kicker">14</p>
       <h2>Cómo instalar y cómo adoptar un repo</h2>
       <h3>Instalar</h3>
       <p>El repo vive en GitLab. La forma corta <code>owner/repo</code> siempre apunta a github.com, así que va la URL completa con el tag al final:</p>
@@ -1062,7 +1204,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 13 -->
     <section id="estado">
-      <p class="kicker">14</p>
+      <p class="kicker">15</p>
       <h2>En qué va el proyecto</h2>
       <ul class="phases">
         <li class="done"><span class="ph">Fase 0</span><span class="tag">cerrada · v0.1.0</span><br>El repo con el marketplace, los tres plugins vacíos, el README y el CI que valida.</li>
@@ -1105,7 +1247,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 14 -->
     <section id="esceptico">
-      <p class="kicker">15</p>
+      <p class="kicker">16</p>
       <h2>Preguntas de alguien escéptico, con respuestas honestas</h2>
       <details class="faq">
         <summary>¿Me va a cambiar código sin avisar?</summary>
@@ -1151,7 +1293,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
 
     <!-- 15 -->
     <section id="glosario">
-      <p class="kicker">16</p>
+      <p class="kicker">17</p>
       <h2>Glosario</h2>
       <dl class="gloss">
         <dt>Adoptado</dt><dd>Un repo con su propio manifiesto que cumple el mínimo de adopción que revisa <code>/arnes:init --check</code>.</dd>
@@ -1162,6 +1304,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
         <dt>CI</dt><dd>El servidor (en GitLab, el pipeline) que vuelve a correr las comprobaciones cuando subes un cambio. Corre el mismo <code>ci-gate.js</code> que la sesión.</dd>
         <dt>Claude Code</dt><dd>Claude trabajando en tu terminal: lee, edita y corre comandos.</dd>
         <dt>CLAUDE.md</dt><dd>El archivo de reglas de un repo que Claude lee al trabajar ahí.</dd>
+        <dt>Comando de barra</dt><dd>Lo que escribes en el chat empezando con <code>/</code>, como <code>/arnes:ship</code>. Cada skill del arnés es uno.</dd>
         <dt>Composición</dt><dd>El manifiesto de una carpeta con varios repos: los lista y agrega solo lo que existe entre ellos (contrato e integración).</dd>
         <dt>Contrato</dt><dd>Los archivos que forman la API que un repo provee y otro consume. Romperlo sin cambiar el otro lado es bloqueante.</dd>
         <dt>Diagnóstico</dt><dd>Cada error que reporta el typecheck.</dd>
