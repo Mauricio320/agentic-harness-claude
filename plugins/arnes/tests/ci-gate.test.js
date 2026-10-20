@@ -80,6 +80,23 @@ test('un diagnóstico nuevo respecto del base → ROJO con el diagnóstico', () 
   assert.match(r.stdout, /src\/a\.js · TS2322 · Type 'A \| B'/);
 });
 
+test('un diagnóstico en un archivo ignorado por git (lo generado de next dev) no es nuevo: se descarta y se dice', () => {
+  const { dir } = repo();
+  fs.appendFileSync(path.join(dir, '.gitignore'), '.next/\n');
+  h.commitAll(dir, 'ignora .next');
+  h.write(dir, '.next/dev/types/validator.ts', 'generado\n');
+  fs.appendFileSync(path.join(dir, 'tsc-out.txt'), ".next/dev/types/validator.ts(3,1): error TS2307: Cannot find module './routes'.\n");
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'b\n');
+  const r = gate(dir, ['--base', 'HEAD']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /typecheck\s+ok · sin diagnósticos nuevos \(base 1, ahora 1\)/);
+  assert.match(r.stdout, /descartados los diagnósticos de 1 archivo\(s\) ignorado\(s\) por git: \.next\/dev\/types\/validator\.ts/);
+  fs.appendFileSync(path.join(dir, 'tsc-out.txt'), "src/a.js(2,1): error TS2322: nuevo de verdad.\n");
+  const red = gate(dir, ['--base', 'HEAD']);
+  assert.equal(red.status, 1, 'lo no ignorado sigue contando');
+  assert.match(red.stdout, /src\/a\.js · TS2322 · nuevo de verdad/);
+});
+
 test('el base se lee del commit base, no del árbol: un error preexistente desplazado no es rojo', () => {
   const { dir, head } = repo();
   fs.writeFileSync(path.join(dir, 'tsc-out.txt'), "src/a.js(40,7): error TS2304: Cannot find name 'x'.\n");

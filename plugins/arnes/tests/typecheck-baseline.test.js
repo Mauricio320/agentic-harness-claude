@@ -66,6 +66,20 @@ test('toolOf y parserFor: el parser se elige por el ejecutable, no por el texto 
   assert.equal(tb.parserFor('node tsc-falso.js'), null);
 });
 
+test('dropIgnored descarta los diagnósticos de archivos que git ignora, y solo esos', () => {
+  const dir = h.tmp('ignorados');
+  h.repo(dir, { '.gitignore': '.next/\n', 'src/a.ts': 'a\n' });
+  const diags = tb.parseTsc([
+    ".next/dev/types/validator.ts(3,1): error TS2307: Cannot find module './routes'.",
+    "src/a.ts(1,1): error TS2304: Cannot find name 'x'.",
+  ].join('\n'));
+  const r = tb.dropIgnored(diags, dir);
+  assert.deepEqual(r.diags.map((d) => d.file), ['src/a.ts']);
+  assert.deepEqual(r.ignored, ['.next/dev/types/validator.ts']);
+  assert.deepEqual(tb.dropIgnored([], dir), { diags: [], ignored: [] });
+  assert.deepEqual(tb.dropIgnored(diags, h.tmp('sin-repo')).diags.length, 2, 'fuera de un repo no descarta nada');
+});
+
 test('resolveRef normaliza HEAD, @ y el hash corto al hash de 40, en el repo indicado', () => {
   const dir = h.tmp('ref');
   const head = h.repo(dir, { 'a.txt': 'a' });

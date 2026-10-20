@@ -126,8 +126,7 @@ function stepTypecheck(project, ws, base) {
   const cached = cachedPhoto(file, base.hash);
   const before = cached || baseTypecheck(ws, base.hash, cmds);
   if (before.error) return { status: 'falla', detail: before.error };
-  const baseCounts = tb.countDiagnostics(parse(before.out));
-  if (tb.invalidRunReason(baseCounts, before.exit)) {
+  if (tb.invalidRunReason(tb.countDiagnostics(parse(before.out)), before.exit)) {
     return { status: 'falla', detail: `el typecheck del base no corrió; no hay contra qué comparar`, out: tail(before.out, 10) };
   }
   if (!cached) {
@@ -136,15 +135,16 @@ function stepTypecheck(project, ws, base) {
   }
   const photo = `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
   const now = tb.runTypecheck(cmds, ws.dir);
-  const nowCounts = tb.countDiagnostics(parse(now.out));
-  const bad = tb.invalidRunReason(nowCounts, now.exit);
+  const bad = tb.invalidRunReason(tb.countDiagnostics(parse(now.out)), now.exit);
   if (bad) return { status: 'falla', detail: bad, out: tail(now.out, 10) };
+  // Lo de archivos ignorados por git se descarta de los dos lados (typecheck-baseline.dropIgnored).
+  const [b, n] = [tb.dropIgnored(parse(before.out), ws.dir), tb.dropIgnored(parse(now.out), ws.dir)];
+  const ignored = [...new Set([...b.ignored, ...n.ignored])].sort();
+  const [baseCounts, nowCounts] = [tb.countDiagnostics(b.diags), tb.countDiagnostics(n.diags)];
   const nuevos = tb.diffCounts(baseCounts, nowCounts);
-  if (nuevos.length) {
-    const out = nuevos.map((n) => `${n.file} · ${n.code} · ${n.msg}${n.delta > 1 ? ` (×${n.delta})` : ''}`).join('\n');
-    return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s) · ${photo}`, out };
-  }
-  return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)}) · ${photo}` };
+  const lines = [...(ignored.length ? [tb.ignoredLine(ignored)] : []), ...nuevos.map((d) => `${d.file} · ${d.code} · ${d.msg}${d.delta > 1 ? ` (×${d.delta})` : ''}`)];
+  if (nuevos.length) return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s) · ${photo}`, out: lines.join('\n') };
+  return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)}) · ${photo}`, out: lines.join('\n') || undefined };
 }
 
 function stepLint(ws, code) {

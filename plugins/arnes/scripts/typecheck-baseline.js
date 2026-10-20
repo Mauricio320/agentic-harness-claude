@@ -20,7 +20,8 @@
 // (`archivo(l,c): error TSxxxx: msg`, las líneas indentadas son continuación). Clave: archivo +
 // código + primera línea del mensaje, SIN línea ni columna, para que mover código no reporte como
 // nuevos los errores desplazados. Se comparan conteos por clave, no conjuntos: un tercer error
-// idéntico a dos preexistentes es nuevo.
+// idéntico a dos preexistentes es nuevo. Los diagnósticos de archivos ignorados por git se
+// descartan de los dos lados, y se dice en una línea (dropIgnored).
 
 'use strict';
 
@@ -94,6 +95,20 @@ function invalidRunReason(counts, exit) {
   return null;
 }
 
+// Un diagnóstico en un archivo que git ignora no cuenta nunca, ni como nuevo ni como preexistente:
+// es generado (.next/dev/types de next dev), y la foto del base sale de git archive, que no lo
+// trae, mientras el árbol actual sí. Se descarta con git check-ignore, corrido en la carpeta del
+// workspace, que es desde donde el typecheck escribe las rutas. La validez de la corrida se juzga
+// antes, con todos los diagnósticos. → { diags, ignored: [archivos] }
+function dropIgnored(diags, dir) {
+  const files = [...new Set(diags.map((d) => d.file))];
+  const r = files.length ? spawnSync('git', ['-c', 'core.quotePath=false', 'check-ignore', '--stdin'], { cwd: dir, input: `${files.join('\n')}\n`, encoding: 'utf8' }) : null;
+  const ignored = new Set(r && r.status === 0 ? r.stdout.split(/\r?\n/).filter(Boolean) : []);
+  return { diags: diags.filter((d) => !ignored.has(d.file)), ignored: [...ignored].sort() };
+}
+
+const ignoredLine = (files) => `descartados los diagnósticos de ${files.length} archivo(s) ignorado(s) por git: ${files.join(', ')}`;
+
 function diffCounts(base, now) {
   const nuevos = [];
   for (const [key, d] of now) {
@@ -142,6 +157,8 @@ module.exports = {
   countDiagnostics,
   totalOf,
   invalidRunReason,
+  dropIgnored,
+  ignoredLine,
   diffCounts,
   resolveRef,
   runTypecheck,
@@ -180,16 +197,18 @@ function main() {
   const em = photo.match(/^TYPECHECK_EXIT: (-?\d+)$/m);
   if (!em) die('foto INVALIDA: sin línea TYPECHECK_EXIT (formato de otra versión)');
   if (!bm || bm[1] !== hash) die(`no hay foto para ${hash} (la existente es de ${bm ? bm[1] : 'hash desconocido'})`, 3);
-  const base = countDiagnostics(parse(photo));
-  if (invalidRunReason(base, Number(em[1]))) die('foto INVALIDA: TYPECHECK_EXIT != 0 y ningún diagnóstico parseable');
+  if (invalidRunReason(countDiagnostics(parse(photo)), Number(em[1]))) die('foto INVALIDA: TYPECHECK_EXIT != 0 y ningún diagnóstico parseable');
 
   const { out, exit } = runTypecheck(cmds, ws.dir);
-  const now = countDiagnostics(parse(out));
   // Exit propio (4), distinto del 2 de la foto: no es un error de invocación, es el árbol actual
   // roto, y quien lee el resultado tiene que poder distinguirlos.
-  const badRun = invalidRunReason(now, exit);
+  const badRun = invalidRunReason(countDiagnostics(parse(out)), exit);
   if (badRun) die(`typecheck falló en ${ws.name}: ${badRun}. Últimas líneas:\n${tail(out, 10)}`, 4);
 
+  const [b, n] = [dropIgnored(parse(photo), ws.dir), dropIgnored(parse(out), ws.dir)];
+  const ignored = [...new Set([...b.ignored, ...n.ignored])].sort();
+  if (ignored.length) console.log(ignoredLine(ignored));
+  const [base, now] = [countDiagnostics(b.diags), countDiagnostics(n.diags)];
   const nuevos = diffCounts(base, now);
   if (nuevos.length) {
     console.log(`DIAGNOSTICOS NUEVOS en ${ws.name} respecto de la foto (${nuevos.length}):`);
