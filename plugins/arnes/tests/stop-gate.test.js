@@ -18,8 +18,8 @@ function folder() {
 
 const stop = (cwd, active = false, opts = {}) => h.hook('stop-gate', { hook_event_name: 'Stop', stop_hook_active: active, cwd }, opts);
 
-test('código tocado sin bandera vigente: bloquea con decision block y reason', () => {
-  const { api } = folder();
+test('código tocado sin bandera vigente: bloquea con decision block y reason, y lo anota en la timeline', () => {
+  const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
   const r = stop(api);
   assert.equal(r.status, 0);
@@ -27,6 +27,10 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason', 
   assert.match(r.out.reason, /hay cambios de código sin verificación vigente en api \(1 archivo\(s\) de código: src\/a\.ts; sin bandera/);
   assert.match(r.out.reason, /gate-flag\.js" write <ws> --result pass\|fail/);
   assert.match(r.out.reason, /una sola vez por turno/);
+  const notes = tl.read(root);
+  assert.equal(notes.length, 1);
+  assert.deepEqual([notes[0].event, notes[0].stage, notes[0].result], ['note', 'stop-gate', 'bloqueado']);
+  assert.match(notes[0].detail, /^turno bloqueado sin verificar: api \(1 archivo\(s\) de código: src\/a\.ts/);
 });
 
 test('con stop_hook_active deja pasar, avisa con systemMessage y lo anota en la timeline', () => {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stop (docs/PLAN.md §6.2). Impide cerrar el turno, con decision "block" y reason, si algún
-// workspace adoptable tiene archivos de codeGlobs tocados sin bandera de verificación vigente.
-// Un solo bloqueo por turno: si la entrada trae stop_hook_active (el turno ya continúa por un
+// workspace adoptable tiene archivos de codeGlobs tocados sin bandera de verificación vigente, y
+// anota el bloqueo en la timeline (nota "bloqueado", la que lee arnes-ui). Un solo bloqueo por turno: si la entrada trae stop_hook_active (el turno ya continúa por un
 // bloqueo), deja pasar con un aviso visible (systemMessage) y anota el pendiente en la timeline.
 // No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto no bloquea.
 // La condición de worktrees sin integrar queda preparada y sin efecto hasta el ledger (fase 3).
@@ -53,6 +53,8 @@ function stopGate(input) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado sin verificar: ${describe(pending)}` });
     return { systemMessage: `arnes: el turno termina con cambios sin verificar en ${describe(pending)}. Quedó anotado en la timeline.` };
   }
+  // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
+  append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado sin verificar: ${describe(pending)}` });
   return {
     decision: 'block',
     reason:
