@@ -9,8 +9,8 @@ const fs = require('fs');
 const MAX_LINE = 7000;
 const MAX_BUFFER = 1 << 28;
 
-function git(cwd, args) {
-  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd, encoding: 'utf8', maxBuffer: MAX_BUFFER });
+function git(cwd, args, env) {
+  const r = spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd, encoding: 'utf8', maxBuffer: MAX_BUFFER, env: env || process.env });
   return {
     status: r.status == null ? -1 : r.status,
     stdout: r.stdout || '',

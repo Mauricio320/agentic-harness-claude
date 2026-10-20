@@ -99,7 +99,7 @@ agentic-harness/
         worktree-ledger.js               # registro de worktrees por issue; pendientes de integrar
         gate-flag.js                     # escribe/valida la bandera de verificación
         test-baseline.js                 # línea base de tests commiteada: capture y check (§6.1)
-        review.js                        # entrada del reviewer sin Bash y marca de revisión hecha
+        review.js                        # entrada del reviewer sin Bash, rondas de corrección y marca de revisión hecha
         ship.js                          # check, rama y stage de ship
         adoption-check.js                # las 8 comprobaciones del mínimo
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
@@ -265,11 +265,24 @@ Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. S
 - Cambio antes del piloto (2026-10-20), por la prueba manual de la fase 3:
   - `plan` y `build` llevan la línea de verify, review y ship: cada comando se corre solo, sin `&&`, `;` ni `echo`, porque un comando encadenado pide permiso aparte. En la corrida automática, plan corrió `cd … && node … ; echo "---"; node …`. Un test comprueba la línea en las cinco skills del flujo.
   - `plan` cierra su etapa cuando el plan está escrito (`end plan --result ok --detail "plan escrito"`) y deja la nota `esperando` hasta la respuesta de la persona. Con la respuesta anota `aprobado` o `cancelado`. Si pide cambios, abre otra vez la etapa con `start plan --detail "ajuste"`, y al terminar el ajuste vuelve a cerrar y a esperar. En la prueba manual, plan midió 16m01s porque la etapa cerraba con la aprobación, y la espera del humano contaba como plan. `timeline.js` admite `note` desde la línea de comandos, y `print` le pone al evento que sigue a una nota `esperando` la duración de la espera, suma aparte `espera de la persona: …` y lista lo que sigue esperando.
+  - Rondas de corrección. En la corrida automática, review fue la etapa más cara: tres rondas, cada una con verify y review completos. Ahora:
+    - verify se repite entero en cada ronda, porque la bandera exige el contenido actual de cada tocado.
+    - La ronda 1 de review es completa. La 2 y la 3 son acotadas: el reviewer recibe el reporte de la ronda anterior y solo el diff de la corrección, y juzga si cada bloqueante anterior quedó resuelto y si la corrección trae uno nuevo de la lista cerrada. Una ronda vuelve a ser completa si la corrección tocó archivos fuera de los tocados de la ronda anterior.
+    - Tope de dos rondas de corrección. Si la ronda 3 termina con bloqueantes, `mark` lo dice, la skill no corrige más y se lo reporta a la persona, y `review.js input` se niega a una cuarta. `review.js input --completa` vuelve a la ronda 1, solo si la persona lo pide.
+    - La cuenta la lleva `review.js`, no la prosa. `input` guarda en `input.json` el árbol revisado de cada workspace: un árbol de git escrito con un índice temporal, que es una copia del real más los tocados y los borrados. No toca el índice, las ramas ni el disco, y solo deja objetos sueltos que git recoge solo con el tiempo. La ronda siguiente saca de ahí el diff de la corrección (`git diff <árbol revisado> <árbol actual>`). Una ronda es de corrección si la anterior tuvo bloqueantes y el HEAD no cambió. Con otro HEAD, por ejemplo después de un commit, se empieza en la ronda 1. Si no cambió nada desde la ronda con bloqueantes, `input` se niega.
+    - `mark` exige el reporte del reviewer tal cual en `.tmp/harness/review/report.md`, que la skill guarda con Write, y se niega si su línea `BLOQUEANTES` no coincide con `--blockers`. Lo guarda como `review/ronda-<n>.md` para la ronda siguiente, y `review.json` anota la ronda y el modo. La timeline anota la ronda en el detalle del fin de review.
+    - Las rondas acotadas van en sonnet (§6.4).
 
 ### 6.4 Agentes
 `dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.
 
 Cambio de la fase 3 (2026-10-20): `agents/dev.md` (sonnet, effort medium, 72 líneas) lee `CLAUDE.md`, las rules y el manifiesto, y no escribe tests. Corre typecheck una vez y lint de sus archivos al final. Devuelve seis secciones: Contrato resultante, Archivos tocados, Desviaciones, Cobertura con `archivo:línea`, Riesgo y Pendiente para verify. Los cuatro agentes llevan su `model` y su `effort` en el frontmatter.
+
+Cambio antes del piloto (2026-10-20): las rondas acotadas de review (§6.3) van en sonnet, y la completa sigue en opus.
+- **Por qué sonnet:** una ronda acotada es una comprobación contra una lista corta y explícita: cada bloqueante anterior con su línea y su regla, sobre un diff chico, con la lista cerrada para los nuevos. El juicio sobre el árbol entero y los criterios del plan, que es lo que justifica opus, queda en la ronda completa.
+- **Riesgo aceptado:** que sonnet deje pasar un bloqueante nuevo en la corrección. Lo acotan tres cosas: la corrección es chica, una corrección que sale del diff anterior vuelve a una ronda completa en opus, y las riskPaths siguen exigiendo la revisión humana en el MR.
+- **Cómo:** `reviewer.md` sigue con `model: opus`, y la skill pasa `model: "sonnet"` a la herramienta Agent solo en una ronda acotada. En la API de 2.1.304, el `model` de `agent.spawn` es el parámetro de la herramienta Agent, y sin él decide el modelo propio del agente.
+- **Vuelta atrás:** si el piloto (fase 4) muestra bloqueantes que pasaron en una ronda acotada, se quita `model` de la skill.
 
 ### 6.5 Mod `arnes-mod` (fase 5, dos piezas, nada más)
 1. `prompt.compose`: sección `arnes:protocol` (≤ 25 líneas) en el system prompt, `scope: session`.

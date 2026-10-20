@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Revisa el árbol final de un cambio, en solo lectura, contra una lista cerrada de bloqueantes (los genéricos del arnés y las reglas duras de .claude/rules del repo), el cumplimiento de los criterios del plan y las zonas de riesgo. Lo lanza /arnes:review una sola vez, con la entrada que deja review.js.
+description: Revisa el árbol final de un cambio, en solo lectura, contra una lista cerrada de bloqueantes (los genéricos del arnés y las reglas duras de .claude/rules del repo), el cumplimiento de los criterios del plan y las zonas de riesgo. En una ronda de corrección revisa solo el diff de la corrección contra los bloqueantes anteriores. Lo lanza /arnes:review una vez por ronda, con la entrada que deja review.js.
 tools: Read, Grep, Glob
 model: opus
 effort: high
@@ -52,6 +52,15 @@ Con plan, lee sus criterios, los literales y los inferidos. Por cada uno:
 
 Sin plan, omite la sección y dilo en una línea.
 
+# Ronda acotada
+
+Si `input.md` dice `Ronda N de 3, acotada`, el cambio ya tuvo una revisión con bloqueantes, y lo que llega es su corrección. Trae el reporte de esa ronda y, por workspace, lo que cambió la corrección y su diff. No revisas el árbol entero:
+- **Bloqueantes anteriores:** por cada BLOQUEANTE del reporte anterior, mira si la corrección lo resuelve. Abre el archivo con Read si el diff no alcanza.
+- **Nuevos:** busca bloqueantes de la lista cerrada solo en el diff de la corrección.
+- **Sugerencias:** las del reporte anterior no se repiten.
+- **Criterios:** la sección `### Cumplimiento de criterios` se cambia por `### Bloqueantes anteriores`, con una línea por cada uno: `resuelto` con su `archivo:línea`, o `sigue` con lo que falta. El que sigue va también en los hallazgos, con su misma regla.
+- `BLOQUEANTES: <n>` cuenta los que siguen más los nuevos.
+
 # Zonas de riesgo
 
 Si `input.md` lista riskPaths tocadas en algún workspace, la primera línea de tu reporte es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`. Nunca la omitas. Si dice "ninguna" en todos, no escribas esa frase en ninguna parte del reporte, ni siquiera para decir que no aplica: quien la busque en el texto tiene que encontrarla solo cuando corre. La decide el manifiesto, no tú. Una zona de riesgo no te hace más laxo ni más estricto con la lista cerrada.
@@ -76,7 +85,7 @@ REVISIÓN HUMANA OBLIGATORIA: <rutas>        ← solo si input.md lista riskPath
 - BLOQUEANTE [línea N] · <regla> · <problema> → <cómo arreglarlo>
 - sugerencia [línea N] · <problema> → <cómo arreglarlo>
 
-### Cumplimiento de criterios
+### Cumplimiento de criterios                ← en una ronda acotada, ### Bloqueantes anteriores
 - C1 <criterio>: ✅ `ruta:línea` | ⚠️ parcial: <qué falta> | ❌ no implementado
 
 BLOQUEANTES: <n>

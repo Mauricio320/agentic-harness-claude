@@ -58,6 +58,16 @@ test('plan, build, verify, review y ship piden correr cada comando solo', () => 
   }
 });
 
+test('rondas de review: la skill guarda el reporte que exige mark y lanza las acotadas en sonnet; el reviewer sabe acotarse', () => {
+  const skill = fs.readFileSync(path.join(PLUGIN, 'skills', 'review', 'SKILL.md'), 'utf8');
+  assert.match(skill, /\.tmp\/harness\/review\/report\.md/);
+  assert.match(skill, /ronda acotada, pasa `model: "sonnet"`/);
+  assert.match(skill, /Tope: dos rondas de corrección/);
+  const agent = fs.readFileSync(path.join(PLUGIN, 'agents', 'reviewer.md'), 'utf8');
+  assert.match(agent, /^# Ronda acotada$/m);
+  assert.match(agent, /### Bloqueantes anteriores/);
+});
+
 test('cada script que nombra una skill existe', () => {
   let named = 0;
   for (const s of skills) {
