@@ -13,7 +13,9 @@
 //   sin --write  imprime los borradores en stdout, cada uno precedido por "# <ruta>"
 //   --write      los escribe en <repo>/.claude/harness.json y <carpeta>/.claude/harness.json
 //   --force      permite pisar un manifiesto existente
-// Lo que no se infiere (riskPaths, contract, sharedPaths, integration, memory) va a stderr.
+// Lo que no se infiere (riskPaths, contract, sharedPaths, integration, memory) va a stderr. De un
+// repo sin manifiesto dice en qué rama está y qué ramas remotas sí lo traen; si alguna lo trae, la
+// persona está en la rama equivocada, y --write se niega a escribir sin --force.
 // Exit: 0 borradores válidos (escritos con --write) · 1 algún borrador no valida y no se escribe
 //       nada · 2 uso inválido, nada que detectar, o ya existe un manifiesto y falta --force
 
@@ -24,6 +26,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
+const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
@@ -147,21 +150,30 @@ function detectRepo(dir) {
   return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] } };
 }
 
-// → { drafts: [{ file, data }], notes: [string] }
+// → { drafts: [{ file, data }], notes: [string], elsewhere: [repos cuyo manifiesto está en otra rama] }
 function draft(root) {
   const nested = nestedRepos(root);
   const notes = [];
   const drafts = [];
+  const elsewhere = [];
+  const where = (dir, name) => {
+    if (fs.existsSync(path.join(dir, MANIFEST))) return;
+    const w = manifestElsewhere(dir);
+    notes.push(`sin manifiesto ${missingManifest(name, w)}`);
+    if (w.remotes.length) elsewhere.push(name);
+  };
   if (!nested.length) {
     if (!isRepoRoot(root)) return { error: `nada que detectar: ${root} no es un repo ni contiene repos anidados` };
     const r = detectRepo(root);
     if (!r.adoptable) return { error: `${path.basename(root)}: ${r.reason}; no hay manifiesto que generar` };
+    where(root, path.basename(root));
     drafts.push({ file: path.join(root, MANIFEST), data: r.manifest });
   } else {
     const repos = [];
     for (const dir of nested) {
       const rel = posix(path.relative(root, dir));
       const r = detectRepo(dir);
+      where(dir, rel);
       repos.push({ path: rel });
       if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
@@ -176,7 +188,7 @@ function draft(root) {
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);
     }
   }
-  return { drafts, notes };
+  return { drafts, notes, elsewhere };
 }
 
 module.exports = { cleanRemote, specPatterns, detectRepo, draft };
@@ -206,6 +218,9 @@ function main() {
   for (const n of r.notes) process.stderr.write(`${n}\n`);
   if (invalid) process.exit(1);
   if (!args.values.write) process.exit(0);
+  if (r.elsewhere.length && !args.values.force) {
+    die(`no escribo los manifiestos: ${r.elsewhere.join(', ')} lo trae(n) en otra rama. Haz git fetch, cámbiate a esa rama y vuelve a correr init; --force escribe igual`);
+  }
 
   const existing = r.drafts.filter((d) => fs.existsSync(d.file));
   if (existing.length && !args.values.force) die(`ya existe: ${existing.map((d) => d.file).join(', ')}; usa --force para pisarlo`);

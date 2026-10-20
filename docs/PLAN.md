@@ -444,6 +444,8 @@ Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida
 
 init no instala dependencias ni commitea.
 
+Cambio de la tercera ronda antes del piloto (2026-10-20), por la corrida de un front en su Mac: tenía los repos en su rama de trabajo, que no traía los manifiestos, e init le propuso escribir los dos desde cero, con riskPaths inventadas. Tardaron cuatro intentos en darse cuenta. Ahora, de un repo sin `.claude/harness.json`, `init-draft` (init) y `adoption-check` (init --check) imprimen la rama actual: `api-academico en feature/talleres-view, sin .claude/harness.json`. Si alguna rama remota sí lo trae, la nombran: `origin/fix/adopcion-arnes sí lo trae; cámbiate antes de seguir`. Lo saben con un solo `git cat-file --batch-check` sobre `<rama remota>:.claude/harness.json`, sin checkout (`lib/branches.js` `manifestElsewhere`); las remotas son las del último `git fetch`. En ese caso `init-draft --write` se niega sin `--force`, la skill init se detiene y pide cambiar de rama, y `adoption-check` lo marca como FALTA en la comprobación 1 en vez de NO ADOPTABLE.
+
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
 ## 9. Versionado y compatibilidad

@@ -150,3 +150,31 @@ test('cleanRemote quita protocolo, credenciales y .git', () => {
   assert.equal(cleanRemote('ssh://git@host:2222/a/b.git'), 'host/a/b');
   assert.equal(cleanRemote('https://github.com/renovasolutions/gestion-api.git\n'), 'github.com/renovasolutions/gestion-api');
 });
+
+// Un repo que trae su manifiesto en una rama remota y está parado en otra rama sin él.
+function wrongBranch() {
+  const dir = h.tmp('init-rama');
+  h.repo(dir, { 'package.json': pkg({ typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/a.ts': 'x' });
+  h.git(dir, 'switch', '-q', '-c', 'fix/adopcion-arnes');
+  h.write(dir, '.claude/harness.json', h.repoManifest('api'));
+  const sha = h.commitAll(dir, 'chore: adopta el arnés');
+  h.git(dir, 'update-ref', 'refs/remotes/origin/fix/adopcion-arnes', sha);
+  h.git(dir, 'switch', '-q', 'main');
+  h.git(dir, 'switch', '-q', '-c', 'feature/talleres-view');
+  return dir;
+}
+
+test('un repo sin manifiesto dice su rama, y si una rama remota lo trae, --write se niega sin --force', () => {
+  const dir = wrongBranch();
+  const r = h.run('init-draft.js', [], { cwd: dir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /sin manifiesto arnes-init-rama-\S+ en feature\/talleres-view, sin \.claude\/harness\.json; origin\/fix\/adopcion-arnes sí lo trae; cámbiate antes de seguir/);
+  const w = h.run('init-draft.js', ['--write'], { cwd: dir });
+  assert.equal(w.status, 2);
+  assert.match(w.stderr, /no escribo los manifiestos: .* lo trae\(n\) en otra rama\. Haz git fetch, cámbiate a esa rama/);
+  assert.ok(!fs.existsSync(path.join(dir, '.claude', 'harness.json')));
+  assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: dir }).status, 0);
+  const solo = h.tmp('init-sin-remota');
+  h.repo(solo, { 'package.json': pkg({ typescript: '5' }), 'tsconfig.json': '{}' });
+  assert.match(h.run('init-draft.js', [], { cwd: solo }).stderr, /en main, sin \.claude\/harness\.json\n/);
+});

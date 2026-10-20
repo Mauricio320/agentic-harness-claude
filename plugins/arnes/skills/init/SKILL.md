@@ -27,7 +27,7 @@ Hay dos niveles (docs/PLAN.md §5):
 Pasos:
 
 1. Si ya existe algún `.claude/harness.json` en la carpeta o en sus repos, léelo antes de seguir. No lo pises sin que la persona lo pida.
-2. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js"`. Imprime los borradores en stdout, y en stderr lo no adoptable y lo pendiente. Si sale con 2, explica el motivo y detente.
+2. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js"`. Imprime los borradores en stdout, y en stderr lo no adoptable, lo pendiente y la rama de cada repo sin manifiesto. Si sale con 2, explica el motivo y detente. Si dice que una rama remota sí trae el manifiesto, detente: la persona está en la rama equivocada. Pídele `git fetch`, cambiarse a esa rama y volver a correr init; no propongas manifiestos desde cero.
 3. Muestra cada borrador con su ruta y pregunta, en un solo mensaje, por lo que el script no puede inferir:
    - `riskPaths` de cada workspace: rutas cuyo cambio exige revisión humana (migraciones, auth, permisos, pagos).
    - En la composición: `contract` de cada repo (globs que provee o consume) e `integration` (`branchPrefix`, `sameBranchAcrossWorkspaces`).

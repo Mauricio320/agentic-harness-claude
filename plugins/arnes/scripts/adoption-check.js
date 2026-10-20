@@ -11,7 +11,8 @@
 //      .claude/hooks/: son del arnés anterior, corren además de los del plugin y pelean con ellos
 //   8. línea base de tests (tests/baseline.json, o testBaseline del manifiesto) válida contra el
 //      schema y commiteada; los saltos van declarados por nombre en ella
-// Un repo de la composición sin manifiesto propio sale como NO ADOPTABLE y no bloquea.
+// Un repo de la composición sin manifiesto propio sale como NO ADOPTABLE y no bloquea, con su rama
+// actual. Si una rama remota sí trae el manifiesto, es FALTA: el repo está en la rama equivocada.
 //
 // Uso: node adoption-check.js [--ws <nombre>]...
 // Salida: una línea por comprobación: ok · FALTA · MANUAL (no verificable desde local) · NO ADOPTABLE
@@ -26,6 +27,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, selectWorkspaces, MANIFEST, posix } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
+const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
 const { readBaseline, probeTests } = require('./test-baseline.js');
 
 const MAX_CLAUDE_MD = 200;
@@ -133,7 +135,11 @@ function main() {
   if (args.values.help) help(__filename);
 
   const project = loadProject();
-  if (!project) die(`sin manifiesto: no hay ${posix(MANIFEST)} subiendo desde ${process.cwd()}`);
+  if (!project) {
+    const inRepo = git(process.cwd(), ['rev-parse', '--show-toplevel']);
+    const where = inRepo.status === 0 ? `\n${missingManifest(path.basename(inRepo.stdout.trim()), manifestElsewhere(process.cwd()))}` : '';
+    die(`sin manifiesto: no hay ${posix(MANIFEST)} subiendo desde ${process.cwd()}${where}`);
+  }
   const tally = { FALTA: 0, MANUAL: 0, 'NO ADOPTABLE': 0 };
   const say = (mark, msg) => {
     if (mark in tally) tally[mark]++;
@@ -157,7 +163,12 @@ function main() {
     const label = `${ws.name} (${ws.rel || '.'})`;
     if (!exists(ws.dir)) say('FALTA', `${label}: la carpeta no existe`);
     else if (git(ws.gitRoot, ['rev-parse', '--git-dir']).status !== 0) say('FALTA', `${label}: ${ws.gitRoot} no es un repo git`);
-    else if (!ws.adoptable) say('NO ADOPTABLE', `${label}: sin ${posix(MANIFEST)} propio; se declara sin comandos y no bloquea`);
+    else if (!ws.adoptable) {
+      // Sin manifiesto puede ser la rama equivocada: si una remota lo trae, falta cambiarse.
+      const where = manifestElsewhere(ws.repo);
+      if (where.remotes.length) say('FALTA', missingManifest(label, where));
+      else say('NO ADOPTABLE', `${missingManifest(label, where)} propio; se declara sin comandos y no bloquea`);
+    }
     else {
       say('ok', `${label}: carpeta y repo git presentes`);
       wss.push(ws);

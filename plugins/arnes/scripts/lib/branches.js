@@ -3,8 +3,10 @@
 // git worktree remove) y worktree-remove.js (ExitWorktree). Este módulo no elige el destino: si
 // la rama o la carpeta están abiertas en worktree-ledger.js, worktree-remove.js (targetsOf) y el
 // guard miden contra la rama del issue registrada ahí; si no, contra la rama por defecto de
-// mergeTargets.
+// mergeTargets. Además, dónde está el manifiesto que un repo no tiene (manifestElsewhere), para
+// init-draft y adoption-check.
 
+const { spawnSync } = require('child_process');
 const { git, lines } = require('./exec.js');
 
 function refExists(dir, ref) {
@@ -31,4 +33,25 @@ function unmerged(dir, ref, targets) {
   return r.status === 0 ? lines(r.stdout) : null;
 }
 
-module.exports = { refExists, mergeTargets, unmerged };
+// Un repo sin .claude/harness.json: en qué rama está y qué ramas remotas sí lo traen. Se sabe sin
+// checkout, con un solo git cat-file --batch-check sobre <rama remota>:.claude/harness.json; las
+// remotas son las que trajo el último git fetch. → { branch, remotes: [..] }
+function manifestElsewhere(dir) {
+  const head = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const name = head.status === 0 ? head.stdout.trim() : '';
+  const branch = !name ? 'sin rama' : name === 'HEAD' ? `HEAD suelto en ${git(dir, ['rev-parse', '--short', 'HEAD']).stdout.trim()}` : name;
+  const refs = lines(git(dir, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes']).stdout).filter((r) => !/\/HEAD$/.test(r));
+  if (!refs.length) return { branch, remotes: [] };
+  const r = spawnSync('git', ['cat-file', '--batch-check'], { cwd: dir, input: `${refs.map((x) => `${x}:.claude/harness.json`).join('\n')}\n`, encoding: 'utf8' });
+  const out = lines(r.stdout || '');
+  return { branch, remotes: refs.filter((_, i) => / blob \d+$/.test(out[i] || '')) };
+}
+
+// "api-academico en feature/x, sin .claude/harness.json; origin/y sí lo trae; cámbiate antes de seguir"
+function missingManifest(name, where) {
+  const n = where.remotes.length;
+  const hint = n ? `; ${where.remotes.slice(0, 3).join(', ')}${n > 3 ? ` y ${n - 3} más` : ''} ${n > 1 ? 'lo traen' : 'sí lo trae'}; cámbiate antes de seguir` : '';
+  return `${name} en ${where.branch}, sin .claude/harness.json${hint}`;
+}
+
+module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest };

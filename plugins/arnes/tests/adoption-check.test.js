@@ -156,7 +156,7 @@ test('en una carpeta, el repo sin manifiesto propio es NO ADOPTABLE y no bloquea
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }, { path: 'legacy' }] }));
   h.write(root, 'CLAUDE.md', '# carpeta\n');
   const r = check(root);
-  assert.match(r.stdout, /NO ADOPTABLE\s+legacy \(legacy\): sin \.claude\/harness\.json propio/);
+  assert.match(r.stdout, /NO ADOPTABLE\s+legacy \(legacy\) en main, sin \.claude\/harness\.json propio/);
   assert.equal(r.status, 0, r.stdout);
   assert.match(r.stdout, /1 no adoptable/);
 });
@@ -185,4 +185,24 @@ test('manifiesto inválido: FALTA en la comprobación 1 y exit 1; sin manifiesto
   assert.equal(r.status, 1);
   assert.match(r.stdout, /FALTA\s+.*workspaces: necesita al menos 1/);
   assert.equal(check(h.tmp('adopt-nada')).status, 2);
+});
+
+test('un repo de la carpeta sin manifiesto dice su rama; si una rama remota lo trae, es FALTA', () => {
+  const root = h.tmp('adopt-rama');
+  fs.renameSync(adopted(), path.join(root, 'api'));
+  const legacy = path.join(root, 'legacy');
+  h.repo(legacy, { 'composer.json': '{}' });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }, { path: 'legacy' }] }));
+  h.write(root, 'CLAUDE.md', '# carpeta\n');
+  assert.match(check(root).stdout, /NO ADOPTABLE\s+legacy \(legacy\) en main, sin \.claude\/harness\.json propio; se declara sin comandos y no bloquea/);
+  h.git(legacy, 'switch', '-q', '-c', 'fix/adopcion-arnes');
+  h.write(legacy, '.claude/harness.json', h.repoManifest('legacy'));
+  h.git(legacy, 'update-ref', 'refs/remotes/origin/fix/adopcion-arnes', h.commitAll(legacy, 'adopta'));
+  h.git(legacy, 'switch', '-q', 'main');
+  const r = check(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALTA\s+legacy \(legacy\) en main, sin \.claude\/harness\.json; origin\/fix\/adopcion-arnes sí lo trae; cámbiate antes de seguir/);
+  const solo = h.tmp('adopt-solo');
+  h.repo(solo, { 'a.ts': 'a\n' });
+  assert.match(check(solo).stderr, /sin manifiesto: no hay .*\narnes-adopt-solo-\S+ en main, sin \.claude\/harness\.json/);
 });
