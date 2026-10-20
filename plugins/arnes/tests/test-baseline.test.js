@@ -133,6 +133,14 @@ test('check igual a la base → VERDE, con la frase de siempre', () => {
   assert.match(r.stdout, /VERDE\. Verde significa que cumple convenciones y compila\/testea; nunca que sea correcto en el negocio/);
 });
 
+test('más tests que en la base es verde, con la nota de que se protegen al recapturar', () => {
+  const dir = adopted();
+  fs.appendFileSync(path.join(dir, 'src/a.spec.ts'), 'pass|A|debe multiplicar\n');
+  const r = run(dir, ['check', 'api']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /hay 1 test\(s\) más que en la base; quedan protegidos al recapturarla/);
+});
+
 test('un test borrado pone el gate en rojo aunque lo que queda esté verde', () => {
   const dir = adopted();
   fs.writeFileSync(path.join(dir, 'src/a.spec.ts'), 'pass|A|debe sumar\nskip|A|debe esperar\n');

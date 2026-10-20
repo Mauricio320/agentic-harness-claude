@@ -248,6 +248,8 @@ function checkTests(ws, p) {
       const c = compare(base.data, scope, res.summary, skipped);
       reds.push(...c.reds);
       detail += ` · base ${fmt(c.b)}`;
+      // La base sube solo a propósito: los tests nuevos no quedan protegidos hasta recapturarla.
+      if (total(res.summary) > total(c.b)) notes.push(`línea base: hay ${total(res.summary) - total(c.b)} test(s) más que en la base; quedan protegidos al recapturarla (test-baseline.js capture, commit con gates:)`);
     } else detail += ` · sin línea base (${posix(path.relative(ws.dir, base.file))})`;
   }
   if (reds.length) return { status: 'falla', detail, out: [...reds, ...notes, tail(run.out, 30)].filter(Boolean).join('\n') };
