@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Bandera de verificación por workspace: la escribe verify y la consulta el guard antes de un
-// commit. Archivo: <raíz del proyecto>/.tmp/harness/gate/<ws>.json = { head, touchedHash, contentHash, result, at }
+// commit. Archivo: <raíz del proyecto>/.tmp/harness/gate/<ws>.json = { head, touchedHash, contentHash, blobs, result, at }
 //   head         HEAD del repo del workspace al escribirla
 //   touchedHash  sha256 de la lista ordenada de tocados respecto de HEAD (la de touched-files)
 //   contentHash  sha256 de "ruta\0sha256 del contenido" de cada tocado, trackeado o no
+//   blobs        { ruta: el blob que git guardaría (git hash-object, que normaliza los finales de
+//                línea como el commit) } de cada tocado; ship comprueba con ellos que el commit
+//                lleva lo verificado, aunque un hook pre-commit reescriba
 // Vigente = existe, result "pass", mismo HEAD, mismos touchedHash y contentHash, y menos de 30
 // minutos. La huella cubre solo los tocados, no el árbol entero: el CI garantiza la honestidad, no
 // la bandera (docs/PLAN.md §6.1, §11).
@@ -19,8 +22,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces, harnessDir } = require('./lib/manifest.js');
-const { git, firstLine, help, die } = require('./lib/exec.js');
+const { spawnSync } = require('child_process');
+const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
+const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 
 const MAX_AGE_MS = 30 * 60 * 1000;
@@ -41,13 +45,26 @@ function stateOf(project, ws) {
   const file = (f) => path.join(ws.dir, f);
   const touchedHash = sha(t.files.join('\n'));
   const contentHash = sha(t.files.map((f) => `${f}\0${fs.existsSync(file(f)) ? sha(fs.readFileSync(file(f))) : '-'}`).join('\n'));
-  return { head: head.stdout.trim(), touchedHash, contentHash };
+  return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files };
+}
+
+// El blob de cada tocado, por ruta relativa al workspace. hash-object con --stdin-paths lee rutas
+// relativas a la raíz del repo, y desde ahí aplica los atributos y el autocrlf igual que un commit.
+function blobsOf(ws, files) {
+  if (!files.length) return { blobs: {} };
+  const rel = (f) => posix(path.relative(ws.gitRoot, path.join(ws.dir, f)));
+  const r = spawnSync('git', ['hash-object', '--stdin-paths'], { cwd: ws.gitRoot, input: `${files.map(rel).join('\n')}\n`, encoding: 'utf8' });
+  if (r.status !== 0) return { error: `git hash-object falló en ${ws.name}: ${firstLine(r.stderr || '')}` };
+  const oids = lines(r.stdout);
+  return { blobs: Object.fromEntries(files.map((f, i) => [f, oids[i]])) };
 }
 
 function writeFlag(project, ws, result, now = new Date()) {
   const s = stateOf(project, ws);
   if (s.error) return s;
-  const flag = { head: s.head, touchedHash: s.touchedHash, contentHash: s.contentHash, result, at: now.toISOString() };
+  const b = blobsOf(ws, s.files);
+  if (b.error) return b;
+  const flag = { head: s.head, touchedHash: s.touchedHash, contentHash: s.contentHash, blobs: b.blobs, result, at: now.toISOString() };
   const file = flagPath(project, ws);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(flag, null, 2) + '\n');

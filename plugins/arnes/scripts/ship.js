@@ -15,10 +15,16 @@
 //           cambiarse vencería la bandera
 //   stage   git add de los tocados y los borrados de <ws>, sin shell; se niega si hay un archivo
 //           que no debe entrar
+//   committed  después del commit de <ws>: el blob de HEAD de cada archivo de la bandera es el que
+//           ella verificó. Un hook pre-commit que reescribe (eslint --fix de lint-staged) cambiaría
+//           lo commiteado sin que el arnés se entere: FALLA con los archivos, y decide la persona
+// Sin contract en ningún workspace, check avisa que el orden de commit es el del manifiesto.
 // Uso: node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
-// Exit: 0 listo · 1 no listo (motivos en stdout) · 2 uso inválido, sin manifiesto o git falló
+//      node ship.js committed <ws>
+// Exit: 0 listo · 1 no listo, o committed: el commit no es lo verificado (motivos en stdout) ·
+//       2 uso inválido, sin manifiesto, sin bandera o git falló
 
 'use strict';
 
@@ -29,7 +35,7 @@ const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists } = require('./lib/branches.js');
 const { touched, deleted } = require('./touched-files.js');
-const { checkFlag } = require('./gate-flag.js');
+const { checkFlag, flagPath } = require('./gate-flag.js');
 const { checkReview, RISK } = require('./review.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
@@ -115,6 +121,9 @@ function check(project) {
   console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);
   for (const p of open) console.log(`    ${ledger.describe(p)}`);
   console.log(`orden de commit: ${list.map((x) => x.ws.name).join(' → ')}`);
+  if (list.length > 1 && !project.workspaces.some((w) => w.contract && (w.contract.provides || w.contract.consumes))) {
+    console.log('    aviso: ningún workspace declara contract (provides o consumes); el orden es el del manifiesto, no back → front');
+  }
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);
   const current = [...new Set(list.map((x) => branchOf(x.ws)).filter((b, k) => b && b !== 'HEAD' && b !== defaultOf(list[k].ws)))];
@@ -188,17 +197,42 @@ function stage(project, wsName) {
   return 0;
 }
 
+function committed(project, wsName) {
+  const [ws] = selectWorkspaces(project, [wsName]);
+  let flag = null;
+  try {
+    flag = JSON.parse(fs.readFileSync(flagPath(project, ws), 'utf8'));
+  } catch {
+    die(`ship: ${ws.name} no tiene bandera legible en ${flagPath(project, ws)}`);
+  }
+  if (!flag.blobs) die(`ship: la bandera de ${ws.name} no trae los blobs de sus archivos (es de una versión anterior): no se puede comparar`);
+  const tree = git(ws.dir, ['ls-tree', '-r', 'HEAD']);
+  if (tree.status !== 0) die(`ship: git ls-tree falló en ${ws.name}: ${firstLine(tree.stderr)}`);
+  // Una línea de ls-tree: <modo> <tipo> <blob>\t<ruta relativa a la carpeta>.
+  const inHead = new Map(lines(tree.stdout).map((l) => [l.slice(l.indexOf('\t') + 1), l.slice(0, l.indexOf('\t')).split(' ')[2]]));
+  const head = git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim();
+  const files = Object.keys(flag.blobs);
+  const changed = files.filter((f) => inHead.get(f) !== flag.blobs[f]).map((f) => (inHead.has(f) ? f : `${f} (no entró)`));
+  if (!changed.length) {
+    console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
+    return 0;
+  }
+  console.log(`FALLA ${ws.name}: el commit ${head} no lleva el contenido que verificó la bandera. Cambió después de verificar, quizá por un hook pre-commit: ${changed.join(', ')}`);
+  return 1;
+}
+
 module.exports = { shipping };
 
 function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) help(__filename);
   const [mode, arg, extra] = argv;
-  const usage = 'uso: ship.js check | branch <rama> | stage <ws>';
-  if (extra || !['check', 'branch', 'stage'].includes(mode) || (mode === 'check') === Boolean(arg)) die(usage);
+  const usage = 'uso: ship.js check | branch <rama> | stage <ws> | committed <ws>';
+  if (extra || !['check', 'branch', 'stage', 'committed'].includes(mode) || (mode === 'check') === Boolean(arg)) die(usage);
   const project = requireProject();
   if (mode === 'check') process.exit(check(project));
   if (mode === 'branch') process.exit(branch(project, arg));
+  if (mode === 'committed') process.exit(committed(project, arg));
   process.exit(stage(project, arg));
 }
 

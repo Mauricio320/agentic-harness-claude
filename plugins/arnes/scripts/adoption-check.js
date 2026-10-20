@@ -158,6 +158,11 @@ function main() {
       wss.push(ws);
     }
   }
+  // Con dos o más workspaces, ship ordena los commits back → front por contract; si ninguno lo
+  // declara, el orden es el del manifiesto y el front puede ir antes que el back.
+  if (wss.length > 1 && !wss.some((ws) => ws.contract && (ws.contract.provides || ws.contract.consumes))) {
+    say('FALTA', `ningún workspace declara contract (provides o consumes): ship no puede ordenar los commits back → front; decláralo en ${project.kind === 'folder' ? 'la composición' : 'el manifiesto'}`);
+  }
   const repos = [...new Map(wss.map((ws) => [ws.repo, ws])).values()];
 
   console.log('\n2. CLAUDE.md y reglas');

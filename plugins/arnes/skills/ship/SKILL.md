@@ -40,6 +40,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Línea base:** si el check dice que la línea base cambia, el asunto empieza con `gates: `.
 3. **Commit:** `git -C "<carpeta del workspace>" commit -m "<asunto>" -m "<cuerpo>"`. Si el guard lo niega, no lo rodees: di el motivo y termina.
 4. **Muestra el commit:** `git -C "<carpeta>" log -1 --stat`.
+5. **Comprueba lo commiteado:** `node "S/ship.js" committed <ws>`. Si sale con 1, un hook del repo cambió archivos después de verificar: muestra la salida tal cual, anota `end ship --result fail --detail "el commit no es lo verificado"` y termina, sin otro workspace ni push. Decide la persona.
 
 **Con `--solo-commit`:** anota `end ship --result ok --detail "solo commit"`, muestra los commits creados y termina.
 

@@ -122,6 +122,22 @@ test('en una carpeta cuenta también el .claude/settings.json de la raíz; uno i
   assert.match(r.stdout, /resultado: 2 falta\(s\)/);
 });
 
+test('en una carpeta con dos repos adoptables, sin contract en ninguno es FALTA en la comprobación 1', () => {
+  const root = h.tmp('adopt-contract');
+  fs.renameSync(adopted(), path.join(root, 'api'));
+  fs.renameSync(adopted(), path.join(root, 'front'));
+  h.write(path.join(root, 'front'), '.claude/harness.json', h.repoManifest('front', h.workspace({ name: 'front', commands: { typecheck: ['npx tsc --noEmit'], lint: 'npx eslint {files}' }, riskPaths: ['x/**'] })));
+  h.write(root, 'CLAUDE.md', '# carpeta\n');
+  const manifest = (repos) => h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos }));
+  manifest([{ path: 'front' }, { path: 'api' }]);
+  let r = check(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /1\. Manifiesto[\s\S]*FALTA\s+ningún workspace declara contract \(provides o consumes\): ship no puede ordenar los commits back → front; decláralo en la composición/);
+  manifest([{ path: 'front', contract: { consumes: ['src/**'] } }, { path: 'api', contract: { provides: ['src/**'] } }]);
+  r = check(root);
+  assert.doesNotMatch(r.stdout, /ningún workspace declara contract/);
+});
+
 test('en una carpeta, el repo sin manifiesto propio es NO ADOPTABLE y no bloquea', () => {
   const root = h.tmp('adopt-folder');
   fs.renameSync(adopted(), path.join(root, 'api'));

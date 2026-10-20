@@ -8,7 +8,7 @@ const h = require('./helpers.js');
 
 // Carpeta con el front listado antes que el back: el orden de commit sale del contrato, no del
 // orden de la composición.
-function folder() {
+function folder({ contract = true } = {}) {
   const root = h.tmp('ship');
   const repoOf = (name, extra) => {
     const dir = path.join(root, name);
@@ -21,7 +21,7 @@ function folder() {
   h.write(root, '.claude/harness.json', h.manifestJson({
     version: 1,
     name: 'carpeta',
-    repos: [{ path: 'front', contract: { consumes: ['src/**'] } }, { path: 'api', contract: { provides: ['src/**'] } }],
+    repos: contract ? [{ path: 'front', contract: { consumes: ['src/**'] } }, { path: 'api', contract: { provides: ['src/**'] } }] : [{ path: 'front' }, { path: 'api' }],
     integration: { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true },
   }));
   fs.appendFileSync(path.join(front, 'src/a.ts'), 'f\n');
@@ -147,6 +147,34 @@ test('stage agrega tocados y borrados del workspace; se niega con un .env', () =
   const bad = ship(root, ['stage', 'api']);
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /no deben entrar: \.env\.local/);
+});
+
+test('committed: el commit lleva lo que verificó la bandera; si un hook pre-commit lo reescribe, FALLA con el archivo', () => {
+  const { root, api, front } = folder();
+  ready(root);
+  const flag = JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'harness', 'gate', 'api.json'), 'utf8'));
+  assert.deepEqual(Object.keys(flag.blobs), ['src/a.ts']);
+  assert.equal(ship(root, ['stage', 'api']).status, 0);
+  h.git(api, 'commit', '-q', '-m', 'feature(api): cambio');
+  let r = ship(root, ['committed', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /api: el commit \w+ lleva el contenido que verificó la bandera \(1 archivo\(s\)\)/);
+
+  assert.equal(ship(root, ['stage', 'front']).status, 0);
+  fs.appendFileSync(path.join(front, 'src/a.ts'), 'reescrito por eslint --fix\n');
+  h.git(front, 'add', 'src/a.ts');
+  h.git(front, 'commit', '-q', '-m', 'feature(front): cambio');
+  r = ship(root, ['committed', 'front']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA front: el commit \w+ no lleva el contenido que verificó la bandera\. .*: src\/a\.ts$/m);
+});
+
+test('check avisa cuando ningún workspace declara contract: el orden es el del manifiesto', () => {
+  const { root } = folder({ contract: false });
+  ready(root);
+  const r = ship(root, ['check']);
+  assert.match(r.stdout, /orden de commit: front → api\n {4}aviso: ningún workspace declara contract \(provides o consumes\); el orden es el del manifiesto, no back → front/);
+  assert.doesNotMatch(ship(folder().root, ['check']).stdout, /aviso: ningún workspace declara contract/);
 });
 
 test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => {
