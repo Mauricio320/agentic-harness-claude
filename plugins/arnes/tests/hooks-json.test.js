@@ -10,7 +10,7 @@ const config = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json
 
 test('hooks.json declara los eventos de §6.2 con sus matchers; SubagentStop y WorktreeRemove no', () => {
   assert.deepEqual(Object.keys(config.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionStart', 'Stop', 'UserPromptSubmit']);
-  assert.deepEqual(config.hooks.PreToolUse.map((g) => g.matcher), ['Bash|PowerShell', 'ExitWorktree']);
+  assert.deepEqual(config.hooks.PreToolUse.map((g) => g.matcher), ['Bash|PowerShell', 'Read|Glob|Grep', 'ExitWorktree']);
   assert.deepEqual(config.hooks.PostToolUse.map((g) => g.matcher), ['Edit|Write']);
 });
 
@@ -29,5 +29,5 @@ test('cada hook llama a node con la ruta del script entre comillas, timeout y st
       }
     }
   }
-  assert.deepEqual(scripts.sort(), ['after-edit.js', 'guard.js', 'prompt-context.js', 'session-start.js', 'stop-gate.js', 'worktree-remove.js']);
+  assert.deepEqual(scripts.sort(), ['after-edit.js', 'guard.js', 'prompt-context.js', 'read-guard.js', 'session-start.js', 'stop-gate.js', 'worktree-remove.js']);
 });

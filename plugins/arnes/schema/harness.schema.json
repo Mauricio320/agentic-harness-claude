@@ -62,7 +62,8 @@
         "riskPaths": { "$ref": "#/$defs/globs" },
         "forbidden": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "codeGlobs": { "$ref": "#/$defs/globs" },
-        "sharedPaths": { "$ref": "#/$defs/globs" }
+        "sharedPaths": { "$ref": "#/$defs/globs" },
+        "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" }
       }
     },
     "commands": {
