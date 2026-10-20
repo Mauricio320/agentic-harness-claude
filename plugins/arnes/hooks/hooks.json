@@ -50,6 +50,17 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/plan-guard.js\"",
+            "timeout": 10,
+            "statusMessage": "arnes: revisando que haya plan aprobado"
+          }
+        ]
+      },
+      {
         "matcher": "Read|Glob|Grep",
         "hooks": [
           {

@@ -85,7 +85,8 @@ test('CLI print: la espera de la persona sale de las notas del turno, de toda la
     'espera de la persona: 18m00s en 2 respuesta(s), aparte de las etapas',
     'esperando a la persona desde 2026-10-19 10:27:00',
   ]);
-  assert.equal(h.run('lib/timeline.js', ['note', 'plan', '--result', 'aprobado'], { cwd: root }).status, 0, 'note sigue disponible para las skills');
+  assert.equal(h.run('lib/timeline.js', ['note', 'plan', '--result', 'cancelado'], { cwd: root }).status, 0, 'note sigue disponible para las skills');
+  assert.equal(h.run('lib/timeline.js', ['note', 'plan', '--result', 'aprobado'], { cwd: root }).status, 2, 'la aprobación es de plan-state.js');
 });
 
 test('CLI: usos inválidos y sin manifiesto → 2', () => {

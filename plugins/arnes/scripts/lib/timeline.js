@@ -67,6 +67,18 @@ function duration(ms) {
   return `${Math.floor(s / 3600)}h${pad(Math.floor(s / 60) % 60)}m`;
 }
 
+// El plan de la corrida en curso: el último start de plan sin un end ship ok después. Está aprobado
+// si después de ese start hay una nota "aprobado", que solo escribe plan-state.js. Lo leen el guard
+// de Edit y Write (plan-guard) y UserPromptSubmit. → { open, approved, written, at? }
+function planState(entries) {
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  if (i < 0) return { open: false, approved: false, written: false };
+  const after = entries.slice(i + 1);
+  if (after.some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')) return { open: false, approved: false, written: false };
+  const is = (e, event, result) => e.stage === 'plan' && e.event === event && (!result || e.result === result);
+  return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
+}
+
 const money = (usd) => `$${usd.toFixed(2)}`;
 
 function format(entries) {
@@ -116,7 +128,7 @@ function format(entries) {
   return out;
 }
 
-module.exports = { FILE, append, read, format };
+module.exports = { FILE, append, read, format, planState };
 
 function main() {
   let args;
@@ -139,6 +151,7 @@ function main() {
   }
   if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] | timeline.js print');
   if (event === 'start' && args.values.result) die('timeline: --result solo va con end');
+  if (stage === 'plan' && args.values.result === 'aprobado') die('timeline: la aprobación del plan la anota plan-state.js approve, que comprueba que vino de la persona');
   const project = requireProject();
   append(project.root, {
     event,

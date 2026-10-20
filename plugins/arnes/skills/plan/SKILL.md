@@ -1,14 +1,16 @@
 ---
 name: plan
-description: Implementar, corregir o agregar algo a partir de un issue (número, URL o texto). Antes de tocar código escribe .tmp/harness/plan.md con criterios de aceptación, contrato de API, tablas y migraciones, zonas de riesgo y preguntas cerradas, y pide confirmación.
-argument-hint: "<número o URL del issue, o el texto del pedido>"
+description: Implementar, corregir o agregar algo a partir de un issue (número, URL o texto). Es la primera acción de todo pedido que cambie código. Antes de tocar código escribe .tmp/harness/plan.md con criterios de aceptación, contrato de API, tablas y migraciones, zonas de riesgo y preguntas cerradas, y pide confirmación.
+argument-hint: "[--trivial] <número o URL del issue, o el texto del pedido>"
 ---
 
 # arnes:plan
 
 Pedido: `$ARGUMENTS`
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio de la sesión. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. El plan lo aprueba alguien que no conoce el stack: frases cortas, cada término técnico explicado en pocas palabras la primera vez, sin bloques de código.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio de la sesión. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. El plan lo aprueba alguien que no conoce el stack: frases cortas, cada término técnico explicado en pocas palabras la primera vez, sin bloques de código. Sin plan aprobado, el guard niega escribir código.
+
+**Con `--trivial`**, y solo si lo escribió la persona: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" trivial --pedido "<el pedido>" --criterio "<un criterio que se pueda comprobar>"`, muestra su salida y sigue con el cambio. Escribe el plan mínimo y lo deja aprobado. Si sale con 1, di el motivo y sigue con el plan completo. Nunca agregues `--trivial` por tu cuenta.
 
 1. Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start plan --detail "<el issue en pocas palabras>"`.
 2. Proyecto: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show` da la raíz y los workspaces. Lee `.claude/harness.json` del workspace que vas a tocar: sus `riskPaths` y su `contract`. Si sale con 2, no hay manifiesto: sigue y dilo en el plan.
@@ -32,10 +34,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - `## Preguntas`: solo cerradas (sí o no, o elegir una opción). Cada una lleva `Recomendación:` con su motivo, y `Alternativa:` real, con lo que cuesta o lo que cambia. Nada de preguntas abiertas.
    - `## Fuera de alcance`: lo que el issue no pide y no se hace.
 6. Con el plan escrito, cierra la etapa: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end plan --result ok --detail "plan escrito"`. Desde aquí el tiempo es de la persona, no del plan: el Stop anota que el turno cerró, y su respuesta cierra la espera.
-7. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. No edites código ni lances agentes antes de esa respuesta.
-8. Con la respuesta, anota en la timeline lo que decidió la persona, con el mismo `timeline.js`:
-   - **Si aprueba:** `note plan --result aprobado`. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título. Si aprobó construir, sigue con la skill build.
-   - **Si pide cambios:** `start plan --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
-   - **Si lo descarta:** `note plan --result cancelado`.
+7. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. Termina el turno con el plan, sin la herramienta de preguntas: la aprobación vale solo si llega en un mensaje de la persona. No edites código ni lances agentes antes de esa respuesta.
+8. Con la respuesta:
+   - **Si aprueba:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" approve`. Si sale con 1, di el motivo y espera. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título. Si aprobó construir, sigue con la skill build.
+   - **Si pide cambios:** `timeline.js start plan --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
+   - **Si lo descarta:** `timeline.js note plan --result cancelado`.
 
 Si `.tmp/harness/plan.md` ya existe y es de otro issue, pregunta antes de pisarlo. Una decisión de arquitectura que salga del plan se guarda después con la skill memory, no aquí.
