@@ -1,0 +1,101 @@
+{
+  "description": "Hooks clásicos del arnés (docs/PLAN.md §6.2). Leen el cwd del JSON de entrada, nunca CLAUDE_PROJECT_DIR; sin manifiesto no bloquean nada salvo git destructivo; un error propio sale con 0.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js\"",
+            "timeout": 30,
+            "statusMessage": "arnes: leyendo el manifiesto"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js\"",
+            "timeout": 10,
+            "statusMessage": "arnes: soltando el lock de la sesión"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/prompt-context.js\"",
+            "timeout": 20,
+            "statusMessage": "arnes: estado del gate"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard.js\"",
+            "timeout": 30,
+            "statusMessage": "arnes: revisando el comando"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/read-guard.js\"",
+            "timeout": 10,
+            "statusMessage": "arnes: revisando que no sea un secreto"
+          }
+        ]
+      },
+      {
+        "matcher": "ExitWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/worktree-remove.js\"",
+            "timeout": 30,
+            "statusMessage": "arnes: revisando commits del worktree"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/after-edit.js\"",
+            "timeout": 120,
+            "statusMessage": "arnes: lint del archivo editado"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/stop-gate.js\"",
+            "timeout": 60,
+            "statusMessage": "arnes: revisando cambios sin verificar"
+          }
+        ]
+      }
+    ]
+  }
+}

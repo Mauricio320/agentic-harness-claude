@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifiesto del arnés (.claude/harness.json)",
+  "description": "Dos formas (docs/PLAN.md §5): manifiesto de repo, con workspaces y sus comandos; o composición de carpeta, con los repos que la forman. Rutas relativas a la carpeta que contiene .claude/; globs relativos al workspace.",
+  "oneOf": [{ "$ref": "#/$defs/repoManifest" }, { "$ref": "#/$defs/folderManifest" }],
+  "$defs": {
+    "repoManifest": {
+      "type": "object",
+      "required": ["version", "name", "workspaces"],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": { "type": "string" },
+        "version": { "const": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "workspaces": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/workspace" } },
+        "integration": { "$ref": "#/$defs/integration" },
+        "memory": { "$ref": "#/$defs/memory" }
+      }
+    },
+    "folderManifest": {
+      "type": "object",
+      "required": ["version", "name", "repos"],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": { "type": "string" },
+        "version": { "const": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "repos": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/repoRef" } },
+        "integration": { "$ref": "#/$defs/integration" },
+        "memory": { "$ref": "#/$defs/memory" }
+      }
+    },
+    "repoRef": {
+      "description": "Un repo de la carpeta; su manifiesto se lee de <path>/.claude/harness.json. Sin ese archivo, el repo es un workspace no adoptable todavía.",
+      "type": "object",
+      "required": ["path"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/relPath" },
+        "contract": { "$ref": "#/$defs/contract" }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["name", "path", "git", "commands"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "path": { "$ref": "#/$defs/relPath" },
+        "git": { "description": "Ruta del workspace a la raíz de su repo: \".\" si es su propio repo.", "$ref": "#/$defs/relPath" },
+        "remote": { "type": "string", "minLength": 1 },
+        "defaultBranch": { "type": "string", "minLength": 1 },
+        "stack": { "description": "Etiqueta informativa; nunca rama de código.", "type": "string", "minLength": 1 },
+        "commands": { "$ref": "#/$defs/commands" },
+        "specPattern": {
+          "oneOf": [
+            { "$ref": "#/$defs/specPattern" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/specPattern" } }
+          ]
+        },
+        "contract": { "$ref": "#/$defs/contract" },
+        "riskPaths": { "$ref": "#/$defs/globs" },
+        "forbidden": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "codeGlobs": { "$ref": "#/$defs/globs" },
+        "sharedPaths": { "$ref": "#/$defs/globs" },
+        "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
+        "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" }
+      }
+    },
+    "commands": {
+      "description": "Todo comando es opcional salvo typecheck o test (al menos uno). {files} y {specs} se sustituyen por listas citadas.",
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["typecheck"] }, { "required": ["test"] }],
+      "properties": {
+        "typecheck": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } },
+        "typecheckFast": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } },
+        "lint": { "$ref": "#/$defs/command" },
+        "test": { "$ref": "#/$defs/command" },
+        "testAll": { "$ref": "#/$defs/command" },
+        "build": { "$ref": "#/$defs/command" }
+      }
+    },
+    "specPattern": {
+      "description": "{dir}: carpeta del archivo, relativa al workspace; {ancestor}: esa carpeta o cualquier ancestro dentro del workspace, gana el más cercano donde exista el spec; {name}: nombre sin la última extensión.",
+      "type": "string",
+      "pattern": "\\{name\\}"
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provides": { "$ref": "#/$defs/globs" },
+        "consumes": { "$ref": "#/$defs/globs" }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branchPrefix": { "type": "string" },
+        "sameBranchAcrossWorkspaces": { "type": "boolean" }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "notes": { "$ref": "#/$defs/relPath" },
+        "gotchas": { "$ref": "#/$defs/relPath" },
+        "graphify": { "type": "boolean" }
+      }
+    },
+    "testBaselineFile": {
+      "description": "Formato de la línea base de tests (docs/PLAN.md §6.1): por spec, cuántos tests pasan, fallan y se saltan, y los saltos declarados por nombre. Los specs son rutas relativas al workspace. La escribe test-baseline.js capture; un commit que la cambia lleva gates: en el asunto.",
+      "type": "object",
+      "required": ["version", "capturedAt", "head", "specs", "skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "const": 1 },
+        "capturedAt": { "type": "string", "minLength": 1 },
+        "head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "specs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/testCounts" } },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["spec", "name"],
+            "additionalProperties": false,
+            "properties": { "spec": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "testCounts": {
+      "type": "object",
+      "required": ["pass", "fail", "skip"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "relPath": {
+      "description": "Ruta relativa; nunca absoluta.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![\\\\/])(?![A-Za-z]:)"
+    },
+    "globs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "command": { "type": "string", "minLength": 1 }
+  }
+}

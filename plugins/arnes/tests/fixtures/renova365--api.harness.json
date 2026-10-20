@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "api",
+  "workspaces": [
+    {
+      "name": "api",
+      "path": ".",
+      "git": ".",
+      "remote": "github.com/renovasolutions/gestion-api",
+      "defaultBranch": "main",
+      "stack": "nestjs",
+      "commands": {
+        "typecheck": [
+          "npx tsc --noEmit"
+        ],
+        "lint": "npx eslint {files} --max-warnings=0 --no-warn-ignored",
+        "test": "npx jest {specs} --runTestsByPath --verbose",
+        "testAll": "npx jest",
+        "build": "npm run build"
+      },
+      "specPattern": [
+        "{ancestor}/__test__/{name}.spec.ts",
+        "{dir}/__test__/{name}.spec.ts",
+        "{dir}/{name}.spec.ts"
+      ],
+      "forbidden": [
+        "npm run format",
+        "npm run lint"
+      ]
+    }
+  ]
+}

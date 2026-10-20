@@ -17,3 +17,10 @@ validate:
     - claude plugin validate --strict plugins/arnes
     - claude plugin validate --strict plugins/arnes-ui
     - claude plugin validate --strict plugins/arnes-mod
+
+# Tests de los scripts del arnés sobre repos de juguete; no necesitan el CLI.
+test:
+  stage: validate
+  image: node:24
+  script:
+    - node --test "plugins/arnes/tests/*.test.js"

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "client",
+  "workspaces": [
+    {
+      "name": "client",
+      "path": ".",
+      "git": ".",
+      "remote": "github.com/renovasolutions/gestion-client",
+      "defaultBranch": "main",
+      "stack": "angular",
+      "commands": {
+        "typecheck": [
+          "npx tsc -p tsconfig.app.json --noEmit",
+          "npx tsc -p tsconfig.spec.json --noEmit"
+        ],
+        "test": "npx ng test --watch=false --browsers=ChromeHeadless",
+        "build": "npm run build"
+      },
+      "specPattern": "{dir}/{name}.spec.ts",
+      "forbidden": [
+        "npm run format"
+      ]
+    }
+  ]
+}
