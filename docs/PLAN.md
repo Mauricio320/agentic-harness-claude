@@ -262,6 +262,8 @@ Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. S
 - `memory`: `decision` escribe `docs/decisions/YYYY-MM-DD-<slug>.md` (qué, por qué, alternativa descartada); `gotcha` añade a `docs/gotchas.md`; `recall` consulta esos archivos y graphify. Sin MCP.
 - `sync`: versión de 60 líneas del `sync-branch` actual: respaldo, fetch, merge contra `origin/<rama>`, `merged-files`, verify.
 - `timeline`: imprime `.tmp/harness/timeline.jsonl` como texto, con duración por etapa. Cada skill anota su inicio y su fin con `lib/timeline.js`, así la medición existe aunque `arnes-ui` no esté instalado (CI, otra máquina, sesión sin mods); el mod solo la dibuja.
+- Cambio antes del piloto (2026-10-20), por la prueba manual de la fase 3:
+  - `plan` y `build` llevan la línea de verify, review y ship: cada comando se corre solo, sin `&&`, `;` ni `echo`, porque un comando encadenado pide permiso aparte. En la corrida automática, plan corrió `cd … && node … ; echo "---"; node …`. Un test comprueba la línea en las cinco skills del flujo.
 
 ### 6.4 Agentes
 `dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.

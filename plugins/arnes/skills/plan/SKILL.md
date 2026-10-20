@@ -8,7 +8,7 @@ argument-hint: "<número o URL del issue, o el texto del pedido>"
 
 Pedido: `$ARGUMENTS`
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio de la sesión. El plan lo aprueba alguien que no conoce el stack: frases cortas, cada término técnico explicado en pocas palabras la primera vez, sin bloques de código.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio de la sesión. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. El plan lo aprueba alguien que no conoce el stack: frases cortas, cada término técnico explicado en pocas palabras la primera vez, sin bloques de código.
 
 1. Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start plan --detail "<el issue en pocas palabras>"`.
 2. Proyecto: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show` da la raíz y los workspaces. Lee `.claude/harness.json` del workspace que vas a tocar: sus `riskPaths` y su `contract`. Si sale con 2, no hay manifiesto: sigue y dilo en el plan.

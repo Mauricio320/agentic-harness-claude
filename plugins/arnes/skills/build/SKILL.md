@@ -8,7 +8,7 @@ argument-hint: "[workspace]..."
 
 Argumentos: `$ARGUMENTS` (opcional: limita a esos workspaces).
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte.
 
 1. Lee `.tmp/harness/plan.md` en la raíz del proyecto (`node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`). Si no existe, o no dice `Aprobado:`, o le quedan preguntas sin decidir, corre primero la skill plan. Build no decide por la persona.
 2. Arma la lista de workspaces de `## Workspaces y orden`. El orden es back y después front: primero el que provee el contrato (`contract.provides`, o el que expone la API), después el que lo consume. Si dos workspaces no dependen uno del otro y tocan archivos disjuntos, pueden ir en paralelo en el mismo árbol.

@@ -51,6 +51,13 @@ test('agentes de §6.4 con su model y su effort; el reviewer sin herramientas de
   assert.ok(!fs.existsSync(path.join(PLUGIN, 'agents', 'README.md')), 'todo .md de agents/ se carga como agente');
 });
 
+test('plan, build, verify, review y ship piden correr cada comando solo', () => {
+  for (const s of ['plan', 'build', 'verify', 'review', 'ship']) {
+    const text = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+    assert.match(text, /Corre cada comando solo, sin `&&`, `;` ni `echo`/, s);
+  }
+});
+
 test('cada script que nombra una skill existe', () => {
   let named = 0;
   for (const s of skills) {
