@@ -2,8 +2,9 @@
 // UserPromptSubmit (docs/PLAN.md §6.2). Adjunta una línea de estado por workspace con código o
 // riskPaths tocados: cuántos archivos tocados y de código, si la bandera de verificación está
 // vigente, y qué riskPaths se tocaron. Si solo hay archivos que no son código, o no hay manifiesto,
-// no dice nada. Nunca bloquea. Además deja la foto del turno (gate-flag writeTurn) que stop-gate
-// compara para decidir si el turno cambió algo, y anota en la timeline que la persona respondió;
+// no dice nada. Nunca bloquea. Con un mensaje de la persona, y no con el aviso de un agente en
+// segundo plano, deja la foto del turno (gate-flag writeTurn) que stop-gate compara para decidir
+// si el turno cambió algo, y anota en la timeline que la persona respondió;
 // si escribió /arnes:plan --trivial, la nota lo dice, y es lo único que habilita el plan trivial.
 // Sin plan en curso y sin código tocado, agrega una línea: un pedido de código empieza por el plan.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
@@ -19,6 +20,9 @@ const { touched } = require('../touched-files.js');
 const { checkFlag, writeTurn } = require('../gate-flag.js');
 const { append, read, planState } = require('../lib/timeline.js');
 
+// El aviso con que un agente en segundo plano reabre el turno del hilo principal también pasa por
+// UserPromptSubmit (verificado en la primera corrida real): no es un mensaje de la persona.
+const FROM_AGENT = /^\s*(<task-notification>|<agent-message\b|Another Claude session sent a message:)/;
 // /arnes:plan --trivial como lo escribió la persona, o como lo expande el CLI.
 const TRIVIAL = /^\s*\/arnes:plan\s+--trivial\b|<command-name>\/arnes:plan<\/command-name>[\s\S]*?<command-args>[^<]*--trivial/;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
@@ -43,12 +47,18 @@ function promptContext(input) {
   const project = loadProject(path.resolve(input.cwd || process.cwd()));
   if (!project || project.errors.length) return null;
   const adoptable = project.workspaces.filter((ws) => ws.adoptable);
-  writeTurn(project, adoptable);
-  // La persona respondió: cierra la espera que abrió la nota "cerrado" del Stop.
-  append(project.root, { event: 'note', stage: 'turno', result: 'respuesta', trivial: TRIVIAL.test(String(input.prompt || '')) || undefined });
+  const text = String(input.prompt || '');
+  const person = !FROM_AGENT.test(text);
+  // Solo un mensaje de la persona abre turno: la foto del árbol queda de ahí, y lo que escriban
+  // después los agentes en segundo plano cuenta como cambio de ese turno cuando el Stop compara.
+  if (person) {
+    writeTurn(project, adoptable);
+    // Cierra la espera que abrió la nota "cerrado" del Stop.
+    append(project.root, { event: 'note', stage: 'turno', result: 'respuesta', trivial: TRIVIAL.test(text) || undefined });
+  }
   const rows = adoptable.map((ws) => state(project, ws));
   const out = rows.map((r) => r.text).filter(Boolean);
-  if (!rows.some((r) => r.code) && !planState(read(project.root)).open) out.unshift(PLAN_FIRST);
+  if (person && !rows.some((r) => r.code) && !planState(read(project.root)).open) out.unshift(PLAN_FIRST);
   return out.length ? out.join('\n') : null;
 }
 

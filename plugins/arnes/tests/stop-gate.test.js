@@ -36,6 +36,18 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   assert.match(list[0].detail, /^turno bloqueado sin verificar: api \(1 archivo\(s\) de código: src\/a\.ts/);
 });
 
+test('lo que escribieron los devs en segundo plano cuenta en el turno que reabrió su aviso: el Stop bloquea', () => {
+  const { root, api } = folder();
+  const say = (prompt) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt, cwd: api });
+  say('apruebo el plan, constrúyelo');
+  assert.equal(stop(api).out, null, 'el turno cierra al lanzar los devs, todavía sin código');
+  h.write(api, 'src/taller.ts', 'escrito por el dev\n');
+  say('<task-notification>\n<task-id>dev-1</task-id>\n<status>completed</status>');
+  const r = stop(api);
+  assert.equal(r.out.decision, 'block', 'el árbol cambió desde el mensaje de la persona, lo haya escrito quien sea');
+  assert.match(r.out.reason, /sin verificación vigente en api \(1 archivo\(s\) de código: src\/taller\.ts/);
+});
+
 test('un turno que no cambió los tocados desde el prompt solo avisa; uno que los cambió bloquea', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');

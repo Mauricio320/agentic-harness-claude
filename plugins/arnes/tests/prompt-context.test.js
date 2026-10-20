@@ -34,6 +34,23 @@ test('sin plan en curso ni código tocado, una sola línea: un pedido de código
   assert.doesNotMatch(ctx(prompt(dir)), /primera acción es cargar arnes:plan/, 'con código tocado ya no es un pedido nuevo');
 });
 
+test('el aviso de un agente en segundo plano no abre turno: no deja foto, no cuenta como respuesta ni pide plan', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de la persona\n');
+  prompt(dir, 'construye el plan');
+  const turn = path.join(dir, '.tmp', 'harness', 'turn.json');
+  const before = fs.readFileSync(turn, 'utf8');
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'del dev en segundo plano\n');
+  for (const text of ['<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>', 'Another Claude session sent a message: <agent-message from="a1"> [Subagent hand-back]']) {
+    const r = prompt(dir, text);
+    assert.match(ctx(r), /^arnes · api: 1 tocado\(s\), 1 de código/, 'el estado sí lo dice');
+  }
+  assert.equal(fs.readFileSync(turn, 'utf8'), before, 'la foto sigue siendo la del mensaje de la persona');
+  assert.deepEqual(tl.read(dir).filter((e) => e.stage === 'turno').map((e) => e.result), ['respuesta']);
+  const sinCodigo = repo();
+  assert.equal(prompt(sinCodigo, '<task-notification>x</task-notification>').out, null, 'ni la línea del plan');
+});
+
 test('la respuesta de la persona marca /arnes:plan --trivial, escrito o expandido por el CLI', () => {
   const dir = repo();
   const last = () => tl.read(dir).filter((e) => e.stage === 'turno').pop();
