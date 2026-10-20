@@ -8,6 +8,8 @@
 //   --base      ref contra el que se compara, resuelto en el repo de cada workspace; por defecto HEAD
 //   --ext       solo esas extensiones, y solo archivos que existen en disco
 //   --relative  rutas relativas al workspace, sin prefijo; exige exactamente un --ws
+//   --workspaces  en vez de rutas, una línea por workspace con tocados:
+//                 <nombre>\t<n tocados>\t<adoptable | no adoptable>
 // Salida: una ruta por línea, relativa a la raíz del proyecto (el prefijo es la carpeta del workspace).
 // Exit: 0 ok · 2 uso inválido, sin manifiesto o inválido, workspace desconocido, o git falló
 
@@ -33,12 +35,31 @@ function touched(ws, base = 'HEAD', project = null) {
   return { files: files.sort() };
 }
 
+// Los nuevos respecto de <base>: agregados en el diff ∪ sin trackear. Lo que test-select --missing
+// llama "código nuevo".
+function added(ws, base = 'HEAD', project = null) {
+  const t = touched(ws, base, project);
+  if (t.error) return t;
+  const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=A', '--relative', base, '--']);
+  if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
+  const untracked = git(ws.dir, ['ls-files', '--others', '--exclude-standard']);
+  const fresh = new Set([...lines(diff.stdout), ...lines(untracked.stdout)]);
+  return { files: t.files.filter((f) => fresh.has(f)) };
+}
+
+// Los borrados respecto de <base>: no son tocados, pero un commit tiene que llevarlos.
+function deleted(ws, base = 'HEAD') {
+  const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=D', '--relative', base, '--']);
+  if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
+  return { files: lines(diff.stdout).sort() };
+}
+
 function withExt(ws, files, exts) {
   if (!exts) return files;
   return files.filter((f) => exts.includes(path.extname(f).toLowerCase()) && fs.existsSync(path.join(ws.dir, f)));
 }
 
-module.exports = { touched, withExt };
+module.exports = { touched, added, deleted, withExt };
 
 function main() {
   let args;
@@ -49,6 +70,7 @@ function main() {
         base: { type: 'string', default: 'HEAD' },
         ext: { type: 'string' },
         relative: { type: 'boolean' },
+        workspaces: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
     });
@@ -66,7 +88,12 @@ function main() {
   for (const ws of selectWorkspaces(project, o.ws)) {
     const r = touched(ws, o.base, project);
     if (r.error) die(`touched-files: ${r.error}`);
-    for (const f of withExt(ws, r.files, exts)) out.push(o.relative || !ws.rel ? f : `${ws.rel}/${f}`);
+    const files = withExt(ws, r.files, exts);
+    if (o.workspaces) {
+      if (files.length) out.push(`${ws.name}\t${files.length}\t${ws.adoptable ? 'adoptable' : 'no adoptable'}`);
+      continue;
+    }
+    for (const f of files) out.push(o.relative || !ws.rel ? f : `${ws.rel}/${f}`);
   }
   process.stdout.write(out.length ? out.join('\n') + '\n' : '');
 }

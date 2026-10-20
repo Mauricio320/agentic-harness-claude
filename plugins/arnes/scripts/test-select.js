@@ -5,10 +5,15 @@
 // archivo que ya es un spec se elige tal cual. Si algún archivo cae en sharedPaths, no se filtra: hay que correr la suite completa,
 // porque los dependientes de código compartido no se derivan del nombre del archivo.
 //
-// Uso: node test-select.js --ws <nombre> [--base <ref>] [archivo ...]
+// Uso: node test-select.js --ws <nombre> [--base <ref>] [--missing] [archivo ...]
 //   sin archivos, usa los tocados del workspace respecto de --base (por defecto HEAD)
 //   archivos: relativos a la carpeta del workspace, o absolutos
-// Salida: un spec por línea, relativo al workspace; solo los que existen en disco.
+//   --missing  en vez de specs, el código nuevo sin spec: de los archivos dados, o de los nuevos
+//              respecto de --base (agregados o sin trackear), los que caen en codeGlobs, no son un
+//              spec y no tienen ninguno en disco según specPattern. Es lo que decide si verify
+//              lanza test-writer; sharedPaths no cuenta aquí
+// Salida: un spec por línea, relativo al workspace; solo los que existen en disco. Con --missing,
+// un archivo por línea, relativo al workspace.
 // Exit: 0 specs elegidos (la lista puede quedar vacía) · 3 suite completa obligatoria (el motivo
 //       va a stderr) · 2 uso inválido, sin manifiesto, workspace desconocido o no adoptable,
 //       sin specPattern, o git falló
@@ -21,7 +26,7 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { help, die } = require('./lib/exec.js');
-const { touched } = require('./touched-files.js');
+const { touched, added } = require('./touched-files.js');
 
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -78,14 +83,27 @@ function selectSpecs(ws, files) {
   return { mode: 'specs', specs: [...specs].sort() };
 }
 
-module.exports = { patternRegExp, candidates, selectSpecs };
+// Código sin spec: en codeGlobs, existe, no es un spec y ningún patrón encuentra el suyo en disco.
+function missingSpecs(ws, files) {
+  const patterns = [].concat(ws.specPattern || []);
+  const res = patterns.map(patternRegExp);
+  return files.filter(
+    (f) =>
+      matchAny(ws.codeGlobs, f) &&
+      fs.existsSync(path.join(ws.dir, f)) &&
+      !res.some((re) => re.test(f)) &&
+      !patterns.some((p) => candidates(p, f).some((c) => fs.existsSync(path.join(ws.dir, c)))),
+  );
+}
+
+module.exports = { patternRegExp, candidates, selectSpecs, missingSpecs };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, base: { type: 'string', default: 'HEAD' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, base: { type: 'string', default: 'HEAD' }, missing: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`test-select: ${e.message}`);
@@ -101,9 +119,14 @@ function main() {
 
   let files = args.positionals.map((f) => (path.isAbsolute(f) ? posix(path.relative(ws.dir, f)) : f.replace(/\\/g, '/')));
   if (!files.length) {
-    const r = touched(ws, o.base, project);
+    const r = (o.missing ? added : touched)(ws, o.base, project);
     if (r.error) die(`test-select: ${r.error}`);
     files = r.files;
+  }
+  if (o.missing) {
+    const out = missingSpecs(ws, files);
+    process.stdout.write(out.length ? out.join('\n') + '\n' : '');
+    return;
   }
   const sel = selectSpecs(ws, files);
   if (sel.mode === 'all') die(`suite completa: ${sel.reason}`, 3);

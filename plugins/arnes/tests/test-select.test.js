@@ -106,3 +106,18 @@ test('sin specPattern, sin --ws o con un workspace desconocido → 2', () => {
   assert.equal(h.run('test-select.js', ['a.ts'], { cwd: dir }).status, 2);
   assert.equal(h.run('test-select.js', ['--ws', 'nadie'], { cwd: dir }).status, 2);
 });
+
+test('--missing: solo el código nuevo (agregado o sin trackear) sin spec, sin specs ni no-código', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/sin-spec.ts'), 'modificado, no es nuevo\n');
+  h.write(dir, 'src/pagos/cobro.service.ts', 'nuevo sin spec\n');
+  h.write(dir, 'src/pagos/cobro.controller.ts', 'nuevo con spec\n');
+  h.write(dir, 'src/pagos/cobro.controller.spec.ts', 'x');
+  h.write(dir, 'src/pagos/LEEME.md', 'no es código\n');
+  h.write(dir, 'src/pagos/reglas.ts', 'agregado al índice\n');
+  h.git(dir, 'add', 'src/pagos/reglas.ts');
+  const r = select(dir, ['--missing']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.lines(r.stdout), ['src/pagos/cobro.service.ts', 'src/pagos/reglas.ts']);
+  assert.deepEqual(h.lines(select(dir, ['--missing', 'src/sin-spec.ts', 'src/auth/auth.service.ts']).stdout), ['src/sin-spec.ts']);
+});

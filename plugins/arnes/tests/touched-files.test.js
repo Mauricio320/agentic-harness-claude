@@ -108,3 +108,13 @@ test('touched-files: usos inválidos salen en 2, nunca en 0 con lista vacía', (
   }
   assert.equal(h.run('touched-files.js', [], { cwd: h.tmp('sin-manifiesto') }).status, 2);
 });
+
+test('--workspaces: una línea por workspace con tocados, con su conteo y si es adoptable', () => {
+  const { root } = folder();
+  h.repo(path.join(root, 'legacy'), { 'index.php': '<?php' });
+  h.write(root, 'legacy/nuevo.php', '<?php');
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }, { path: 'client' }, { path: 'legacy' }] }));
+  const r = h.run('touched-files.js', ['--workspaces'], { cwd: root });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.lines(r.stdout), ['api\t3\tadoptable', 'client\t1\tadoptable', 'legacy\t1\tno adoptable']);
+});
