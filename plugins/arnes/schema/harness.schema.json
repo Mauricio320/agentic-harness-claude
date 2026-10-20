@@ -63,7 +63,8 @@
         "forbidden": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "codeGlobs": { "$ref": "#/$defs/globs" },
         "sharedPaths": { "$ref": "#/$defs/globs" },
-        "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" }
+        "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
+        "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" }
       }
     },
     "commands": {
@@ -108,6 +109,37 @@
         "notes": { "$ref": "#/$defs/relPath" },
         "gotchas": { "$ref": "#/$defs/relPath" },
         "graphify": { "type": "boolean" }
+      }
+    },
+    "testBaselineFile": {
+      "description": "Formato de la línea base de tests (docs/PLAN.md §6.1): por spec, cuántos tests pasan, fallan y se saltan, y los saltos declarados por nombre. Los specs son rutas relativas al workspace. La escribe test-baseline.js capture; un commit que la cambia lleva gates: en el asunto.",
+      "type": "object",
+      "required": ["version", "capturedAt", "head", "specs", "skipped"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "const": 1 },
+        "capturedAt": { "type": "string", "minLength": 1 },
+        "head": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "specs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/testCounts" } },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["spec", "name"],
+            "additionalProperties": false,
+            "properties": { "spec": { "type": "string", "minLength": 1 }, "name": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    "testCounts": {
+      "type": "object",
+      "required": ["pass", "fail", "skip"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 }
       }
     },
     "relPath": {

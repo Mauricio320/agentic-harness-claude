@@ -41,6 +41,7 @@ function check(v, schema, at, errs) {
     return;
   }
   if ('const' in s && v !== s.const) errs.push(`${here}: debe ser ${JSON.stringify(s.const)}`);
+  if (typeof v === 'number' && 'minimum' in s && v < s.minimum) errs.push(`${here}: debe ser ≥ ${s.minimum}`);
   if (typeof v === 'string') {
     if (s.minLength && v.length < s.minLength) errs.push(`${here}: no puede estar vacío`);
     if (s.pattern && !new RegExp(s.pattern).test(v)) errs.push(`${here}: "${v}" no cumple ${s.pattern}`);
@@ -55,6 +56,7 @@ function check(v, schema, at, errs) {
       const sub = s.properties && s.properties[k];
       if (sub) check(x, sub, at ? `${at}.${k}` : k, errs);
       else if (s.additionalProperties === false) errs.push(`${here}: campo desconocido "${k}"`);
+      else if (isType(s.additionalProperties, 'object')) check(x, s.additionalProperties, at ? `${at}["${k}"]` : `["${k}"]`, errs);
     }
   }
   for (const kw of ['anyOf', 'oneOf']) {
@@ -93,6 +95,14 @@ function validate(data) {
       seen.add(key);
     }
   }
+  return errs;
+}
+
+// Valida contra una definición de $defs, para los archivos del arnés que no son el manifiesto
+// (por ejemplo, la línea base de tests).
+function validateDef(name, data) {
+  const errs = [];
+  check(data, SCHEMA.$defs[name], '', errs);
   return errs;
 }
 
@@ -290,6 +300,7 @@ module.exports = {
   MANIFEST,
   DEFAULT_CODE_GLOBS,
   validate,
+  validateDef,
   findUp,
   loadProject,
   requireProject,

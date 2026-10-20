@@ -147,3 +147,58 @@ test('workspace no adoptable se informa y no se verifica; base irresoluble es RO
   assert.equal(r.status, 0, r.stdout);
   assert.equal(gate(root, ['--base', 'rama-que-no-existe-zz']).status, 1);
 });
+
+// ---------- línea base de tests (docs/PLAN.md §6.1) ----------
+
+const BIN_JEST = h.fakeBin(h.fakeBin(h.tmp('bin-jest-ci'), 'tsc', h.FAKE_TSC), 'jest', h.FAKE_JEST);
+
+function withBaseline() {
+  const dir = h.tmp('gate-base');
+  h.repo(dir, {
+    '.claude/harness.json': h.repoManifest(
+      'api',
+      h.workspace({ name: 'api', commands: { typecheck: ['tsc --noEmit'], test: 'jest {specs} --verbose' }, specPattern: '{dir}/{name}.spec.ts' }),
+    ),
+    'src/a.ts': 'a\n',
+    'src/a.spec.ts': 'pass|A|debe sumar\npass|A|debe restar\n',
+    'src/b.spec.ts': 'pass||debe existir\n',
+  });
+  const r = h.run('test-baseline.js', ['capture', 'api'], { cwd: dir, env: h.withPath(BIN_JEST) });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  return { dir, head: h.commitAll(dir, 'gates: línea base de tests') };
+}
+
+test('con línea base: un test borrado de un spec tocado es ROJO aunque el resto esté verde', () => {
+  const { dir, head } = withBaseline();
+  fs.writeFileSync(path.join(dir, 'src/a.spec.ts'), 'pass|A|debe sumar\n');
+  const r = gate(dir, ['--base', head], BIN_JEST);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /tests\s+FALLA · 1 spec\(s\) · 1 pasan, 0 fallan, 0 saltados · base 2 pasan/);
+  assert.match(r.stdout, /hay menos tests que en la base \(1 < 2\)/);
+});
+
+test('con línea base: un spec borrado es ROJO aunque no quede otro código tocado', () => {
+  const { dir, head } = withBaseline();
+  fs.rmSync(path.join(dir, 'src/b.spec.ts'));
+  const r = gate(dir, ['--base', head], BIN_JEST);
+  assert.equal(r.status, 1, r.stdout);
+  assert.doesNotMatch(r.stdout, /sin cambios de código/);
+  assert.match(r.stdout, /spec de la base borrado: src\/b\.spec\.ts/);
+});
+
+test('con línea base: una base ilegible no pasa como "sin cambios de código"', () => {
+  const { dir, head } = withBaseline();
+  fs.writeFileSync(path.join(dir, 'tests', 'baseline.json'), '{');
+  const r = gate(dir, ['--base', head], BIN_JEST);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /tests\s+FALLA · línea base ilegible: tests\/baseline\.json/);
+});
+
+test('--base HEAD, como lo corre verify: los cambios sin commitear contra el HEAD', () => {
+  const { dir } = withBaseline();
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'cambio\n');
+  const r = gate(dir, ['--base', 'HEAD'], BIN_JEST);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /--base HEAD\) · 1 tocado\(s\), 1 de código/);
+  assert.match(r.stdout, /tests\s+ok · 1 spec\(s\) · 2 pasan, 0 fallan, 0 saltados · base 2 pasan, 0 fallan, 0 saltados/);
+});

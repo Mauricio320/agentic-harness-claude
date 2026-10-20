@@ -6,9 +6,13 @@
 //      worktrees), con node_modules enlazado: symlink en CI, junction en Windows, copia si no se
 //      puede enlazar. Cachearla por SHA del merge-base queda para después de la fase 1.
 //   2. lint sobre los tocados que caen en codeGlobs
-//   3. tests que elige test-select; suite completa con testAll si toca sharedPaths
+//   3. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
+//      test-baseline.js: contra la línea base de tests commiteada, si el workspace la tiene, y con
+//      las fallas de tests/known-failures.txt como preexistentes. Un spec de la base borrado es
+//      rojo aunque no haya otro código tocado.
 // Base: --base, o CI_MERGE_REQUEST_DIFF_BASE_SHA (GitLab), o merge-base de HEAD con
-// origin/<defaultBranch> (o <defaultBranch> local).
+// origin/<defaultBranch> (o <defaultBranch> local). /arnes:verify lo corre con --base HEAD: lo
+// mismo que el CI, sobre los cambios sin commitear.
 //
 // Uso: node ci-gate.js [--ws <nombre>]... [--base <ref>]
 // Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.
@@ -24,8 +28,8 @@ const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js')
 const { matchAny } = require('./lib/glob.js');
 const { git, sh, quote, runExpanded, firstLine, tail, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
-const { selectSpecs } = require('./test-select.js');
 const tb = require('./typecheck-baseline.js');
+const tbl = require('./test-baseline.js');
 
 function baseOf(ws, explicit) {
   const ref = explicit || process.env.CI_MERGE_REQUEST_DIFF_BASE_SHA;
@@ -127,21 +131,10 @@ function stepLint(ws, code) {
     : { status: 'falla', detail: `exit ${r.status}`, out: tail(r.out, 30) };
 }
 
+// Los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.
 function stepTests(ws, files) {
-  const { test, testAll } = ws.commands;
-  if (!test && !testAll) return { status: 'omitido', detail: 'sin commands.test' };
-  const run = (cmd, label, lists) => {
-    const r = runExpanded(cmd, ws.dir, lists);
-    return r.status === 0 ? { status: 'ok', detail: label } : { status: 'falla', detail: `${label}: exit ${r.status}`, out: tail(r.out, 30) };
-  };
-  if (test && !test.includes('{specs}')) return run(test, 'suite completa: el comando no filtra por spec');
-  if (!ws.specPattern) return testAll ? run(testAll, 'suite completa: sin specPattern') : { status: 'falla', detail: 'sin specPattern ni testAll' };
-  const sel = selectSpecs(ws, files);
-  if (sel.mode === 'all') {
-    return testAll ? run(testAll, `suite completa: ${sel.reason}`) : { status: 'falla', detail: `${sel.reason}, y no hay commands.testAll` };
-  }
-  if (!sel.specs.length) return { status: 'ok', detail: 'sin specs para lo tocado' };
-  return run(test, `${sel.specs.length} spec(s)`, { specs: sel.specs });
+  if (!ws.commands.test && !ws.commands.testAll) return { status: 'omitido', detail: 'sin commands.test' };
+  return tbl.checkTests(ws, tbl.planTests(ws, files));
 }
 
 function main() {
@@ -175,8 +168,12 @@ function main() {
     }
     const files = t.files.filter((f) => fs.existsSync(path.join(ws.dir, f)));
     const code = files.filter((f) => matchAny(ws.codeGlobs, f));
+    const bl = tbl.readBaseline(ws);
+    const gone = bl.data ? tbl.missingSpecs(ws, bl.data) : [];
     console.log(`  base       ${base.hash.slice(0, 10)} (${base.how}) · ${t.files.length} tocado(s), ${code.length} de código`);
-    if (!code.length) {
+    // Un spec borrado no sale en los tocados (--diff-filter=d), pero la base lo sigue contando; una
+    // base ilegible tampoco es código, y sin este corte pasaría como "sin cambios".
+    if (!code.length && !gone.length && !bl.error) {
       console.log('  ok         sin cambios de código');
       continue;
     }
