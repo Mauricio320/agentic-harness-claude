@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). V
 
 ## [0.4.0] - sin etiquetar
 
-Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude Code 2.1.303. `claude plugin validate` y `claude plugin test` corrieron con 2.1.304, porque el CLI se actualizó solo durante la sesión. La prueba manual (`docs/PRUEBA-FASE-2B.md`) se hizo el 2026-10-19 con 2.1.304; su resultado está al final de la guía. Faltan repetir los pasos 2 y 4 y hacer el 7.3.
+Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude Code 2.1.303. `claude plugin validate` y `claude plugin test` corrieron con 2.1.304, porque el CLI se actualizó solo durante la sesión. La prueba manual (`docs/PRUEBA-FASE-2B.md`) se hizo el 2026-10-19 con 2.1.304; su resultado está al final de la guía. La repetición tras las correcciones salió como está escrita, y la fase 2b queda cerrada.
 
 ### Añadido
 - `arnes-ui`: `hooks/register.tsx` con los hooks y el dibujo, `hooks/lib.ts` con lo puro (rutas, globs, formatos, lectura de comandos y de git) y el contrato de `$.state` en `types/index.d.ts`.
@@ -23,6 +23,8 @@ Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude C
 - `docs/PRUEBA-FASE-2B.md` con la prueba manual.
 
 ### Cambiado
+- `stop-gate` solo bloquea un turno que cambió la lista o el contenido de los tocados respecto de la foto que deja `prompt-context` en cada prompt (`.tmp/harness/turn.json`). Un turno que no tocó nada solo avisa.
+- `arnes-ui` deduce el workspace de un comando de `cd`, `-C`, `--prefix` o el cwd. Si no puede, la etapa va sin workspace y no marca ningún gate; antes caía en el primer repo de la composición.
 - `gate-flag`: la bandera lleva `contentHash`, el hash del contenido de cada tocado, trackeado o no. Editar un archivo ya tocado la vence. Una bandera escrita antes, sin ese campo, ya no vale.
 - `stop-gate` anota cada bloqueo en la timeline (nota `bloqueado`), además del pase con `stop_hook_active`.
 - `docs/PLAN.md` §3 registra tres hechos de la prueba manual con 2.1.304: un plugin interno salta el `classic.Stop` de los mods, que un toast se vea depende de la superficie, y el motor pone el prefijo de la status line de un mod.

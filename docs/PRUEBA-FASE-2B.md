@@ -200,4 +200,20 @@ Fallos y hallazgos, por orden de importancia:
 4. **La timeline mostró `hace 0s`** en todas las notas en el primer dibujo. Corregido: `now` se fija con la primera lectura, no en la primera vuelta del reloj.
 5. **La status line mostraba `⚠arnes-ui: arnes · listo`.** El triángulo y `arnes-ui:` los pone el motor al dibujar el estado de un plugin; el mod solo pasaba `arnes · listo`. Ahora pasa `listo`, que se ve como `⚠arnes-ui: listo`. Queda en `docs/PLAN.md` §3.
 
-Pendiente: repetir los pasos 2 y 4 por los avisos, y el paso 7.3, con el plugin base solo, que no se hizo. La fase 2b no se cierra hasta esa repetición.
+Pendiente en ese momento: repetir los pasos 2 y 4 por los avisos, y hacer el paso 7.3, con el plugin base solo.
+
+## Resultado final
+
+2026-10-19, con Claude Code 2.1.304, en `api-academico` y desde la raíz de academico, dentro de la terminal de Muxentra. Tras las correcciones todo salió como está escrito:
+- El aviso del Stop apareció como toast y como línea del transcript, y la nota `bloqueado` quedó en la timeline.
+- La bandera con `contentHash` funcionó: el Stop bloqueó diciendo que el contenido de un archivo tocado cambió desde la verificación.
+- La edición a mano venció la bandera en menos de 15 segundos.
+- La etapa Verificando mostró el tiempo, el resultado y la línea de resumen con el costo.
+- La timeline mostró los tiempos reales desde el primer dibujo.
+- Sin el mod no hay banda ni status, `/arnes-panel` no existe y `/arnes:timeline` imprime la cronología.
+
+La fase 2b queda cerrada.
+
+Dos hallazgos de esta repetición, corregidos antes de la fase 3:
+1. **Desde la raíz de la carpeta**, un `npx tsc --noEmit` sin `cd` ni `-C` se atribuyó a `academico-front`, el primer repo de la composición. Pasó en la banda, en la Cronología y en la fila del Gate, que quedó con `tsc ✓` sin haberse verificado. Ahora el workspace sale de `cd`, `-C`, `--prefix` o el cwd; si no se puede deducir, la etapa va sin workspace (`Verificando (tsc)`) y no se marca ningún gate.
+2. **El Stop bloqueaba una vez en cada turno** mientras hubiera código sin verificar, aunque el turno no hubiera tocado nada, como uno que solo imprimió la timeline. Ahora solo bloquea si el turno cambió la lista o el contenido de los tocados respecto de la foto que deja `prompt-context` en cada prompt; si no, solo avisa (`docs/PLAN.md` §6.2).
