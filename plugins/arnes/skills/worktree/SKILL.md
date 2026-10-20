@@ -1,0 +1,46 @@
+---
+name: worktree
+description: Abrir, integrar o cerrar los worktrees de las tareas de un issue, en ramas wt/<rama-issue>/<slug> registradas en .tmp/harness/worktrees.json. Integrar es git merge --no-ff en la rama del issue, nunca squash.
+argument-hint: "open <slug> [--ws <workspace>]... [--issue <ref>] | integrate <slug> | close <slug> | list | pending"
+disable-model-invocation: true
+---
+
+# arnes:worktree
+
+Argumentos: `$ARGUMENTS`
+
+Todo pasa por `node "${CLAUDE_PLUGIN_ROOT}/scripts/worktree-ledger.js" <subcomando>`, con la ruta entre comillas y desde el directorio de la sesión. El script resuelve el registro del checkout principal aunque lo corras desde un worktree. No uses `git worktree` ni `git branch -D` a mano: el registro quedaría desfasado.
+
+Antes de nada, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start worktree --detail "<subcomando> <slug>"`. Al terminar, anota `end worktree --result ok`, o `--result rechazado` si el script salió con 1.
+
+## Cuándo no hace falta
+
+Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrás de otro o en paralelo, sin ramas: no hay nada que integrar. Un worktree sirve cuando dos tareas del mismo issue chocarían en los mismos archivos, o cuando otra sesión ya trabaja en este árbol (docs/PLAN.md §7).
+
+## open <slug>
+
+1. El checkout principal de cada workspace tiene que estar en la rama del issue, nunca en la rama por defecto. Si está en `main`, propón crear la rama del issue con el `integration.branchPrefix` del manifiesto y el número del issue, y créala solo con el visto bueno de la persona.
+2. Corre `open <slug>`. El slug va en kebab-case y describe la tarea, como `crud-talleres-back`. Agrega `--ws` para limitar el set a esos workspaces (sin `--ws`, abre uno por repo adoptable) y `--issue` con el número o la URL.
+3. Muestra la salida y después `list`. Di la ruta de cada worktree. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
+4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
+
+## integrate <slug>
+
+1. Comprueba que el trabajo del worktree está commiteado. El script se niega si hay cambios sin commitear.
+2. Corre `integrate <slug>`. Hace `git merge --no-ff` de cada rama del set en la rama del issue, borra el worktree y la rama, y marca el registro como `integrado`.
+3. Si sale con 1 por conflicto, el merge queda a medias en el checkout principal:
+   - Lista los archivos en conflicto y resuelve cada uno leyendo los dos lados. Nunca uses `checkout --ours` ni `--theirs` en masa.
+   - Verifica el workspace (skill verify) y commitea el merge con `git commit --no-edit`.
+   - Vuelve a correr `integrate <slug>` para borrar el worktree y cerrar el registro.
+4. Después de integrar, verifica la rama del issue con la skill verify: el merge juntó trabajo que se verificó por separado.
+5. Muestra `list --all`.
+
+## close <slug>
+
+Cierra un worktree sin commits propios, por ejemplo una tarea descartada antes de empezar. Si la rama tiene commits sin integrar, el script se niega. No lo fuerces: o se integra, o la persona lo borra desde su terminal. Muestra `list --all`.
+
+## list y pending
+
+`list` muestra los abiertos, y `list --all` también los integrados y cerrados. `pending` sale con 1 si queda algo sin integrar; ship y el Stop lo consultan. Muestra la salida tal cual.
+
+El Stop bloquea un turno que dejó commits sin integrar en un worktree del issue. SessionStart lista los pendientes y avisa de los que llevan más de 7 días sin commits nuevos. Ningún hook borra un worktree solo.

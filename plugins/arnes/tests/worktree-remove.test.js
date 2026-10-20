@@ -50,3 +50,19 @@ test('respeta la defaultBranch del manifiesto', () => {
   assert.ok(denied(r), 'está en main pero no en develop, la rama por defecto del workspace');
   assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /no están en develop/);
 });
+
+test('con el registro, el destino es la rama del issue registrada, no la rama por defecto', () => {
+  const dir = h.tmp('wtrm-ledger');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
+  h.git(dir, 'checkout', '-q', '-b', 'feature/x');
+  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: dir }).status, 0);
+  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarea');
+  h.write(wt, 'b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo');
+  const r = exitWorktree(wt, 'remove', { discard_changes: true });
+  assert.ok(denied(r));
+  assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /rama wt\/feature\/x\/tarea\) tiene 1 commit\(s\) que no están en feature\/x/);
+  assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /git merge --no-ff wt\/feature\/x\/tarea en feature\/x/);
+  h.git(dir, 'merge', '-q', '--no-ff', '-m', 'integra', 'wt/feature/x/tarea');
+  assert.equal(exitWorktree(wt).out, null, 'integrado en la rama del issue aunque no en main');
+});

@@ -104,6 +104,77 @@ test('cwd dentro de un worktree: juzga el worktree, no el checkout principal', (
   assert.equal(stop(api, false, { env }).out, null, 'el checkout principal sigue limpio');
 });
 
+// ---------- (b) worktrees del issue sin integrar ----------
+
+const ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+
+function issueRepo() {
+  const root = h.tmp('stop-wt');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  h.git(root, 'checkout', '-q', '-b', 'feature/x');
+  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: root }).status, 0);
+  return { root, wt: path.join(root, '.tmp', 'harness', 'worktrees', 'api', 'tarea') };
+}
+
+const promptAt = (cwd) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd });
+
+test('(b) un worktree del issue con commits de este turno bloquea y dice cómo integrarlo', () => {
+  const { root, wt } = issueRepo();
+  promptAt(root);
+  h.write(wt, 'src/b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo del agente');
+  const r = stop(root);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /^arnes: hay worktrees del issue con commits sin integrar: api wt\/feature\/x\/tarea \(1 commit\(s\) fuera de feature\/x\)\./);
+  assert.match(r.out.reason, /worktree-ledger\.js" integrate <slug> \(git merge --no-ff, nunca squash\)/);
+  assert.match(r.out.reason, /una sola vez por turno/);
+  assert.doesNotMatch(r.out.reason, /sin verificación vigente/, 'el checkout principal no tiene código tocado');
+  const [note] = tl.read(root);
+  assert.equal(note.result, 'bloqueado');
+  assert.match(note.detail, /^turno bloqueado sin integrar: api wt\/feature\/x\/tarea \(1 commit/);
+});
+
+test('(b) commits de un turno anterior solo avisan; de otro issue, integrados o desde el worktree, nada', () => {
+  const { root, wt } = issueRepo();
+  h.write(wt, 'src/b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo del agente');
+  promptAt(root);
+  const later = new Date(Date.now() + 10000);
+  fs.utimesSync(path.join(root, '.tmp', 'harness', 'turn.json'), later, later);
+  const quieto = stop(root);
+  assert.equal(quieto.out.decision, undefined);
+  assert.match(quieto.out.systemMessage, /^arnes: siguen commits sin integrar en api wt\/feature\/x\/tarea \(1 commit\(s\) fuera de feature\/x\); este turno no los tocó\.$/);
+  assert.equal(stop(wt).out, null, 'una sesión dentro del worktree no juzga (b)');
+  h.git(root, 'checkout', '-q', '-b', 'feature/y');
+  assert.equal(stop(root).out, null, 'el checkout principal está en otro issue');
+  h.git(root, 'checkout', '-q', 'feature/x');
+  assert.equal(h.run('worktree-ledger.js', ['integrate', 'tarea'], { cwd: root, env: ID }).status, 0);
+  assert.equal(stop(root).out, null, 'integrado');
+});
+
+test('(b) con stop_hook_active deja pasar con aviso y anota el pendiente', () => {
+  const { root, wt } = issueRepo();
+  h.write(wt, 'src/b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo del agente');
+  const r = stop(root, true);
+  assert.equal(r.out.decision, undefined);
+  assert.match(r.out.systemMessage, /^arnes: el turno termina con commits sin integrar en api wt\/feature\/x\/tarea/);
+  const [note] = tl.read(root);
+  assert.equal(note.result, 'pendiente');
+  assert.match(note.detail, /^turno cerrado sin integrar: api wt\/feature\/x\/tarea/);
+});
+
+test('(a) y (b) a la vez: un solo bloqueo con los dos pendientes', () => {
+  const { root, wt } = issueRepo();
+  h.write(wt, 'src/b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo del agente');
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'sin verificar\n');
+  const r = stop(root);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /hay cambios de código sin verificación vigente en api \(1 archivo\(s\) de código: src\/a\.ts; .*Además, hay worktrees del issue con commits sin integrar/);
+  assert.match(tl.read(root)[0].detail, /^turno bloqueado sin verificar: api \(1 archivo.*; sin integrar: api wt\/feature\/x\/tarea/);
+});
+
 test('un error propio sale con 0 y no bloquea', () => {
   const r = h.run('hooks/stop-gate.js', [], { input: 'no json' });
   assert.equal(r.status, 0);

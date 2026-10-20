@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 // PreToolUse sobre Bash y PowerShell (docs/PLAN.md §6.2). Parte el comando en segmentos con
 // lib/shell.js y juzga cada uno solo por el ejecutable con que empieza: nunca mira el cuerpo de
-// un heredoc ni los argumentos de echo, cat o grep. El directorio de cada segmento sigue los cd
+// un heredoc ni los argumentos de echo o grep. De cat, type, Get-Content (gc) y head mira solo
+// los archivos que leen, nunca texto libre. El directorio de cada segmento sigue los cd
 // anteriores y el -C de git, a partir del cwd del JSON de entrada (nunca CLAUDE_PROJECT_DIR).
 //
 // Deniega siempre, haya o no manifiesto:
 //   git reset --hard · git push forzado (--force, -f, --force-with-lease, refspec +) ·
-//   git clean -f · git branch -D de una rama con commits fuera de la rama por defecto ·
-//   git worktree remove de un worktree cuya rama tiene commits fuera de la rama por defecto
+//   git clean -f · git branch -D de una rama con commits fuera de su destino ·
+//   git worktree remove de un worktree cuya rama tiene commits fuera de su destino ·
+//   cat, type, Get-Content o head de un archivo de secretos (los de read-guard.js: .env y
+//   variantes salvo .env.example, ~/.ssh, ~/.aws, credenciales, llaves, tokens; con manifiesto,
+//   además secretPaths)
+// El destino de una rama es el registrado en .tmp/harness/worktrees.json si es de un worktree
+// abierto del registro; si no, la rama por defecto del workspace.
 // Deniega solo con manifiesto:
 //   los comandos de `forbidden` del workspace (o de todos, si no se sabe cuál) ·
 //   git commit sin bandera vigente (gate-flag.js) para ese workspace, o sin workspace claro ·
@@ -23,10 +29,14 @@ const { run, deny } = require('../lib/hook.js');
 const { segments, command, nestedCommand, tokenize } = require('../lib/shell.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git, lines } = require('../lib/exec.js');
-const { mergeTargets, unmerged } = require('../lib/branches.js');
+const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { checkFlag } = require('../gate-flag.js');
+const { targetOf } = require('../worktree-ledger.js');
+const { targetsOf } = require('./worktree-remove.js');
+const { secretPath } = require('./read-guard.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
+const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
 const RUNNERS = [['npx'], ['bunx'], ['pnpm', 'exec'], ['pnpm', 'dlx'], ['yarn'], ['npm', 'exec']];
 const PLUGIN_SCRIPTS = path.resolve(__dirname, '..').split(path.sep).join('/');
 
@@ -81,8 +91,10 @@ const shortHas = (args, letter) => args.some((a) => /^-[A-Za-z]+$/.test(a) && a.
 function judgeBranchDelete(dir, rest) {
   const force = shortHas(rest, 'D') || ((rest.includes('--delete') || shortHas(rest, 'd')) && (rest.includes('--force') || shortHas(rest, 'f')));
   if (!force) return null;
-  const { branch, refs } = targetsFor(dir);
   for (const name of rest.filter((a) => !a.startsWith('-'))) {
+    const registered = targetOf(dir, { branch: name });
+    const own = registered ? [registered, `origin/${registered}`].filter((r) => refExists(dir, r)) : [];
+    const { branch, refs } = own.length ? { branch: registered, refs: own } : targetsFor(dir);
     const commits = unmerged(dir, name, refs);
     if (commits && commits.length) {
       return `git branch -D ${name}: tiene ${commits.length} commit(s) que no están en ${branch} (${commits.slice(0, 3).join(', ')}). Intégralos primero o bórrala tú desde tu terminal.`;
@@ -99,7 +111,8 @@ function judgeWorktreeRemove(dir, rest) {
   if (!fs.existsSync(wt)) return null;
   const head = git(wt, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (head.status !== 0) return null;
-  const { branch, refs } = targetsFor(wt);
+  const t = targetsOf(wt, head.stdout.trim());
+  const { branch, refs } = t.refs.length ? t : targetsFor(wt);
   const commits = unmerged(wt, 'HEAD', refs);
   if (!commits || !commits.length) return null;
   return `git worktree remove ${target}: su rama ${head.stdout.trim()} tiene ${commits.length} commit(s) que no están en ${branch}. Intégralos (git merge --no-ff) antes de borrarlo.`;
@@ -162,6 +175,29 @@ function judgeGit(args, dir) {
   return null;
 }
 
+// ---------- lectura de secretos ----------
+
+// Los archivos que lee un cat, type, Get-Content o head: sus argumentos sin opciones, sin el
+// destino de una redirección de salida y sin el marcador de heredoc. Un `cat < .env` también lee.
+function readTargets(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (/^[0-9&]?>>?$/.test(a)) i++;
+    else if (!/^[0-9&]?>/.test(a) && !a.startsWith('-') && a !== '<<HEREDOC') out.push(a.replace(/^</, ''));
+  }
+  return out.filter(Boolean);
+}
+
+function judgeRead(cmd, dir) {
+  const { project } = workspaceAt(dir);
+  for (const a of readTargets(cmd.args)) {
+    const why = secretPath(toPath(dir, a), project);
+    if (why) return `${cmd.raw} ${a}: ${why}. Los secretos no entran al transcript; si hace falta un valor, pídeselo a la persona, o lee .env.example.`;
+  }
+  return null;
+}
+
 // ---------- forbidden del manifiesto ----------
 
 function variants(cmd) {
@@ -208,7 +244,7 @@ function judge(text, dir, depth = 0) {
       if (why) return why;
       continue;
     }
-    const why = judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
+    const why = (READERS.has(cmd.exe) && judgeRead(cmd, cwd)) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }
   return null;

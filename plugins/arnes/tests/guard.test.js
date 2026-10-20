@@ -266,6 +266,78 @@ test('cwd dentro de un worktree: vale la bandera del worktree, no la del checkou
   assert.ok(!denied(guard(wt, 'git commit -m x', { env })));
 });
 
+// ---------- lectura de secretos por shell ----------
+
+test('cat, type, Get-Content y head de un secreto se deniegan, haya o no manifiesto', () => {
+  const dir = h.tmp('guard-leer');
+  h.repo(dir, { 'a.ts': 'a\n' });
+  for (const cmd of [
+    'cat .env',
+    'cat config/.env.production',
+    'cat src/a.ts .env',
+    'cat < .env',
+    'head -n 5 .env.local',
+    'cat ~/.ssh/id_rsa',
+    'cd config && cat .env',
+    'type .env',
+    'bash -c "cat .env | grep KEY"',
+    'cat certs/server.key',
+  ]) {
+    assert.ok(denied(guard(dir, cmd)), cmd);
+  }
+  for (const cmd of ['Get-Content .env', 'Get-Content -Path .env -Raw', 'gc .env.local', 'type .env', 'cat .env']) {
+    assert.ok(denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
+  }
+  assert.match(reason(guard(dir, 'cat .env')), /^arnes guard: cat \.env: es un archivo \.env\. Los secretos no entran al transcript; .*\.env\.example/);
+});
+
+test('solo se juzgan los archivos que leen: escribir un .env, mencionarlo o leer .env.example pasa', () => {
+  const dir = h.tmp('guard-leer-ok');
+  h.repo(dir, { 'a.ts': 'a\n' });
+  for (const cmd of [
+    'cat .env.example',
+    'cat README.md src/a.ts',
+    "cat > .env <<'EOF'\nAPI_KEY=x\nEOF",
+    'cat >> .env.local <<EOF\nX=1\nEOF',
+    'echo "nunca hagas cat .env"',
+    'grep -rn "cat .env" docs',
+    'cat <<EOF\ncat .env\nEOF',
+    'head -n 5 deploy/id_ed25519.pub',
+    'type git',
+  ]) {
+    assert.ok(!denied(guard(dir, cmd)), cmd);
+  }
+});
+
+test('con manifiesto, secretPaths del workspace también se deniegan por shell', () => {
+  const dir = h.tmp('guard-leer-manif');
+  h.repo(dir, { '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', secretPaths: ['config/secrets/**'] })) });
+  assert.match(reason(guard(dir, 'cat config/secrets/db.yml')), /está en secretPaths de api/);
+  assert.ok(!denied(guard(dir, 'cat config/app.yml')));
+});
+
+// ---------- destino del registro de worktrees ----------
+
+test('worktree remove y branch -D miden contra la rama del issue registrada, no contra main', () => {
+  const dir = h.tmp('guard-ledger');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
+  h.git(dir, 'checkout', '-q', '-b', 'feature/x');
+  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: dir }).status, 0);
+  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarea');
+  h.write(wt, 'b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo');
+  assert.match(reason(guard(dir, `git worktree remove "${wt}"`)), /su rama wt\/feature\/x\/tarea tiene 1 commit\(s\) que no están en feature\/x/);
+  assert.match(reason(guard(dir, 'git branch -D wt/feature/x/tarea')), /que no están en feature\/x/);
+  h.git(dir, 'merge', '-q', '--no-ff', '-m', 'integra', 'wt/feature/x/tarea');
+  assert.ok(!denied(guard(dir, `git worktree remove "${wt}"`)), 'integrado en la rama del issue, aunque no en main');
+  assert.ok(!denied(guard(dir, 'git branch -D wt/feature/x/tarea')));
+  h.git(dir, 'checkout', '-q', '-b', 'tema');
+  h.write(dir, 'c.ts', 'c\n');
+  h.commitAll(dir, 'tema');
+  h.git(dir, 'checkout', '-q', 'feature/x');
+  assert.match(reason(guard(dir, 'git branch -D tema')), /que no están en main/, 'una rama fuera del registro sigue midiéndose contra main');
+});
+
 test('un error propio sale con 0 y no decide nada', () => {
   const r = h.run('hooks/guard.js', [], { input: 'esto no es json' });
   assert.equal(r.status, 0);
