@@ -22,15 +22,18 @@ Los toasts dependen de la terminal: en la terminal embebida de Muxentra dentro d
 En PowerShell, con la terminal a 144 columnas o más:
 
 ```powershell
-cd C:\Users\MauricioTriana\Desktop\PDV\agentic-harness
+$PDV = "C:\Users\<usuario>\Desktop\PDV"     # la carpeta que contiene agentic-harness y academico
+cd $PDV\agentic-harness
 git branch --show-current                         # feature/fase-2b-ui
-cd C:\Users\MauricioTriana\Desktop\PDV\academico
+cd $PDV\academico
 Remove-Item .tmp\harness\gate\api-academico.json -ErrorAction SilentlyContinue   # bandera vieja de la fase 2
 cd api-academico
 git status --short                                # anota qué hay: los conteos del panel salen de aquí
 $Host.UI.RawUI.WindowSize.Width                   # 144 o más
-claude --plugin-dir "C:\Users\MauricioTriana\Desktop\PDV\agentic-harness\plugins\arnes" --plugin-dir "C:\Users\MauricioTriana\Desktop\PDV\agentic-harness\plugins\arnes-ui"
+claude --plugin-dir "$PDV\agentic-harness\plugins\arnes" --plugin-dir "$PDV\agentic-harness\plugins\arnes-ui"
 ```
+
+Cada terminal que abras para esta prueba (la del paso 5, la del 7.3) necesita la misma línea `$PDV = ...` antes de sus comandos.
 
 Dentro de la sesión, `/plugin` tiene que listar `arnes` y `arnes-ui` sin errores. Si el módulo del mod no cargó, el transcript muestra una línea tenue que empieza con `arnes-ui:` y dice por qué.
 
@@ -99,7 +102,7 @@ Esperado:
 Escribe la bandera a mano en otra terminal:
 
 ```powershell
-node "C:/Users/MauricioTriana/Desktop/PDV/agentic-harness/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass
+node "$PDV/agentic-harness/plugins/arnes/scripts/gate-flag.js" write api-academico --result pass
 ```
 
 Esperado, en 3 segundos y sin escribir nada en la sesión:
@@ -143,7 +146,7 @@ Explore no es un agente del arnés, así que no cambia la etapa. Los del arnés 
    - `/arnes-panel` lo abre igual.
 3. **Sal y abre una sesión solo con el plugin base:**
    ```powershell
-   claude --plugin-dir "C:\Users\MauricioTriana\Desktop\PDV\agentic-harness\plugins\arnes"
+   claude --plugin-dir "$PDV\agentic-harness\plugins\arnes"
    ```
    - No hay banda, ni status de `arnes`, ni toasts de `arnes-ui`, y `/arnes-panel` no existe.
    - Los hooks del plugin base se comportan como en la fase 2.
@@ -158,7 +161,7 @@ Prompt, o a mano:
 Después, en PowerShell:
 
 ```powershell
-cd C:\Users\MauricioTriana\Desktop\PDV\academico\api-academico
+cd $PDV\academico\api-academico
 git status --short          # otra vez lo mismo que en el paso 0
 Remove-Item ..\.tmp\harness\gate\api-academico.json -ErrorAction SilentlyContinue
 ```
