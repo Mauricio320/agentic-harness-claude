@@ -23,6 +23,7 @@ Fase 3, primera mitad: verify, review y ship con sus agentes. `version` sigue en
   - Guarda conteos por spec y los saltos por nombre, con el formato `$defs.testBaselineFile` del schema y la ruta `testBaseline` opcional en el workspace.
   - Un test borrado o saltado, o un spec de la base que ya no existe, pone el gate en rojo.
   - Las fallas que coinciden exacto con una línea fechada de `tests/known-failures.txt` salen como preexistentes y no ponen rojo.
+  - Con más tests que en la base, una nota avisa que los nuevos quedan protegidos solo al recapturarla.
 - `review.js` (input, mark, check) y `ship.js` (check, branch, stage).
 - `test-select --missing` y `touched-files --workspaces`.
 - `adoption-check` comprobación 8: la línea base de tests, válida y commiteada.
