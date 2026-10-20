@@ -100,21 +100,42 @@ export function stopBlocks(text: string, after: number): { at: number; detail: s
 
 // Un Bash del modelo es verificación si corre ci-gate, typecheck-baseline o test-select, o si un
 // segmento (&&, ||, ;, |, salto de línea) empieza por un typecheck o un test del manifiesto: lo que
-// va antes de {files}/{specs}. Con varios workspaces candidatos gana el que el comando nombra,
-// después el que contiene el cwd.
+// va antes de {files}/{specs}. El workspace sale de la carpeta donde corre el segmento: un `cd` de
+// un segmento anterior, `-C` o `--prefix` en el propio segmento, o el cwd. Si esa carpeta no cae en
+// un workspace que declare el comando, la etapa va sin workspace y no se marca ningún gate.
+const DIR = /\s(?:-C|--prefix)\s+("[^"]+"|'[^']+'|\S+)/
+const unquote = (d: string) => d.replace(/^["']|["']$/g, '')
 export function classify(cmd: string, wss: Ws[], cwd: string): Probe | undefined {
   const s = SCRIPTS.exec(cmd)
   if (s) return { label: s[1]! }
-  const segs = cmd.split(/&&|\|\||[;|\n]/).map((x) => x.trim())
-  const hits: { w: Ws; col: 'tsc' | 'tests'; tool: string }[] = []
-  for (const w of wss)
-    for (const [k, col] of [['typecheck', 'tsc'], ['test', 'tests'], ['testAll', 'tests']] as const)
-      for (const c of ([] as unknown[]).concat(w.commands[k] ?? [])) {
-        const p = String(c).split('{')[0]!.trim()
-        if (p && segs.some((x) => x.startsWith(p))) hits.push({ w, col, tool: p.split(/\s+/).find((x) => x !== 'npx' && !x.startsWith('-')) ?? p })
-      }
-  const hit = hits.find((h) => cmd.includes(h.w.dir.split('/').pop()!)) ?? hits.find((h) => key(cwd + '/').startsWith(key(h.w.dir) + '/')) ?? hits[0]
-  return hit && { label: `${hit.tool} ${hit.w.name}`, ws: hit.w.name, col: hit.col }
+  let dir = slash(cwd)
+  const at = (d: string) => (/^([a-z]:)?\//i.test(slash(d)) ? slash(d) : join(dir, d))
+  for (const raw of cmd.split(/&&|\|\||[;|\n]/)) {
+    const cd = /^(?:cd|pushd|Set-Location)\s+("[^"]+"|'[^']+'|\S+)\s*$/i.exec(raw.trim())
+    if (cd) {
+      dir = at(unquote(cd[1]!))
+      continue
+    }
+    const flag = DIR.exec(raw)
+    const seg = (flag ? raw.replace(flag[0], '') : raw).trim()
+    const here = flag ? at(unquote(flag[1]!)) : dir
+    const owner = wss.filter((w) => key(here + '/').startsWith(key(w.dir) + '/')).sort((a, b) => b.dir.length - a.dir.length)[0]
+    const own = owner && commandOf(seg, owner)
+    if (own) return { label: `${own.tool} ${owner.name}`, ws: owner.name, col: own.col }
+    const any = wss.map((w) => commandOf(seg, w)).find(Boolean)
+    if (any) return { label: any.tool }
+  }
+  return undefined
+}
+
+// El typecheck o test del manifiesto por el que empieza el segmento, si alguno.
+function commandOf(seg: string, w: Ws): { tool: string; col: 'tsc' | 'tests' } | undefined {
+  for (const [k, col] of [['typecheck', 'tsc'], ['test', 'tests'], ['testAll', 'tests']] as const)
+    for (const c of ([] as unknown[]).concat(w.commands[k] ?? [])) {
+      const p = String(c).split('{')[0]!.trim()
+      if (p && seg.startsWith(p)) return { tool: p.split(/\s+/).find((x) => x !== 'npx' && !x.startsWith('-')) ?? p, col }
+    }
+  return undefined
 }
 
 // Las últimas líneas de timeline.jsonl como texto, con las palabras de `timeline.js print`; una

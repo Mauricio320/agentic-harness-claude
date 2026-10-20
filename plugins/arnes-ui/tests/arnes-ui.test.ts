@@ -165,6 +165,16 @@ test('desde la raíz de la carpeta: Edit con ruta absoluta o relativa cuenta en 
   expect(await bandOf($)).toBe('arnes ▸ listo · api ✎2 flag vencida')
 })
 
+test('desde la raíz, un tsc sin cd ni -C va sin workspace y no marca ningún gate', async ($, on) => {
+  world(on, { ...FILES }, ROOT)
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false } } as never))
+  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+  await $.tool.call(bash('npx tsc --noEmit'))
+  expect(await bandOf($)).toBe('arnes ▸ Verificando (tsc) 00:00 · api')
+  await $.tool.call(bash('cd api-academico && npx tsc --noEmit'))
+  expect(await bandOf($)).toBe('arnes ▸ Verificando (tsc api) 00:00 · api ✓tsc')
+})
+
 test('una edición fuera de Edit/Write vence la bandera por la fecha de modificación que lee git', async ($, on) => {
   const flag = JSON.stringify({ head: 'abc123', result: 'pass', at: '2026-10-19T15:00:00.000Z' })
   const { clock, mtimes } = world(on, { ...FILES, [`${ROOT}/.tmp/harness/gate/api.json`]: flag })
@@ -190,6 +200,11 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   expect(classify('npx tsc --noEmit', both, `${ROOT}/api-academico/src`)?.ws).toBe('api')
   expect(classify('node "C:/x/plugins/arnes/scripts/ci-gate.js"', both, ROOT)).toEqual({ label: 'ci-gate' })
   expect(classify('npm run lint', both, ROOT)).toBe(undefined)
+  expect(classify('npx tsc --noEmit', both, ROOT)).toEqual({ label: 'tsc' })
+  expect(classify('npx --prefix api-academico tsc --noEmit', both, ROOT)).toEqual({ label: 'tsc api', ws: 'api', col: 'tsc' })
+  expect(classify(`cd "${ROOT}/api-academico" && npx tsc --noEmit`, both, ROOT)?.ws).toBe('api')
+  expect(classify('cd .. && npx tsc --noEmit', both, `${ROOT}/api-academico/src`)?.ws).toBe('api')
+  expect(classify('cd .. && npx tsc --noEmit', both, `${ROOT}/api-academico`)).toEqual({ label: 'tsc' })
   expect(parseStatus(STATUS, both[1]!)).toEqual({ branch: 'feature/x', head: 'abc123', changed: 2, code: 1, paths: ['src/a.ts', 'notas.md'] })
   const own = `${STATUS}? .tmp/harness/gate/api.json\n`
   expect(parseStatus(own, both[1]!, `${ROOT}/api-academico/.tmp/harness`).paths).toEqual(['src/a.ts', 'notas.md'])
