@@ -98,7 +98,7 @@ agentic-harness/
         ship.js                          # check, rama y stage de ship
         adoption-check.js                # las 8 comprobaciones del mínimo
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
-        hooks/{session-start,prompt-context,after-edit,guard,read-guard,stop-gate,worktree-remove}.js
+        hooks/{session-start,prompt-context,after-edit,guard,read-guard,stop-gate,worktree-remove}.js   # session-start atiende también SessionEnd
       tests/                             # repos de juguete + node --test; corre en CI del arnés
     arnes-ui/
       .claude-plugin/plugin.json         # solo interfaz: banda, panel, status, toasts (§6.5b)
@@ -117,7 +117,9 @@ agentic-harness/
 
 Todo en Node (sin bash, sin jq): el equipo está en Windows y los hooks tienen que correr igual en PowerShell, Git Bash y CI.
 
-Política de invocación de las skills (es el mecanismo de "se comporta sin invocarlo"): `plan`, `verify`, `review`, `memory` y `timeline` quedan invocables por el modelo (sin `disable-model-invocation`), con descripciones que empiezan por las palabras de un pedido real ("implementar", "corregir", "revisar"); `init`, `ship`, `worktree` y `sync` llevan `disable-model-invocation: true` porque mueven ramas o crean archivos y las dispara solo la persona. Los agentes del plugin ignoran `hooks`, `mcpServers` y `permissionMode` en su frontmatter (restricción documentada de los plugins), así que todo control sobre ellos va por los hooks del plugin, no por el agente.
+Cambio de la fase 3 (2026-10-20): `hooks/hooks.json` suma `SessionEnd`, que corre `session-start.js`. Ese script atiende los dos eventos: al arrancar escribe el lock de la sesión, y al cerrar lo borra. No hay script de hooks nuevo. `merged-files.js` y `worktree-ledger.js`, que ya estaban en el árbol, existen desde la fase 3.
+
+Política de invocación de las skills (es el mecanismo de "se comporta sin invocarlo"): `plan`, `build`, `verify`, `review`, `memory` y `timeline` quedan invocables por el modelo (sin `disable-model-invocation`), con descripciones que empiezan por las palabras de un pedido real ("implementar", "corregir", "revisar"); `init`, `ship`, `worktree` y `sync` llevan `disable-model-invocation: true` porque mueven ramas o crean archivos y las dispara solo la persona. Los agentes del plugin ignoran `hooks`, `mcpServers` y `permissionMode` en su frontmatter (restricción documentada de los plugins), así que todo control sobre ellos va por los hooks del plugin, no por el agente.
 
 ## 5. Manifiestos: uno por repo, y una composición por carpeta multi-repo
 
@@ -194,23 +196,32 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 - `touched-files.js`: por workspace, `git diff --name-only --diff-filter=d <base>` ∪ `git ls-files --others --exclude-standard`, con `-c core.quotePath=false`; salida prefijada; `--relative`, `--ext`.
 - `typecheck-baseline.js capture|diff <ws> <ref> <foto>`: comanda lo que diga el manifiesto; parser de diagnósticos por herramienta (tsc primero; interfaz `parse(output) → [{file, code, msg}]`); clave sin línea/columna; conteos por clave; exit 0/1/2/3/4 como hoy. Se porta de renova365 con sus tests.
 - `test-select.js`: de archivos tocados a specs usando `specPattern`; excepción "código compartido → suite completa" configurable por `sharedPaths`.
-- `worktree-ledger.js`: ver §7.
+- `worktree-ledger.js open|integrate|close <slug> [--ws n]... [--issue ref] | list [--all] [--json] | pending [--target rama] [--json]` (§7, construido en la fase 3):
+  - El registro es `<raíz>/.tmp/harness/worktrees.json` = `{ "version": 1, "worktrees": [ { ws, path, branch, target, issue, openedAt, status, closedAt?, merge? } ] }`, con `status` abierto, integrado o cerrado.
+  - Cada worktree vive en `<raíz>/.tmp/harness/worktrees/<ws>/<slug>`. En una carpeta multi-repo eso queda fuera de los repos, y en un proyecto de un repo `touched-files` ya excluye `.tmp/harness/`. No se usa `.claude/worktrees/`, que es la carpeta de los worktrees propios de Claude Code.
+  - `open` se niega desde la rama por defecto (`defaultBranch`, o main y master), con HEAD suelto, con slug inválido o con una rama que ya existe. Sin `--ws`, abre uno por repo adoptable: en un monorepo, uno por repo y no uno por paquete.
+  - `integrate` se niega si el worktree tiene cambios sin commitear, si el checkout principal no está en la rama destino o si hay un merge a medias. Después hace `git merge --no-ff --no-edit` (nunca squash), borra el worktree y la rama con `branch -d`, y cierra el registro. Un conflicto deja el merge a medias y el registro abierto; resuelto y commiteado, otro `integrate` termina.
+  - `close` cierra solo un worktree sin commits propios; con commits, se niega.
+  - `pending` sale con 1 si queda algo abierto. Es lo que consultan `ship` y el `Stop`.
+  - Desde dentro de un worktree, el registro es el del checkout principal (`git rev-parse --git-common-dir`). El estado del arnés que deja una sesión dentro del worktree (su `.tmp/harness/`) no cuenta como cambio sin commitear y se borra con él.
+- `merged-files.js [--ws n]... [--ref commit] [--json]`: por workspace, `ambos` son los archivos que cambiaron los dos lados desde la base común, y `entró` son los que el merge cambió respecto del primer padre. Sale con 1 si el ref no es un merge, sea fast-forward o nada que traer.
 - `gate-flag.js write <ws>` escribe `.tmp/harness/gate/<ws>.json` = `{ head, touchedHash, contentHash, result, at }`; `check <ws>` valida vigencia (mismo HEAD, mismo hash de la lista de tocados, mismo hash del contenido de cada tocado, trackeado o no, < 30 min). Cambio de la fase 2b (2026-10-19): la prueba manual mostró que editar un archivo ya tocado no vencía la bandera, y por eso entró `contentHash`. Sigue sin ser la huella del árbol entero (§11), solo de los tocados: el CI es quien garantiza la honestidad, no el marcador.
-- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada; ningún hook del `.claude/settings.json` de un repo o de la carpeta que corra scripts propios de `.claude/hooks/`. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
-- `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cachear la foto por SHA del merge-base queda como mejora posterior, fuera de la fase 1.
+- `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada; ningún hook del `.claude/settings.json` de un repo o de la carpeta que corra scripts propios de `.claude/hooks/`; desde la fase 3, la línea base de tests válida y commiteada. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
+- `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cambio de la fase 3 (2026-10-20): la foto del base se guarda en `.tmp/harness/typecheck/<ws>.txt`, con el formato de `typecheck-baseline` (`BASELINE: <hash>` y `TYPECHECK_EXIT`). Se reutiliza mientras su hash sea el del base y solo se captura cuando cambió. Una corrida que no llegó a correr no se guarda. Un cambio de `node_modules` con el mismo HEAD no la vence: borrar el archivo fuerza la captura. En CI, `.tmp` no persiste.
 - Línea base de tests commiteada (mejora tomada de coding-agent-harness; se construye en la fase 3). `ci-gate` y `verify` comparan los totales de tests que pasan, fallan y se saltan contra una línea base commiteada en el repo: `tests/baseline.json`, o la ruta que fije el schema. Si el total cae por debajo de la base, el gate se pone rojo aunque lo que queda esté verde, porque un test borrado o saltado es una regresión silenciosa. Los saltos se declaran por nombre en la base. Un commit que cambia la base lleva el prefijo `gates:` en el asunto.
   Cambio de la fase 3a (2026-10-19): la base guarda los conteos por spec, no solo los totales, porque `verify` y `ci-gate` corren solo los specs de `test-select`. Se compara la suma de los specs que corrieron contra la suma de esos mismos specs en la base, y un spec de la base que ya no existe es rojo aunque no haya otro código tocado. El formato es `$defs.testBaselineFile` del schema y la ruta se cambia con `testBaseline` en el workspace. Las fallas preexistentes salen de `tests/known-failures.txt`, con una línea `AAAA-MM-DD | <spec> | <nombre completo>` por test: solo cuenta la coincidencia exacta, no ponen rojo y salen en el reporte con su fecha. Una línea sin fecha no absuelve.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
 | Evento | Script | Hace |
 |---|---|---|
-| `SessionStart` | `session-start.js` | Lee el manifiesto; imprime workspaces, rama de cada uno, árbol sucio, worktrees pendientes de integrar (§7), últimas 5 decisiones de `docs/decisions`; inyecta el protocolo en ≤ 40 líneas. Si no hay manifiesto, dice cómo crearlo y no inventa nada. Desde la fase 3 (mejora 3, con el ledger), avisa si otra sesión de Claude está activa en la misma carpeta o el mismo repo, detectada por los archivos de sesión o por un lock propio en `.tmp/harness`, y dice que la segunda trabaje en un worktree (§7) |
+| `SessionStart` | `session-start.js` | Lee el manifiesto; imprime workspaces, rama de cada uno, árbol sucio, worktrees pendientes de integrar (§7), últimas 5 decisiones de `docs/decisions`; inyecta el protocolo en ≤ 40 líneas. Si no hay manifiesto, dice cómo crearlo y no inventa nada. Desde la fase 3: lista los worktrees abiertos del registro, cinco como máximo, con sus commits sin integrar, y a los de más de 7 días sin commits nuevos (desde el último commit propio de la rama, o desde que se abrió) les agrega `intégralo o ciérralo, nunca se borra solo`. Mejora 3: cada sesión escribe `.tmp/harness/sessions/<session_id>.json` = `{ pid, session, cwd, at }`, y si ve el lock de otra sesión viva (pid existente y menos de 24 h) avisa en la segunda línea que esta debe abrir su propio worktree (§7). Un lock con pid muerto, de más de 24 h o ilegible se borra; uno con el mismo pid es de la misma sesión tras un `/clear` y no avisa. No usa los archivos de sesión del CLI, solo el lock propio. Sin manifiesto no hay lock, y una sesión dentro de un worktree escribe el suyo en el `.tmp/harness` del worktree, así que no avisa por la del checkout principal. El protocolo nombra las skills: verificar es `/arnes:verify`, revisar es `/arnes:review` e integrar es `/arnes:worktree integrate <slug>`, y nunca manda a escribir la bandera a mano |
+| `SessionEnd` | `session-start.js` | Borra el lock de la propia sesión. Desde la fase 3 |
 | `UserPromptSubmit` | `prompt-context.js` | Adjunta estado corto (rutas de riesgo tocadas, bandera vigente o no). Nunca bloquea |
 | `PostToolUse` (`Edit\|Write`) | `after-edit.js` | Lintea solo el archivo editado (segundos) y devuelve los hallazgos como `additionalContext`. Corre typecheck solo si el workspace declara `commands.typecheckFast` (incremental), con debounce de 20 s por workspace; sin esa variante, el typecheck completo se deja para `verify`, porque un `tsc` de un minuto tras cada edición destruye la sesión. Nunca bloquea |
-| `PreToolUse` (`Bash\|PowerShell`) | `guard.js` | Parsea el comando por segmentos (`&&`, `;`, `\|`, saltos) y solo juzga segmentos que empiezan por el ejecutable. Deniega siempre, haya o no manifiesto: `git reset --hard`, `push --force`, `clean -f`, `branch -D` de ramas con commits sin mergear y `git worktree remove` de un worktree con commits sin integrar. Con manifiesto, además: comandos de `forbidden`; `git commit` sin bandera vigente para ese workspace; `git add .` con `.env`/logs sin trackear. Nunca mira texto de heredocs ni argumentos de `echo`/`cat` |
-| `Stop` | `stop-gate.js` | Bloquea terminar si (a) hay cambios en archivos de `codeGlobs` sin bandera de verificación vigente, o (b) hay worktrees del issue con commits sin integrar. Un solo bloqueo por turno: si la entrada trae `stop_hook_active: true`, deja pasar con aviso visible y escribe el pendiente en la timeline. Cada bloqueo también queda en la timeline (nota `bloqueado`), que es de donde `arnes-ui` saca su aviso. Solo bloquea un turno que cambió algo: `prompt-context` deja en cada prompt una foto de la lista y del contenido de los tocados (`.tmp/harness/turn.json`), y si al cerrar el turno nada cambió respecto de esa foto, el `Stop` solo avisa con `systemMessage`. Sin foto bloquea. No engancha `SubagentStop`. No bloquea si no hay manifiesto |
-| `PreToolUse` (`ExitWorktree`) | `worktree-remove.js` | Deniega `action: "remove"` si la rama del worktree tiene commits no contenidos en la rama por defecto del workspace (cuando exista el ledger, en su rama destino). `git worktree remove` por shell lo cubre `guard.js` con la misma regla |
-| `PreToolUse` (`Read\|Glob\|Grep`) | `read-guard.js` | Deniega abrir o buscar en archivos de secretos, para que nunca entren al transcript. La lista fija cubre `.env` y variantes (salvo `.env.example`), lo que esté dentro de `~/.ssh` y `~/.aws`, credenciales, tokens y llaves privadas; `secretPaths` del manifiesto la amplía por workspace. Aplica siempre, haya o no manifiesto, como las reglas destructivas de git. Read se juzga por `file_path`, Glob por `path` y `pattern`, y Grep por `path` y `glob`. Un Grep sobre una carpeta entera no se deniega (ripgrep salta lo ignorado), y un `cat .env` por Bash no lo mira este hook. Mejora 2, construida con las correcciones de la fase 2b |
+| `PreToolUse` (`Bash\|PowerShell`) | `guard.js` | Parsea el comando por segmentos (`&&`, `;`, `\|`, saltos) y solo juzga segmentos que empiezan por el ejecutable. Deniega siempre, haya o no manifiesto: `git reset --hard`, `push --force`, `clean -f`, `branch -D` de ramas con commits sin mergear y `git worktree remove` de un worktree con commits sin integrar. Con manifiesto, además: comandos de `forbidden`; `git commit` sin bandera vigente para ese workspace; `git add .` con `.env`/logs sin trackear. Desde la fase 3, `branch -D` y `git worktree remove` miden contra la rama destino registrada en el ledger cuando la rama o la carpeta están abiertas en él, y si no contra la rama por defecto. También deniega siempre `cat`, `type`, `Get-Content`, `gc` y `head` sobre los mismos archivos de secretos que `read-guard.js`, más los `secretPaths` del manifiesto: juzga solo los archivos que leen, no las opciones, ni el destino de `>` o `>>`, ni el marcador de heredoc, así que `cat > .env <<EOF` pasa y `cat < .env` se deniega. Nunca mira texto de heredocs ni argumentos de `echo`; de `cat`, `type`, `Get-Content` y `head` mira solo los archivos que leen |
+| `Stop` | `stop-gate.js` | Bloquea terminar si (a) hay cambios en archivos de `codeGlobs` sin bandera de verificación vigente, o (b) hay worktrees del issue con commits sin integrar. Un solo bloqueo por turno: si la entrada trae `stop_hook_active: true`, deja pasar con aviso visible y escribe el pendiente en la timeline. Cada bloqueo también queda en la timeline (nota `bloqueado`), que es de donde `arnes-ui` saca su aviso. Solo bloquea un turno que cambió algo: `prompt-context` deja en cada prompt una foto de la lista y del contenido de los tocados (`.tmp/harness/turn.json`), y si al cerrar el turno nada cambió respecto de esa foto, el `Stop` solo avisa con `systemMessage`. Sin foto bloquea. No engancha `SubagentStop`. No bloquea si no hay manifiesto. Condición (b), desde la fase 3: "del issue" son los registros abiertos cuyo destino es la rama en que está el checkout principal de su workspace; bloquea si alguno tiene commits sin integrar y el último es posterior a la foto del turno, con un segundo de margen porque git guarda la fecha en segundos, y si son de un turno anterior solo avisa, como (a). Una sesión dentro de un worktree no juzga (b): integrar le toca a la del checkout principal. Con (a) y (b) a la vez el bloqueo es uno solo y nombra las dos cosas (nota `turno bloqueado sin verificar: …; sin integrar: …`). El motivo nombra las skills: verificar es `/arnes:verify` e integrar es `/arnes:worktree integrate <slug>`, que corre la persona |
+| `PreToolUse` (`ExitWorktree`) | `worktree-remove.js` | Deniega `action: "remove"` si la rama del worktree tiene commits no contenidos en su rama destino: la registrada en el ledger si la rama o la carpeta están abiertas en él, y si no la rama por defecto del workspace. Un worktree integrado en la rama del issue y todavía no en main ya se puede borrar. `git worktree remove` por shell lo cubre `guard.js` con la misma regla |
+| `PreToolUse` (`Read\|Glob\|Grep`) | `read-guard.js` | Deniega abrir o buscar en archivos de secretos, para que nunca entren al transcript. La lista fija cubre `.env` y variantes (salvo `.env.example`), lo que esté dentro de `~/.ssh` y `~/.aws`, credenciales, tokens y llaves privadas; `secretPaths` del manifiesto la amplía por workspace. Aplica siempre, haya o no manifiesto, como las reglas destructivas de git. Read se juzga por `file_path`, Glob por `path` y `pattern`, y Grep por `path` y `glob`. Un Grep sobre una carpeta entera no se deniega (ripgrep salta lo ignorado), y un `cat .env` por Bash lo juzga el guard. Mejora 2, construida con las correcciones de la fase 2b |
 
 Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. Según la documentación de 2.1.303, ese evento solo se dispara para worktrees creados por un hook `WorktreeCreate` propio, y un hook que sale con 0 cuenta como si hubiera borrado el directorio. Los worktrees de git, que son los del §7, los borra Claude Code sin pasar por él. Los dos caminos reales para que un agente borre un worktree son la herramienta `ExitWorktree` (exige `discard_changes: true` con commits sin mergear, pero el modelo puede pasarlo) y `git worktree remove` por shell, y los dos pasan por `PreToolUse`.
 
@@ -221,10 +232,27 @@ Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. S
 - `review`: `reviewer` una vez sobre el árbol final, con el plan y la lista de tocados; sección de cumplimiento de criterios; si toca `riskPaths`, marca `REVISIÓN HUMANA OBLIGATORIA` en el reporte y en el cuerpo del MR.
 - `ship`: misma rama en todos los workspaces tocados, commits back → front, push y MR/PR cruzados; se niega si el ledger tiene worktrees abiertos del issue; convención de commits del repo (lee `commitlint`/`CLAUDE.md`).
 - Cambio de la fase 3a (2026-10-19):
-  - `verify` corre `ci-gate.js --ws <ws> --base HEAD` por workspace tocado: el mismo motor que el CI, sobre los cambios sin commitear. La foto del HEAD sale de `git archive`, con la clave y los conteos de `typecheck-baseline`.
+  - `verify` corre `ci-gate.js --ws <ws> --base HEAD` por workspace tocado: el mismo motor que el CI, sobre los cambios sin commitear. La foto del HEAD sale de `git archive`, con la clave y los conteos de `typecheck-baseline`, y desde el cierre de la fase 3 se reutiliza mientras el HEAD no cambie (§6.1).
   - "Código nuevo sin spec" son los archivos agregados o sin trackear sin spec (`test-select --missing`).
   - `review` prepara con `review.js input` lo que el reviewer, sin Bash, no puede sacar: el diff contra HEAD, los tocados, las riskPaths tocadas y las reglas. Después marca la revisión con la misma huella de la bandera.
-  - `ship` exige la revisión del árbol actual y sin bloqueantes, y hace un solo commit por workspace, porque el guard pide bandera vigente en cada commit y el primero cambia el HEAD.
+  - `ship` exige la revisión del árbol actual y sin bloqueantes, y hace un solo commit por workspace, porque el guard pide bandera vigente en cada commit y el primero cambia el HEAD. Se niega con worktrees abiertos del issue: `ship.js check` consulta el registro con la rama actual de cada workspace, y la skill corre `worktree-ledger.js pending --target <rama>` con la rama que va a usar.
+- Cambio de la fase 3b (2026-10-19 y 20). Tamaños: plan 42 líneas, build 33, worktree 46, memory 52 y sync 34.
+  - `plan` (invocable por el modelo):
+    - Lee el issue con glab o gh según el remote, o toma el texto. Consulta graphify con `graphify query`, `explain` y `path` si existen `graphify-out/graph.json` y el comando `graphify`.
+    - Escribe `plan.md` con título, Issue, Criterios `[literal]` o `[inferido]`, Contrato de API, Datos, Workspaces y orden, Archivos previstos, Zonas de riesgo, Preguntas y Fuera de alcance. Cada pregunta lleva Recomendación y Alternativa. Archivos previstos no estaba en este párrafo: hace falta para cotejar `riskPaths`.
+    - Pide confirmación. Con la respuesta, escribe `Aprobado:` y la sección `## Decisiones`.
+  - `build` (invocable por el modelo):
+    - Exige `Aprobado:` en el plan. Lanza un `arnes:dev` por workspace, primero el back. El contrato va textual entre `--- contrato del back ---` y `--- fin del contrato ---`.
+    - Comprueba las seis secciones del reporte y abre dos o tres líneas citadas. Relanza el dev una vez si falta un criterio.
+    - Anota la timeline por workspace (`start` y `end build --ws`): una entrada global además de las de cada workspace duplicaría el total por etapa de `timeline print`.
+    - Si dos devs tocarían los mismos archivos a la vez, le pide a la persona `/arnes:worktree open <slug>`.
+  - `worktree` (`disable-model-invocation`): open, integrate, close, list y pending sobre `worktree-ledger.js`. Después de integrar, verify sobre la rama del issue.
+  - `memory` (invocable por el modelo):
+    - `decision` escribe `docs/decisions/AAAA-MM-DD-<slug>.md` con Qué, Por qué y Alternativa descartada.
+    - `gotcha` agrega `- AAAA-MM-DD · <ws> · síntoma → causa → qué hacer` a `docs/gotchas.md`.
+    - `recall` busca con Grep en esos archivos y en graphify.
+    - Avisa si la ruta está ignorada por git, como `docs/` en api-academico.
+  - `sync` (`disable-model-invocation`): precondiciones; respaldo `respaldo/<rama>-<AAAAMMDD-HHMM>`; `fetch` y `merge origin/<rama>`, sin squash ni rebase; `merged-files`; verify; y un reporte con la vuelta atrás, que corre la persona.
 - `worktree`: §7.
 - `memory`: `decision` escribe `docs/decisions/YYYY-MM-DD-<slug>.md` (qué, por qué, alternativa descartada); `gotcha` añade a `docs/gotchas.md`; `recall` consulta esos archivos y graphify. Sin MCP.
 - `sync`: versión de 60 líneas del `sync-branch` actual: respaldo, fetch, merge contra `origin/<rama>`, `merged-files`, verify.
@@ -232,6 +260,8 @@ Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. S
 
 ### 6.4 Agentes
 `dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.
+
+Cambio de la fase 3 (2026-10-20): `agents/dev.md` (sonnet, effort medium, 72 líneas) lee `CLAUDE.md`, las rules y el manifiesto, y no escribe tests. Corre typecheck una vez y lint de sus archivos al final. Devuelve seis secciones: Contrato resultante, Archivos tocados, Desviaciones, Cobertura con `archivo:línea`, Riesgo y Pendiente para verify. Los cuatro agentes llevan su `model` y su `effort` en el frontmatter.
 
 ### 6.5 Mod `arnes-mod` (fase 5, dos piezas, nada más)
 1. `prompt.compose`: sección `arnes:protocol` (≤ 25 líneas) en el system prompt, `scope: session`.
@@ -268,6 +298,8 @@ Estado: átomos en `$.state` declarados en `types/index.d.ts` (etapa, cronologí
 
 Motivo declarado por el usuario: ver visualmente en qué etapa se va el tiempo, y hacer la sesión más interactiva. Por eso, al cerrar cada corrida el mod imprime un resumen por etapa (`plan 2m · build 9m · verify 4m · review 6m · ship 1m`) marcando la más lenta y la más cara, y el panel muestra el promedio de las últimas corridas por etapa para distinguir una demora puntual de un cuello de botella estructural (por ejemplo, el reviewer en opus llevándose el 40 % siempre). Esa medición es también la entrada para decidir qué pieza del arnés quitar o abaratar. Comandos: `/arnes-panel` abre o cierra (un comando registrado no lleva prefijo de plugin, §3); `/arnes:timeline` vive en el plugin base y funciona sin el mod. La fuente de verdad de la cronología es `.tmp/harness/timeline.jsonl`, escrita por las skills; el mod la lee y le suma lo que solo él ve (agentes vivos, requests en vuelo, costo por `$.session.usage()` y tokens por agente de `turn.complete.usage`).
 
+Cambio de la fase 3 (2026-10-20): `arnes-ui` lee `.tmp/harness/worktrees.json` en cada refresco. La banda suma `N wt sin integrar`, el panel lista cada worktree abierto con su rama y su destino, y "Lo que sigue" pide `/arnes:worktree integrate` antes que verificar. Abierto es sin integrar, como en `worktree-ledger.js pending`; el mod no cuenta commits.
+
 Tamaño objetivo: un `register.tsx` de 200–300 líneas más el contrato de tipos. Se construye justo después de la fase 2, antes que `arnes-mod`, porque es la mejor herramienta para depurar las fases 3 y 4: ver las etapas hace visible lo que el arnés está haciendo.
 
 ### 6.6 Memoria
@@ -293,6 +325,17 @@ Diseño:
 7. **Limpieza**: `worktree prune` + barrido en `SessionStart` de worktrees con más de 7 días sin commits nuevos → aviso, nunca borrado silencioso.
 8. `.worktreeinclude` con `.env` en cada repo para que los worktrees arranquen con entorno.
 
+Cambio de la fase 3 (2026-10-19 y 20):
+- Punto 3: el registro quedó como en §6.1, con los worktrees bajo `.tmp/harness/worktrees/<ws>/<slug>`.
+- Punto 4: `integrate` hace merge, borrado y cierre en un paso, y verify corre después sobre la rama del issue. Borrar antes de verificar no pierde nada, porque los commits ya están en la rama del issue.
+- Punto 5, los cuatro cercos, hechos:
+  - Stop (b);
+  - SessionStart;
+  - ship, con `worktree-ledger.js pending --target <rama>`, que sale con 1 si hay abiertos;
+  - borrar un worktree, por el ledger en `ExitWorktree` y en el guard.
+- Punto 7: `SessionStart` solo avisa y nunca corre `git worktree prune`, porque un hook no escribe en git. `integrate` y `close` hacen `prune` cuando la carpeta del worktree ya no existe.
+- Punto 8: no se hizo. Los worktrees que abre el ledger no copian `.env` ni enlazan `node_modules`: para verificar dentro de uno hay que instalar dependencias. Va con los templates de la fase 6.
+
 Nota: Claude Code trae `/batch`, donde cada subagente trabaja en su worktree y abre su propio PR. Sirve cuando las tareas son issues independientes; no para partes de un mismo issue, que es el caso de este diseño.
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
@@ -307,6 +350,14 @@ Adoptar un repo empieza por quitar los hooks del arnés anterior de su `.claude/
 6. Plugin fijado a un tag en `~/.claude/settings.json` o en `.claude/settings.json` del repo.
 7. Ningún hook del `.claude/settings.json` del repo o de la carpeta corre scripts propios de `.claude/hooks/`.
 8. Línea base de tests commiteada (`tests/baseline.json` o la ruta del schema), con los saltos declarados por nombre; un commit que la cambia lleva el prefijo `gates:` (§6.1). Desde la fase 3.
+
+Hallazgos de las pruebas de la fase 3 sobre clones de api-academico, para cuando se adopte (fase 6). No son del arnés:
+- `main` no tiene `CLAUDE.md` ni `.claude/rules` en la raíz: viven en las ramas de trabajo, así que un issue que nace de `main` no ve las convenciones.
+- El `.gitignore` de las ramas de trabajo ignora `docs`. Las decisiones que escribe memory no se versionan sin `git add -f`, aunque `docs/decisions/0001-…` sí está trackeado de antes; memory lo avisa. Adoptar el repo es quitar `docs` del `.gitignore`.
+- El eslint no cubre `scripts/*.js`: todo archivo ahí falla con `was not found by the project service`, y en verify y en sync aparece como lint rojo de un archivo tocado o que entró.
+- `main` trae specs con líneas que el propio Prettier del repo rechaza (fase 3a), así que tocar uno de esos specs pone rojo el lint hasta formatearlo.
+- El issue de talleres pedía "solo ADMIN y COORDINADOR". El plan lo tradujo a permisos `taller.*` más los otorgamientos en el mantenedor de roles, porque las rules del repo prohíben comparar nombres de rol (pregunta cerrada P3). `coordinador` existe como rol de datos (`acl_rol`), no como constante `ACL_ROL_*`.
+- Un cambio de inyección de dependencias, como mover `TallerRepository` a `PersistenciaModule` (regla §7 del repo), no lo detectan ni tsc ni jest: hace falta arrancar la app con base de datos. Para el arnés es la decisión abierta 9 de §12.
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
@@ -331,6 +382,8 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 | 6 | graphify por repo, memoria en markdown, script de setup por carpeta, migración de renova365 y api-academico (borrar sus `.claude/` viejos, limpiar worktrees huérfanos, quitar permisos de push, sacar la contraseña de `settings.local.json`) | Las tres carpetas corren el mismo tag |
 | 7 | Publicación: licencia MIT; README en español e inglés (qué problema resuelve, qué no hace, instalación, el manifiesto con un ejemplo de repo y uno de carpeta, y una comparación honesta con gentle-ai, coding-agent-harness, harness-template y Superpowers); limpieza de todo lo personal en docs y tests (rutas con nombre de usuario, nombres de repos privados y de personas, reemplazados por ejemplos genéricos; los manifiestos reales de academico y renova365 fuera del repo, con fixtures anónimos en su lugar); `CONTRIBUTING` y `SECURITY` cortos; CI público con validate, tests y `plugin test`; espejo en GitHub con el marketplace apuntando a él, porque el atajo `owner/repo` de instalación y la mayoría de los usuarios de plugins están ahí | El CI público está en verde, el espejo instala con `owner/repo` y no queda nada personal en el repo. El tag 1.0.0 sale solo cuando el piloto de la fase 4 haya pasado y las tres carpetas corran el mismo tag |
 
+Cambio de la fase 3 (2026-10-19 y 20): se construyó en dos mitades, en paralelo y desde `feature/fase-2b-ui`. La 3a hizo verify, review, ship, los agentes reviewer, test-writer y test-runner, la línea base de tests y el punto 8 de `adoption-check`. La 3b hizo plan, build, worktree, memory, sync, el agente dev, los cercos de §7 y el aviso de sesión concurrente. Las dos se integraron en `feature/fase-3` con `merge --no-ff`, y el cierre cableó lo que cruzaba de una a otra: ship con el ledger, `arnes-ui` con los worktrees, los textos de los hooks con las skills y la foto de typecheck reutilizada. Sale con la versión 0.5.0 cuando la persona confirme la prueba de `docs/PRUEBA-FASE-3.md`.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
@@ -349,6 +402,14 @@ Tomadas (2026-10-19):
 1. Nombre del plugin: `arnes` (prefijo `/arnes:plan`, `/arnes:ship`, …; el mod es `arnes-mod`). Sin tilde, corto, literal para el equipo.
 2. Integración en dos niveles: rama de agente → rama del issue con `git merge --no-ff` (git registra la integración, `branch --no-merged` sigue siendo la comprobación mecánica, revertir una tarea es revertir un commit de merge); rama del issue → `main` con squash, configurado en GitLab/Bitbucket al mergear el MR, para que `main` reciba un commit limpio por issue. El arnés nunca hace squash por su cuenta.
 
+Tomadas en la fase 3 (2026-10-19 y 20):
+- verify corre el mismo motor que el CI (`ci-gate.js --base HEAD`).
+- Una falla que coincide exacto con una línea fechada de `tests/known-failures.txt` no pone el gate en rojo.
+- ship se niega si la revisión tiene bloqueantes.
+- Los worktrees del ledger viven bajo `.tmp/harness/worktrees/`.
+- El Stop (b) solo bloquea un turno que sumó commits, como (a).
+- Integrar borra el worktree antes de verify.
+
 Abiertas:
 3. Plan de GitLab del equipo (define si hay approval rules por patrón o se usa la vía Free).
 4. Graphify: solo código al principio; cuándo activar la pasada semántica de docs.
@@ -356,6 +417,7 @@ Abiertas:
 6. Si `academicoBitbuckett` (PHP) entra en la fase 1 o se deja como workspace "solo lectura" hasta tener lint y tests.
 7. El `CLAUDE.md` global del usuario exige Engram en toda sesión; cuando la memoria pase a markdown (fase 6) hay que reescribir ese archivo, o Engram seguirá siendo obligatorio por instrucción aunque el arnés no lo use.
 8. Si el arnés se envía a la comunidad de plugins de Anthropic una vez publicado (fase 7).
+9. Un comando de arranque opcional en el manifiesto (por ejemplo `commands.boot`) que verify corra si existe, para los errores que ni tsc ni jest ven, como un cambio de inyección de dependencias. Tiene que terminar solo, levantando la app y cerrándola, porque el arnés no mata procesos, y en api-academico necesita base de datos.
 
 ## 13. Fuentes consultadas
 
