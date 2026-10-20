@@ -2,6 +2,36 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.5.2] - sin etiquetar
+
+Segunda ronda de correcciones antes del piloto, por la primera corrida real del arnés: desde la raíz de academico, con api-academico y academico-front, un CRUD de talleres full-stack de punta a punta (`docs/PLAN.md` §10). Rama `feature/pre-piloto-2`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test` y `claude plugin test`.
+
+### Añadido
+- La cabecera del panel y el final de la banda muestran el reloj y el costo de la sesión, de `$.session.usage()`.
+- La espera de la persona en toda la corrida: el Stop anota que el turno cerró, UserPromptSubmit que la persona respondió, y `timeline.js print` y el panel suman esos huecos aparte de las etapas.
+- `arnes-ui` anota en la timeline el costo de cada etapa al cerrarla; `timeline.js print` muestra tiempo y costo por etapa, y el panel el total de la corrida.
+- El Stop avisa "verificado, falta review" en una línea, sin bloquear, cuando hay bandera vigente y no hay revisión de ese contenido.
+- `ship.js committed` compara después de cada commit el blob de cada archivo con el que verificó la bandera, que ahora guarda `blobs`, y da FALLA si un hook pre-commit lo reescribió.
+- `adopt.js`, que `/arnes:init` ofrece después de los manifiestos: prueba que el test del manifiesto se lea, captura la línea base y anota los rojos que ya había, quita los hooks del arnés anterior, escribe los permisos en `settings.local.json` y el borrador del `CLAUDE.md` de una carpeta; `adoption-check` prueba el test en la comprobación 3.
+
+### Cambiado
+- La cronología del panel es la corrida de la timeline, desde el último `start plan`, y no se vacía en cada turno; las herramientas y los agentes ya no abren etapas, y solo las del hilo principal marcan el gate.
+- Los tokens de cada agente en el panel van rotulados: `tok` y `de caché`.
+- verify en verde y review con bloqueantes siguen a la etapa siguiente dentro de un issue en curso, aunque el turno empiece con una respuesta de la persona.
+- `review.js` acota también la ronda que sigue a una revisión sin bloqueantes cuando el cambio no sale de lo revisado, y la skill anota el inicio de review después de que el script decide la ronda.
+- El diff de la entrada del reviewer lleva el número de línea del archivo, para que cite líneas que existen.
+- `ship.js check` avisa, y `adoption-check` da FALTA en la comprobación 1, cuando ningún workspace declara `contract`.
+- plan deja la nota `esperando`: su espera la mide el turno, como la de las demás etapas.
+- El README dice la versión en curso y suma a la matriz las filas de la 0.5.1 y la 0.5.2.
+- `docs/PROBADORES.md` sigue esta ronda: instala desde `feature/pre-piloto-2` con la versión 0.5.2.
+
+### Corregido
+- `typecheck-baseline` y `ci-gate` descartan los diagnósticos de archivos ignorados por git, como `.next/dev/types/validator.ts`, y lo dicen en una línea.
+- La entrada de la 0.5.1 no nombraba `docs/PROBADORES.md`, la guía de una página para los probadores que esa versión agregó.
+
+### Para decidir después
+- Que `test-baseline` lea `jest --json` en vez del texto de `--verbose`, y las medidas de la corrida: plan 3m27s, build 13m41s, verify 8m30s, review 5m06s y ship 1m55s (`docs/PLAN.md` §10 y §12).
+
 ## [0.5.1] - sin etiquetar
 
 Ronda de correcciones antes del piloto, por la prueba manual y la corrida automática de la fase 3 (`docs/PLAN.md` §10). Rama `feature/pre-piloto`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test` y `claude plugin test`.

@@ -463,6 +463,15 @@ Ronda de correcciones antes del piloto (2026-10-20, rama `feature/pre-piloto`), 
 - las rondas de corrección de review van acotadas, con tope y en sonnet (§6.3 y §6.4);
 - la nota para la fase 5 sobre el reviewer determinista (§6.5).
 
+Segunda ronda antes del piloto (2026-10-20, rama `feature/pre-piloto-2`, versión 0.5.2), por la primera corrida real del arnés. Fue desde la raíz de academico, con api-academico (NestJS) y academico-front (Next.js), y un issue full-stack escrito por un front: el CRUD de talleres. Pasó de punta a punta sin un fallo del arnés: plan con criterios y cuatro preguntas con recomendación, build del back y después del front con el contrato, verify con test-writers en paralelo, review sin bloqueantes y con cuatro sugerencias que se aplicaron, una segunda review y `ship --solo-commit` con un commit por repo. En el camino salieron doce cosas que distorsionan la medición o que un front, instalando solo, no sabría sortear. Cada cambio está en su sección:
+- la cronología del panel como corrida de la timeline, el reloj y el costo de la sesión, el costo por etapa anotado en la timeline, la espera de la persona y los tokens rotulados (§3 y §6.5b);
+- la espera de la persona en toda la corrida y el aviso "verificado, falta review" (§6.2 y §6.3);
+- verify y review que no se detienen entre etapas, la review acotada también tras una revisión limpia, el inicio de review anotado después de decidir y las citas con líneas reales (§6.3 y §6.4);
+- los diagnósticos de archivos ignorados por git, el commit comparado con la bandera y el aviso sin contract (§6.1);
+- lo determinista de init (§8).
+
+Medidas de la corrida, para el piloto (fase 4) y para decidir después: plan 3m27s, build 13m41s, verify 8m30s, review 5m06s y ship 1m55s. La etapa más cara fue review, con dos revisiones completas en opus. La segunda solo revisaba las sugerencias aplicadas, que es lo que ahora va acotado y en sonnet (§6.3).
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
@@ -497,6 +506,7 @@ Abiertas:
 7. El `CLAUDE.md` global del usuario exige Engram en toda sesión; cuando la memoria pase a markdown (fase 6) hay que reescribir ese archivo, o Engram seguirá siendo obligatorio por instrucción aunque el arnés no lo use.
 8. Si el arnés se envía a la comunidad de plugins de Anthropic una vez publicado (fase 7).
 9. Un comando de arranque opcional en el manifiesto (por ejemplo `commands.boot`) que verify corra si existe, para los errores que ni tsc ni jest ven, como un cambio de inyección de dependencias. Tiene que terminar solo, levantando la app y cerrándola, porque el arnés no mata procesos, y en api-academico necesita base de datos.
+10. Que `test-baseline` lea `jest --json` en vez del texto de `--verbose`. A favor: no depende del reporter de cada config (el front de academico solo daba el detalle con `--reporters=default`), ni de los íconos de Windows, ni del bloque "Summary of all failing tests", y trae el nombre completo de cada test (`ancestorTitles` + `title`). En contra: cambia el `commands.test` de cada manifiesto; conviene escribir el JSON a un archivo con `--outputFile`, para no depender de qué más imprime la corrida por stdout; y vitest y karma tienen su propio formato. Para decidir después del piloto, no ahora.
 
 ## 13. Fuentes consultadas
 
