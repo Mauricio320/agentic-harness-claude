@@ -31,7 +31,7 @@ claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 ```
 
-El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:preupdv/apps/agentic-harness.git#vX.Y.Z` con la clave cargada en el agente.
+El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop, y en los dos sirve la terminal integrada. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:preupdv/apps/agentic-harness.git#vX.Y.Z` con la clave cargada en el agente.
 
 Para fijar la versión en un repo de proyecto, en `.claude/settings.json`:
 
