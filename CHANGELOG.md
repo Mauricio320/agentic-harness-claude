@@ -2,6 +2,26 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.5.3] - sin etiquetar
+
+Tercera ronda de correcciones antes del piloto, por la corrida de un compañero de front con la 0.5.2 en su Mac: el mismo CRUD de talleres sobre academico (`docs/PLAN.md` §10). Rama `feature/pre-piloto-3`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` del mod.
+
+### Añadido
+- `plan-guard.js`, un PreToolUse sobre Edit y Write: sin plan aprobado en la corrida, niega escribir código de un workspace, también a los agentes.
+- `plan-state.js`: el estado del plan, la aprobación, que exige el plan escrito y una respuesta de la persona después, y el plan trivial de `/arnes:plan --trivial`, que solo vale si lo escribió la persona.
+- UserPromptSubmit recuerda en una línea, sin plan en curso ni código tocado, que un pedido de código empieza por `arnes:plan`; el protocolo de SessionStart suma la regla.
+- `conventions.js` y `conventions` en el schema: convenciones mecánicas sobre lo que cambió, en rojo con archivo y línea, en ci-gate antes del lint; el dev las corre antes de entregar e init-draft propone cuatro para JS y TS.
+- `lib/database.js`: lo que toca una base va a `forbidden` desde init-draft, el guard lo niega diciendo que lo corre la persona, y adoption-check lo comprueba en la comprobación 3.
+
+### Cambiado
+- Solo un mensaje de la persona abre turno: el aviso de un agente en segundo plano ya no reescribe la foto del turno ni cuenta como respuesta, y el Stop ve lo que escribieron los devs.
+- build carga verify cuando el último dev entrega, en vez de cerrar el turno con "sigue verify".
+- init-draft y adoption-check dicen en qué rama está un repo sin manifiesto y qué rama remota lo trae; `init-draft --write` se niega en ese caso sin `--force`, y adoption-check lo da como FALTA.
+- `timeline.js` ya no escribe la nota `aprobado` del plan: la escribe `plan-state.js approve`.
+- El reviewer deja de reportar lo que cubren las convenciones del manifiesto.
+- `docs/PROBADORES.md` pide `git fetch` y la rama con el manifiesto antes de init, avisa que los comandos contra una base los corre la persona, recomienda opus para la sesión principal e instala desde `feature/pre-piloto-3`; con el README, dice que `arnes-ui` se ve solo en la terminal.
+- `docs/PLAN.md` §10 pone las medidas de la corrida del compañero junto a las de la primera.
+
 ## [0.5.2] - sin etiquetar
 
 Segunda ronda de correcciones antes del piloto, por la primera corrida real del arnés: desde la raíz de academico, con api-academico y academico-front, un CRUD de talleres full-stack de punta a punta (`docs/PLAN.md` §10). Rama `feature/pre-piloto-2`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test` y `claude plugin test`.
