@@ -2,19 +2,32 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
-## [Sin publicar]
+## [0.5.0] - sin etiquetar
 
-Fase 3, primera mitad: verify, review y ship con sus agentes. `version` sigue en 0.4.0; la fase 3 completa sube a 0.5.0. Probado con Claude Code 2.1.304 y Node 24, con tests de juguete y en un clon local de api-academico (`docs/PRUEBA-FASE-3A.md`).
+Fase 3: el flujo completo plan → build → verify → review → ship, con los cuatro agentes, los worktrees por issue, la memoria en markdown y la línea base de tests. Se construyó en dos mitades en paralelo, la 3a (verify, review y ship) y la 3b (plan, build, worktree, memory y sync), y se integró en `feature/fase-3`. Probado con Claude Code 2.1.304 y Node 24, con tests de juguete y de punta a punta sobre un clon local de api-academico. La fase se cierra cuando la persona confirme la prueba manual de `docs/PRUEBA-FASE-3.md`.
 
 ### Añadido
+- `/arnes:plan` y `/arnes:build`, invocables por el modelo:
+  - plan lee el issue con glab o gh, o toma el texto, y consulta graphify si existe. Escribe `.tmp/harness/plan.md` con criterios literales e inferidos, contrato, datos, archivos previstos, zonas de riesgo y preguntas cerradas, pide confirmación y anota `Aprobado:`.
+  - build exige el plan aprobado y lanza un `arnes:dev` por workspace, el back primero, con el contrato textual.
+- `/arnes:memory`, invocable por el modelo: decisiones en `docs/decisions/`, gotchas en `docs/gotchas.md` y recall con Grep y graphify, sin MCP.
+- `/arnes:worktree` y `/arnes:sync`, solo por la persona: los worktrees por tarea, y traer `origin/<rama>` con respaldo, merge sin squash, `merged-files` y verify.
+- Agente `dev` (sonnet, effort medium): implementa un workspace siguiendo su `CLAUDE.md` y sus rules, sin tests. Devuelve contrato, archivos, desviaciones, cobertura con `archivo:línea`, riesgo y pendientes.
+- `worktree-ledger.js`:
+  - abre worktrees por tarea en `wt/<rama-issue>/<slug>` desde la rama del issue, bajo `.tmp/harness/worktrees/`, con registro en `.tmp/harness/worktrees.json`;
+  - integrate hace `merge --no-ff`, nunca squash, y close solo cierra sin commits propios;
+  - pending sale con 1 si queda algo abierto.
+- `merged-files.js`: lo que tocaron los dos lados de un merge y lo que entró.
+- `SessionEnd` en `hooks.json`: suelta el lock de la sesión.
 - `/arnes:verify`, invocable por el modelo. Por cada workspace tocado corre `ci-gate.js --base HEAD`: el typecheck contra una foto del HEAD, el lint de los tocados y los specs de test-select con la línea base. Lanza `arnes:test-writer` solo si hay código nuevo sin spec, escribe la bandera solo si el gate salió con 0 y anota la etapa en la timeline.
 - `/arnes:review`, invocable por el modelo. Lanza `arnes:reviewer` una sola vez sobre el árbol final, con la entrada de `review.js input` y el plan si existe. Marca la revisión con `review.js mark` y resume los hallazgos por archivo, bloqueantes primero.
 - `/arnes:ship`, solo por la persona:
   - exige bandera vigente y revisión del árbol actual sin bloqueantes;
   - usa la misma rama con el prefijo del manifiesto en los workspaces tocados;
   - hace un commit por workspace, back antes que front, con la convención del repo;
-  - pide confirmación explícita antes de cualquier push o MR. Los MR van por `glab` o `gh`, con los enlaces cruzados y REVISIÓN HUMANA OBLIGATORIA si tocó riskPaths.
-  `--solo-commit` se detiene después de commitear. La condición de worktrees abiertos queda preparada para el ledger.
+  - pide confirmación explícita antes de cualquier push o MR. Los MR van por `glab` o `gh`, con los enlaces cruzados y REVISIÓN HUMANA OBLIGATORIA si tocó riskPaths;
+  - se niega con worktrees del issue sin integrar: `ship.js check` consulta el registro, y la skill corre `worktree-ledger.js pending --target <rama>` y muestra su salida.
+  `--solo-commit` se detiene después de commitear.
 - Agentes, cada uno con su `model` y su `effort`:
   - `reviewer` (opus): solo lectura con Read, Grep y Glob. Aplica la lista cerrada de bloqueantes de §6.4 y las reglas duras de `.claude/rules`, revisa el cumplimiento de criterios si hay plan y marca REVISIÓN HUMANA OBLIGATORIA.
   - `test-writer` (sonnet): specs solo para código nuevo o cambiado, contra el estándar de tests del repo.
@@ -27,12 +40,29 @@ Fase 3, primera mitad: verify, review y ship con sus agentes. `version` sigue en
 - `review.js` (input, mark, check) y `ship.js` (check, branch, stage).
 - `test-select --missing` y `touched-files --workspaces`.
 - `adoption-check` comprobación 8: la línea base de tests, válida y commiteada.
-- Tests con `node --test` para todo lo anterior, incluida la salida real de jest 30 en Windows como fixture, y un test de presupuesto y política de invocación de skills y agentes.
+- `arnes-ui` muestra los worktrees sin integrar de `.tmp/harness/worktrees.json`: `N wt sin integrar` en la banda, una sección en el panel, y "Lo que sigue" pide `/arnes:worktree integrate`.
+- Tests con `node --test` para todo lo anterior. Incluyen:
+  - la salida real de jest 30 en Windows como fixture;
+  - una carpeta de juguete de dos repos para el ledger, merged-files, la sesión concurrente, los worktrees en SessionStart y en el Stop, el destino del ledger en ExitWorktree y en el guard, y la lectura de secretos por shell;
+  - un test de presupuesto de líneas y política de invocación de las diez skills y los cuatro agentes.
+  Más un test de `claude plugin test` para los worktrees en `arnes-ui`.
+- `docs/PRUEBA-FASE-3.md` con la prueba manual, que reemplaza a las de las dos mitades.
 
 ### Cambiado
 - `ci-gate` juzga sus tests con `test-baseline.js`. Un spec de la base borrado o una base ilegible ya no pasan como "sin cambios de código".
+- `ci-gate`, y con él verify, reutiliza la foto de typecheck del base en `.tmp/harness/typecheck/<ws>.txt` mientras su hash sea el mismo, y solo la captura cuando cambió.
+- El protocolo de `session-start`, el motivo del `Stop` y el del guard nombran las skills: verificar es `/arnes:verify`, revisar es `/arnes:review` e integrar es `/arnes:worktree integrate`. Ninguno manda ya a escribir la bandera a mano. El protocolo nombra además la lectura de secretos por shell entre lo denegado siempre.
+- `session-start`:
+  - lista los worktrees sin integrar y avisa de los de más de 7 días sin commits nuevos;
+  - avisa si otra sesión de Claude está activa en el mismo proyecto, con un lock propio en `.tmp/harness/sessions`, y le pide a la segunda que trabaje en un worktree.
+- `stop-gate` hace efectiva la condición (b): bloquea una vez el turno que dejó commits sin integrar en un worktree del issue.
+- `worktree-remove` y el guard miden los commits sin integrar contra la rama destino registrada en el ledger. El comentario de `lib/branches.js` lo dice.
+- El guard deniega `cat`, `type`, `Get-Content` y `head` de archivos de secretos, juzgando solo los archivos que leen. `read-guard.js` exporta `secretPath`.
 - El validador de `lib/manifest.js` admite `additionalProperties` como schema y `minimum`, y valida contra una definición de `$defs` (`validateDef`).
-- `docs/PLAN.md` §4, §6.1, §6.3 y §6.4 registran los cambios de la fase 3a.
+- `docs/PLAN.md` §3, §4, §6, §7, §8, §10 y §12 registran los cambios y las decisiones de la fase 3.
+
+### Quitado
+- `docs/PRUEBA-FASE-3A.md` y `docs/PRUEBA-FASE-3B.md`, reemplazadas por `docs/PRUEBA-FASE-3.md`, y `docs/NOTAS-FASE-3B.md`, ya llevado al plan, al CHANGELOG y al README.
 
 ## [0.4.0] - sin etiquetar
 

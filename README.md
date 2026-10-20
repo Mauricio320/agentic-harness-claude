@@ -2,7 +2,15 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3, primera mitad. Ya existen los manifiestos (uno por repo y una composición por carpeta multi-repo), los scripts deterministas, `/arnes:init`, los hooks clásicos, el mod `arnes-ui` y `/arnes:timeline`. A eso se suman `/arnes:verify`, `/arnes:review` y `/arnes:ship`, con los agentes `reviewer`, `test-writer` y `test-runner` y la línea base de tests commiteada. Faltan `plan`, `build`, `worktree`, `memory` y `sync`, el agente `dev`, el ledger de worktrees y el aviso de sesión concurrente.
+Estado: fase 3, versión 0.5.0 sin etiquetar, a la espera de la prueba manual (`docs/PRUEBA-FASE-3.md`). Ya existen:
+- los manifiestos, uno por repo y una composición por carpeta multi-repo;
+- los scripts deterministas y los hooks clásicos;
+- las diez skills: `/arnes:init`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
+- los cuatro agentes: `dev`, `reviewer`, `test-writer` y `test-runner`;
+- los worktrees por issue con su registro, la línea base de tests commiteada y el aviso de sesión concurrente;
+- el mod `arnes-ui`.
+
+Falta `arnes-mod` (fase 5).
 
 ## Principios
 
@@ -73,7 +81,12 @@ Los hooks no piden permiso: corren fuera del sistema de permisos. Lo que sí pid
       "Bash(npx jest *)",
       "Bash(npx eslint *)",
       "PowerShell(npx jest *)",
-      "PowerShell(npx eslint *)"
+      "PowerShell(npx eslint *)",
+      "Bash(graphify query *)",
+      "Bash(graphify explain *)",
+      "Bash(graphify path *)",
+      "Bash(glab issue view *)",
+      "Bash(gh issue view *)"
     ],
     "ask": [
       "Bash(npx eslint *--fix*)",
@@ -87,6 +100,7 @@ Cómo leerlas (sintaxis de code.claude.com/docs/en/permissions):
 - **El `*` admite cualquier texto, espacios incluidos, y lo que va antes se compara tal cual.** La ruta del plugin es la de la caché (`<config>/plugins/cache/<marketplace>/<plugin>/<versión>/`), con barras normales, porque Claude Code sustituye `${CLAUDE_PLUGIN_ROOT}` así también en Windows. El `*` después de `arnes/` cubre la versión y el script; un `..` dentro de la ruta escaparía de esa carpeta, así que la regla confía en que los comandos sean los de las skills. Con `CLAUDE_CONFIG_DIR` la raíz cambia (por ejemplo `.claude-pdv`), y con `claude --plugin-dir` la ruta es la del repo del arnés.
 - **Las formas de git de lectura sin `cd` ni `-C` ya corren sin preguntar.** Estas reglas cubren las que no: `git -C <ruta> status` no las cumple, porque el patrón compara el texto desde el inicio.
 - **`Bash(npx eslint *)` también dejaría pasar un `--fix`.** Por eso va la regla `ask`, que se evalúa antes que `allow` y obliga a preguntar.
+- **graphify y la lectura del issue son de solo lectura.** `/arnes:plan` y `/arnes:memory recall` consultan graphify con `query`, `explain` y `path`, y plan lee el issue con `glab issue view` o `gh issue view`. Los scripts nuevos de la fase 3 ya los cubre la regla de `node` sobre la carpeta del plugin. `git commit` y `git push` quedan fuera a propósito: los corre `/arnes:ship`, que pide confirmación antes de cualquier push.
 - **Los comandos de test son los de los manifiestos de academico.** Ajústalos a los `commands` de cada repo y no agregues comodines más amplios que el comando real.
 
 ## Versionado en dos capas
@@ -106,3 +120,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 | v0.2.0 (sin etiquetar) | 2.1.303 | 24 | Fase 1: schema de los dos niveles de manifiesto, scripts deterministas con tests (`node --test`) y `/arnes:init` completa; probado en academico (3 repos) y renova365 (2 repos) |
 | v0.3.0 (sin etiquetar) | 2.1.303 | 24 | Fase 2: hooks clásicos (guard, after-edit, session-start, prompt-context, stop-gate, worktree-remove) con tests por stdin; la prueba manual en una sesión interactiva está en `docs/PRUEBA-FASE-2.md`, hecha en api-academico el 2026-10-19 |
 | v0.4.0 (sin etiquetar) | 2.1.303 (tipos de la API de mods) y 2.1.304 (`validate` y `plugin test`) | 24 | Fase 2b: mod `arnes-ui` (banda, panel con `/arnes-panel`, status, toasts) con tests de `claude plugin test`, y `/arnes:timeline` en el plugin base; la prueba manual está en `docs/PRUEBA-FASE-2B.md`, hecha y repetida en api-academico y desde la raíz de academico el 2026-10-19 con 2.1.304; fase cerrada |
+| v0.5.0 (sin etiquetar) | 2.1.304 | 24 | Fase 3: plan, build, verify, review, ship, worktree, memory y sync, los agentes dev, reviewer, test-writer y test-runner, el registro de worktrees, la línea base de tests y el aviso de sesión concurrente. Probada de punta a punta sobre un clon de api-academico el 2026-10-20; la prueba manual está en `docs/PRUEBA-FASE-3.md` y falta confirmarla |
