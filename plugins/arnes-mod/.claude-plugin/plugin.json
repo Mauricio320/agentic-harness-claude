@@ -1,6 +1,6 @@
 {
   "name": "arnes-mod",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Comportamiento opcional del arnés: protocolo en el system prompt y reviewer determinista al cerrar el turno.",
   "author": { "name": "Mauricio Triana" },
   "dependencies": ["arnes"]
