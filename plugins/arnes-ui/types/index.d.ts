@@ -23,6 +23,7 @@ export type GateRow = {
   code: number
   edited: string[]
   editedAt: number
+  changedAt?: number
   tsc?: Mark
   tests?: Mark
   review?: Mark

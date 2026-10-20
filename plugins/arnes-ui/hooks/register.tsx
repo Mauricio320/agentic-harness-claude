@@ -5,8 +5,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Agent, Files, GateRow, Mark, Run } from '../types'
-import { AGENTS, CODE_GLOBS, MANIFEST, SKILLS, agentText, bandText, classify, fresh, globRe, join, key, label, mins, nextStep, paneText,
-  parseStatus, slash, summary, timelineLines } from './lib'
+import { AGENTS, CODE_GLOBS, MANIFEST, SKILLS, agentText, blankRow, bandText, classify, fresh, globRe, join, key, label, locate, mins, nextStep,
+  paneText, parseStatus, slash, stopBlocks, summary, timelineLines, tokensOf } from './lib'
 import type { Probe, Ws } from './lib'
 
 type $ = EngineInterface
@@ -28,6 +28,7 @@ let ws: Ws[] = []
 let root = ''
 let cwd = ''
 let needsGit = false
+let [ticks, seenBlock] = [0, Infinity]
 const said = new Set<string>()
 const warned = new Set<string>()
 
@@ -40,6 +41,9 @@ async function safe($: $, what: string, fn: () => unknown): Promise<void> {
     said.add(msg)
   }
 }
+
+// Los avisos que importan van también al transcript: en algunas superficies el toast no se dibuja.
+const alert = ($: $, text: string) => ($.ui.toast(text, { timeoutMs: 8000 }), $.ui.log(text))
 
 const readText = async ($: $, file: string) => ((await $.fs.exists(file)) ? $.fs.read(file) : '')
 const readJson = async ($: $, file: string): Promise<any> => JSON.parse((await readText($, file)) || 'null')
@@ -63,14 +67,16 @@ async function load($: $): Promise<void> {
   await update($, project, () => ({ name: m.name, root }))
 }
 
-const wsOf = (file: string) => ws.filter((w) => key(slash(file)).startsWith(key(w.dir) + '/')).sort((a, b) => b.dir.length - a.dir.length)[0]
 const setRow = ($: $, name: string, fn: (r: GateRow) => GateRow) => update($, gate, (rows) => rows.map((r) => (r.ws === name ? fn(r) : r)))
 
 // git de solo lectura: --no-optional-locks para que status no reescriba el índice.
 async function gitState($: $, w: Ws): Promise<Partial<GateRow>> {
   const argv = ['git', '-c', 'core.quotePath=false', '-C', w.dir, '--no-optional-locks', 'status', '--porcelain=v2', '--branch', '--untracked-files=all', '--', '.']
   const g = await $.process.run(argv, { timeoutMs: 10000 })
-  return g.exitCode === 0 ? parseStatus(g.stdout, w) : {}
+  if (g.exitCode !== 0) return {}
+  const { paths, ...row } = parseStatus(g.stdout, w, join(root, '.tmp/harness'))
+  const mtimes = await Promise.all(paths.map((p) => $.fs.stat(join(w.dir, p)).then((s) => s.mtimeMs, () => 0)))
+  return { ...row, changedAt: Math.max(0, ...mtimes) }
 }
 
 // Relee .tmp/harness (banderas, plan.md, timeline) y, si hace falta, el estado git de cada workspace.
@@ -85,19 +91,25 @@ async function refresh($: $, withGit: boolean): Promise<void> {
   }
   for (const r of await read($, gate)) {
     const f = patch.get(r.ws)?.flag
-    if (f?.result === 'fail' && f.at !== r.flag?.at) $.ui.toast(`arnes: gate en rojo en ${r.ws}: la bandera es fail`)
+    if (f?.result === 'fail' && f.at !== r.flag?.at) alert($, `arnes: gate en rojo en ${r.ws}: la bandera es fail`)
   }
-  const blank = (name: string): GateRow => ({ ws: name, changed: 0, code: 0, edited: [], editedAt: 0 })
-  await update($, gate, (rows) => ws.map((w) => ({ ...(rows.find((r) => r.ws === w.name) ?? blank(w.name)), ...patch.get(w.name) })))
+  await update($, gate, (rows) => ws.map((w) => ({ ...(rows.find((r) => r.ws === w.name) ?? blankRow(w.name)), ...patch.get(w.name) })))
+  const text = await readText($, join(dir, 'timeline.jsonl'))
+  // La primera lectura solo fija desde dónde avisar: las notas viejas no levantan avisos.
+  for (const b of seenBlock === Infinity ? [] : stopBlocks(text, seenBlock)) alert($, `arnes: el Stop bloqueó el turno · ${b.detail}`)
+  seenBlock = Math.max(0, ...stopBlocks(text, 0).map((b) => b.at))
   const plan = (await readText($, join(dir, 'plan.md'))).split('\n').find((l) => l.trim())
-  const next: Files = { plan: plan?.replace(/^#+\s*/, '').trim(), timeline: timelineLines(await readText($, join(dir, 'timeline.jsonl'))) }
-  if (JSON.stringify(next) !== JSON.stringify(await read($, files))) await update($, files, () => next)
+  const next: Files = { plan: plan?.replace(/^#+\s*/, '').trim(), timeline: timelineLines(text) }
+  if (JSON.stringify(next) === JSON.stringify(await read($, files))) return
+  const t = await $.clock.now()
+  await update($, files, () => next)
+  await update($, now, () => t)
 }
 
-// Cada 3 s: relee los archivos y, mientras algo corre, mueve `now` para que el tiempo avance en pantalla.
+// Cada 3 s (git, tras una herramienta y cada 15 s); mientras algo corre, `now` avanza en pantalla.
 async function tick($: $): Promise<void> {
   if (!root) return
-  await refresh($, needsGit)
+  await refresh($, needsGit || ++ticks % 5 === 0)
   needsGit = false
   const t = await $.clock.now()
   const live = (await read($, agents)).some((a) => !a.endedAt) || !!(await read($, stage))
@@ -123,7 +135,7 @@ async function enter($: $, name: string, detail?: string): Promise<void> {
   await update($, stage, () => ({ name, detail, startedAt: t, usd: u }))
   await update($, now, () => t)
   $.ui.toast(`arnes ▸ ${label({ name, detail })}`)
-  $.ui.status(`arnes · ${label({ name, detail })}`)
+  $.ui.status(label({ name, detail }))
 }
 
 // Al cerrar el turno del hilo principal: la corrida va a $.store (las últimas 20) y su resumen al transcript.
@@ -136,20 +148,18 @@ async function endRun($: $, reason: string): Promise<void> {
   await update($, done, () => [])
   await $.store.set('runs', runs)
   $.ui.log(summary(stages))
-  $.ui.status('arnes · listo')
+  $.ui.status('listo')
 }
 
 async function edited($: $, file: string): Promise<void> {
-  const w = wsOf(file)
-  if (!w) return
-  const rel = slash(file).slice(w.dir.length + 1)
+  const { w, rel } = locate(file, ws, cwd) ?? {}
+  if (!w || rel === undefined) return
   const t = await $.clock.now()
   await setRow($, w.name, (r) => ({ ...r, edited: r.edited.includes(rel) ? r.edited : [...r.edited, rel], editedAt: t }))
   if (warned.has(rel) || !w.riskPaths.some((g) => globRe(g).test(rel))) return
   warned.add(rel)
-  $.ui.toast(`arnes: zona de riesgo tocada en ${w.name} (${rel}) · revisión humana obligatoria`, { timeoutMs: 8000 })
+  alert($, `arnes: zona de riesgo tocada en ${w.name} (${rel}) · revisión humana obligatoria`)
 }
-
 
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
@@ -162,7 +172,7 @@ export const register: Register = (on) => {
       await refresh($, true)
       $.clock.every(3000, () => void safe($, 'reloj', () => tick($)))
       if (!root) return
-      $.ui.status('arnes · listo')
+      $.ui.status('listo')
       void $.ui.open({ id: PANE, title: 'arnes' })
     })
     return r
@@ -198,11 +208,9 @@ export const register: Register = (on) => {
     const r = await next(e)
     await safe($, 'tool.call', async () => {
       const mark: Mark | undefined = r.deny !== undefined ? undefined : r.isError ? 'fail' : 'ok'
-      if (probe?.ws && probe.col) {
-        const { ws: name, col } = probe
-        await setRow($, name, (row) => ({ ...row, [col]: mark }))
-      }
-      if (probe && mark === 'fail') $.ui.toast(`arnes: gate en rojo: ✗ ${probe.label}`)
+      const { ws: name, col } = probe ?? {}
+      if (name && col) await setRow($, name, (row) => ({ ...row, [col]: mark }))
+      if (probe && mark === 'fail') alert($, `arnes: gate en rojo: ✗ ${probe.label}`)
       if (['Bash', 'PowerShell', 'Edit', 'Write'].includes(e.tool)) needsGit = true
       if ((e.tool === 'Edit' || e.tool === 'Write') && mark === 'ok') await edited($, e.file_path)
     })
@@ -229,8 +237,7 @@ export const register: Register = (on) => {
         needsGit = true
         return endRun($, e.reason)
       }
-      const u = e.usage
-      const tokens = u ? u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : undefined
+      const tokens = tokensOf(e.usage)
       const [t, was] = [await $.clock.now(), (await read($, agents)).find((a) => a.id === e.agentId)]
       await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, endedAt: t, tokens } : a)))
       const review: Mark = e.reason === 'answer' ? 'ok' : 'fail'
@@ -250,14 +257,7 @@ export const register: Register = (on) => {
 
   on('session.compact', async ($, e, next) => {
     const r = await next(e)
-    if (r.skip === undefined) await safe($, 'session.compact', () => $.ui.toast('arnes: contexto compactado'))
-    return r
-  }).catch(($, e, next) => next(e))
-
-  on('classic.Stop', async ($, e, next) => {
-    const r = await next(e)
-    const why = r.block
-    if (why) await safe($, 'classic.Stop', () => $.ui.toast(`arnes: el Stop bloqueó el turno · ${why.slice(0, 200)}`, { timeoutMs: 8000 }))
+    if (r.skip === undefined) await safe($, 'session.compact', () => alert($, 'arnes: contexto compactado'))
     return r
   }).catch(($, e, next) => next(e))
 

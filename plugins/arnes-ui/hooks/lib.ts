@@ -28,6 +28,19 @@ export function join(...parts: string[]): string {
   return out.join('/')
 }
 
+// El workspace de un archivo y su ruta relativa a él; una ruta relativa se resuelve contra el cwd,
+// que en una carpeta multi-repo es la de la composición.
+export function locate(file: string, wss: Ws[], cwd: string): { w: Ws; rel: string } | undefined {
+  const abs = /^([a-z]:)?\//i.test(slash(file)) ? slash(file) : join(cwd, file)
+  const w = wss.filter((x) => key(abs).startsWith(key(x.dir) + '/')).sort((a, b) => b.dir.length - a.dir.length)[0]
+  return w && { w, rel: abs.slice(w.dir.length + 1) }
+}
+
+export const blankRow = (ws: string): GateRow => ({ ws, changed: 0, code: 0, edited: [], editedAt: 0 })
+
+export const tokensOf = (u?: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }) =>
+  u ? u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens : undefined
+
 // Los mismos globs que lib/glob.js del plugin base: **, *, ? y {a,b}.
 export const globRe = (g: string) =>
   new RegExp('^' + g.replace(/[.+^$()|[\]\\]/g, '\\$&').replace(/\{([^}]*)\}/g, (_, a: string) => `(${a.split(',').join('|')})`)
@@ -44,27 +57,45 @@ export const sym = (m?: Mark) => (m === 'ok' ? '✓' : m === 'fail' ? '✗' : m 
 
 // Vigente para la vista: menos de 30 min, mismo HEAD y sin Edit/Write después. La vigencia exacta
 // (la lista de tocados) la juzgan el guard y el Stop del plugin base.
+// Cualquier edición de un archivo cambiado la vence, venga de un Edit, de un Bash o de la persona:
+// changedAt es la fecha de modificación más reciente de los archivos que lista git.
 export const fresh = (r: GateRow, t: number) =>
-  !!r.flag && t - r.flag.at < FLAG_MS && (!r.head || r.flag.head === r.head) && r.editedAt <= r.flag.at
+  !!r.flag && t - r.flag.at < FLAG_MS && (!r.head || r.flag.head === r.head) && Math.max(r.editedAt, r.changedAt ?? 0) <= r.flag.at
 export const flagText = (r: GateRow, t: number) =>
   !r.flag ? 'sin bandera' : fresh(r, t) ? `bandera ${r.flag.result} hace ${mins(t - r.flag.at)}` : `bandera vencida (${r.flag.result})`
 
 // `git status --porcelain=v2 --branch -- .` de un workspace: rama, HEAD y cambios, los de código
-// según codeGlobs (rutas relativas al workspace).
-export function parseStatus(stdout: string, w: Ws): Partial<GateRow> {
+// según codeGlobs, y las rutas cambiadas, relativas al workspace. Como touched-files, deja fuera
+// lo que cae dentro de `skip` (el .tmp/harness del proyecto): si no, escribir la bandera la vencería.
+export function parseStatus(stdout: string, w: Ws, skip = ''): Partial<GateRow> & { paths: string[] } {
   const prefix = w.dir.length > w.gitRoot.length ? w.dir.slice(w.gitRoot.length + 1) + '/' : ''
   const fields: Record<string, number> = { '1': 8, '2': 9, u: 10 }
   const paths = stdout.split('\n').filter((l) => /^[12?u] /.test(l)).map((l) => {
     const p = l[0] === '?' ? l.slice(2) : l.split(' ').slice(fields[l[0]!]).join(' ').split('\t')[0]!
     return p.startsWith(prefix) ? p.slice(prefix.length) : p
-  })
+  }).filter((p) => !skip || !key(join(w.dir, p)).startsWith(key(skip) + '/'))
   const code = w.codeGlobs.map(globRe)
   return {
     branch: /^# branch\.head (.+)$/m.exec(stdout)?.[1],
     head: /^# branch\.oid (\S+)$/m.exec(stdout)?.[1],
     changed: paths.length,
     code: paths.filter((p) => code.some((re) => re.test(p))).length,
+    paths,
   }
+}
+
+// Las notas "bloqueado" del stop-gate posteriores a `after`: el aviso del Stop sale de la
+// timeline, no de un hook en classic.Stop, que otro plugin puede saltarse (docs/PLAN.md §3).
+export function stopBlocks(text: string, after: number): { at: number; detail: string }[] {
+  return text.split('\n').flatMap((l) => {
+    try {
+      const x = JSON.parse(l)
+      const at = Date.parse(x.at)
+      return x.stage === 'stop-gate' && x.result === 'bloqueado' && at > after ? [{ at, detail: String(x.detail ?? '') }] : []
+    } catch {
+      return []
+    }
+  })
 }
 
 // Un Bash del modelo es verificación si corre ci-gate, typecheck-baseline o test-select, o si un
