@@ -108,7 +108,8 @@ agentic-harness/
         ship.js                          # check, rama y stage de ship
         adoption-check.js                # las 8 comprobaciones del mínimo
         adopt.js                         # lo determinista de init: tests legibles, línea base, hooks viejos, permisos, CLAUDE.md de carpeta
-        ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
+        ci-gate.js                       # lo que corre el CI: touched-files + typecheck + convenciones + lint + test-select sobre el MR
+        conventions.js                   # las convenciones mecánicas del manifiesto sobre lo que cambió, con archivo y línea
         plan-state.js                    # el plan de la corrida: estado, aprobación de la persona y plan trivial
         hooks/{session-start,prompt-context,after-edit,guard,plan-guard,read-guard,stop-gate,worktree-remove}.js   # session-start atiende también SessionEnd
       tests/                             # repos de juguete + node --test; corre en CI del arnés
@@ -198,6 +199,8 @@ El front lleva el suyo con `"lint": "npx eslint {files} --max-warnings=0 --no-wa
   - `{ancestor}`: la carpeta del archivo o cualquiera de sus ancestros dentro del workspace; gana el más cercano donde exista el spec. Se necesita porque en renova api 1386 de 1564 specs de `__test__/` están en la raíz del módulo y no junto al archivo (`modulo/__test__/x.use-case.spec.ts` para `modulo/application/use-cases/x.use-case.ts`).
   - `{name}`: el nombre del archivo sin la última extensión.
 
+Desde la tercera ronda antes del piloto, el workspace admite `conventions`: las convenciones mecánicas que `conventions.js` comprueba en el gate (§6.1).
+
 Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio de código" para el gate del `Stop`; por defecto `**/*.{ts,tsx,js,jsx,php,sql}` y nunca `*.md`), `sharedPaths` (rutas cuyo cambio obliga a suite completa), `commands.typecheckFast` (variante incremental para el hook de después de editar; si no existe, ese hook solo lintea el archivo y el typecheck completo corre en `verify`).
 
 `arnes:init` (con `scripts/init-draft.js`) genera los dos niveles. Primero, el manifiesto de cada repo detectado, a partir de `package.json`, los tsconfigs, la configuración de eslint y los formatos de spec que aparecen en `git ls-files`. Un repo que solo tiene `composer.json` se declara sin manifiesto propio. Después, si la carpeta no es un repo y contiene repos anidados, la composición. Todo se valida contra `schema/harness.schema.json`, y el humano completa lo que no se infiere (`riskPaths`, `contract`, `sharedPaths`, `integration`, `memory`). `arnes:init --check` corre `adoption-check.js`. En academico la carpeta es a la vez el repo del arnés, así que su composición queda en `.gitignore`.
@@ -226,6 +229,13 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida real, desde la raíz de academico con api-academico y academico-front:
 - **Diagnósticos en archivos ignorados por git.** El typecheck del front contó como nuevo un error en `.next/dev/types/validator.ts`, que genera `next dev` y git ignora. La foto del base sale de `git archive` y no lo tiene, y el árbol actual sí. Ahora `typecheck-baseline` y `ci-gate` descartan de los dos lados todo diagnóstico de un archivo ignorado (`git check-ignore --stdin`, desde la carpeta del workspace) y lo dicen en una línea: `descartados los diagnósticos de N archivo(s) ignorado(s) por git: …`. Si una corrida es válida se juzga antes de descartar, para que un typecheck que solo falla en archivos ignorados no pase por una corrida que no llegó a correr.
 - **El commit contra la bandera.** El hook pre-commit del front corre `eslint --fix` sobre lo que está en stage. Esa vez no cambió nada, pero si cambia, el commit lleva un contenido distinto del que verificó la bandera, y el arnés no se entera. Ahora la bandera guarda también `blobs`: el blob que git guardaría de cada tocado (`git hash-object --stdin-paths` desde la raíz del repo, que normaliza los finales de línea como el commit). `ship.js committed <ws>`, que ship corre después de cada commit, compara el blob de HEAD de cada archivo con el de la bandera, y si alguno difiere sale con 1, `FALLA` y los archivos. Una bandera escrita antes, sin `blobs`, no se puede comparar y lo dice.
+- Cambio de la tercera ronda antes del piloto (2026-10-20). **Convenciones baratas antes del revisor caro.** La ronda 1 de review de la corrida del compañero encontró diez bloqueantes, y nueve eran mecánicos: comentarios, un banner, `as unknown as` y datos de prueba a mano. Cada uno costó un dev, un test-writer, un verify y una ronda de review. Ahora el gate tiene un chequeo determinista, `conventions.js`:
+  - corre la lista `conventions` del workspace, con `{ id, pattern, message, exclude?, unless? }` (`$defs.convention` del schema), sobre lo que cambió en los tocados de código: un archivo nuevo entero, y uno modificado solo en sus líneas agregadas o cambiadas, para que una violación que ya estaba no ponga rojo;
+  - pone el gate en rojo con `archivo:línea · id · mensaje`;
+  - corre en `ci-gate`, y con él en verify y en el CI, como paso `convenciones` antes del lint;
+  - el dev lo corre sobre sus archivos antes de entregar, porque build le pasa el comando, y corrige él mismo;
+  - `init-draft` propone cuatro reglas a un repo JS o TS: comentarios de línea y de bloque, salvo `eslint-disable` o la justificación de `any`; `as unknown as` y `: any`; `console.` fuera de los tests; y `TODO`. Los datos de prueba escritos a mano no se pueden comprobar sin criterio y siguen en el reviewer;
+  - el reviewer ya no reporta lo que cubren las convenciones: se queda con lo que exige criterio (§6.4).
 - **Sin contract no hay orden.** El chequeo de ship imprimió el orden front → back porque ningún manifiesto declaraba `contract`, y la skill tuvo que corregirlo a mano. Con dos o más workspaces y ningún `provides` ni `consumes`, `ship.js check` avisa en una línea que el orden es el del manifiesto, y `adoption-check` lo marca como FALTA en la comprobación 1.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)

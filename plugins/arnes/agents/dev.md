@@ -39,8 +39,9 @@ Tu trabajo es escribir el código de producción que cumple esos criterios en es
 ## Al terminar
 
 1. Corre una vez el `commands.typecheck` del manifiesto desde la carpeta del workspace. Corrige los errores que estén en tus archivos. Los que no son tuyos van en Pendiente, con el archivo.
-2. Corre `commands.lint` sobre los archivos que tocaste, sustituyendo `{files}` por sus rutas entre comillas. No lo corras sobre el repo entero.
-3. No corras la suite de tests: eso es de verify.
+2. Si el prompt trae el comando de convenciones, córrelo sobre los archivos que tocaste y corrige cada hallazgo antes de entregar. Son las convenciones mecánicas del manifiesto (comentarios, `as unknown as`, `console.`, TODO): el reviewer ya no se las marca a otro, verify las da en rojo.
+3. Corre `commands.lint` sobre los archivos que tocaste, sustituyendo `{files}` por sus rutas entre comillas. No lo corras sobre el repo entero.
+4. No corras la suite de tests: eso es de verify.
 
 ## Reporte
 

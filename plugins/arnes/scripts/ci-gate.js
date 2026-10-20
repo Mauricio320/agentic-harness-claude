@@ -6,8 +6,10 @@
 //      worktrees), con node_modules enlazado: symlink en CI, junction en Windows, copia si no se
 //      puede enlazar. Queda en .tmp/harness/typecheck/<ws>.txt y se reutiliza mientras el hash del
 //      base sea el mismo.
-//   2. lint sobre los tocados que caen en codeGlobs
-//   3. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
+//   2. convenciones: las reglas conventions del manifiesto sobre lo que cambió en los tocados de
+//      código (conventions.js), antes del lint: lo mecánico no llega al reviewer
+//   3. lint sobre los tocados que caen en codeGlobs
+//   4. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
 //      test-baseline.js: contra la línea base de tests commiteada, si el workspace la tiene, y con
 //      las fallas de tests/known-failures.txt como preexistentes. Un spec de la base borrado es
 //      rojo aunque no haya otro código tocado.
@@ -31,6 +33,7 @@ const { git, sh, quote, runExpanded, firstLine, tail, help, die } = require('./l
 const { touched } = require('./touched-files.js');
 const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
+const conventions = require('./conventions.js');
 
 function baseOf(ws, explicit) {
   const ref = explicit || process.env.CI_MERGE_REQUEST_DIFF_BASE_SHA;
@@ -147,6 +150,14 @@ function stepTypecheck(project, ws, base) {
   return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)}) · ${photo}`, out: lines.join('\n') || undefined };
 }
 
+function stepConventions(ws, code, base) {
+  if (!ws.conventions || !ws.conventions.length) return { status: 'omitido', detail: 'sin conventions' };
+  const r = conventions.check(ws, code, base.hash);
+  if (r.error) return { status: 'falla', detail: r.error };
+  if (r.findings.length) return { status: 'falla', detail: `${r.findings.length} hallazgo(s)`, out: r.findings.map(conventions.describe).join('\n') };
+  return { status: 'ok', detail: `${code.length} archivo(s), ${ws.conventions.length} convención(es)` };
+}
+
 function stepLint(ws, code) {
   const cmd = ws.commands.lint;
   if (!cmd) return { status: 'omitido', detail: 'sin commands.lint' };
@@ -204,12 +215,13 @@ function main() {
     }
     for (const [name, step] of [
       ['typecheck', () => stepTypecheck(project, ws, base)],
+      ['convenciones', () => stepConventions(ws, code, base)],
       ['lint', () => stepLint(ws, code)],
       ['tests', () => stepTests(ws, files)],
     ]) {
       const r = step();
       if (r.status === 'falla') red = true;
-      console.log(`  ${name.padEnd(10)} ${r.status === 'falla' ? 'FALLA' : r.status} · ${r.detail}`);
+      console.log(`  ${name.padEnd(12)} ${r.status === 'falla' ? 'FALLA' : r.status} · ${r.detail}`);
       if (r.out) console.log(r.out.replace(/^/gm, '             '));
     }
   }

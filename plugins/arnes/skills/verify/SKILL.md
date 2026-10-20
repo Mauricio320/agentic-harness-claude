@@ -23,6 +23,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
    b. **El gate:** corre `node "S/ci-gate.js" --ws <ws> --base HEAD`. Es lo mismo que corre el CI, sobre los cambios sin commitear:
       - el typecheck contra una foto del HEAD, con la clave y los conteos de typecheck-baseline; la foto queda en `.tmp/harness/typecheck/` y se reutiliza mientras el HEAD no cambie;
+      - las convenciones del manifiesto (`conventions`) sobre lo que cambió, antes del lint;
       - el lint de los tocados que son código;
       - los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.
 

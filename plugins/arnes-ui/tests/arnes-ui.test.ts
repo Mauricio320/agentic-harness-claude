@@ -338,6 +338,7 @@ test('lib: la timeline desde lo visto, las marcas del gate y el título del plan
   const two = ['== api (.)', '  typecheck  FALLA · 2 diagnóstico(s) nuevo(s)', '  tests      omitido · sin commands.test', '== front (front)', '  FALLA      base irresoluble: x'].join('\n')
   expect(gateMarks(two)).toEqual([{ ws: 'api', tsc: 'fail', failed: ['typecheck'] }, { ws: 'front', failed: ['base'] }])
   expect(gateMarks('sin salida')).toEqual([])
+  expect(gateMarks(['== api (.)', '  convenciones FALLA · 2 hallazgo(s)', '  tests        ok · 1 spec(s)'].join('\n'))).toEqual([{ ws: 'api', tests: 'ok', failed: ['convenciones'] }])
 
   expect(planTitle('\uFEFF# Plan: CRUD de talleres\r\n\r\nIssue: #7')).toBe('CRUD de talleres')
   expect(planTitle('\n\n## plan:  `taller`  **activo**\tcon\u200b inscritos ⚠\uFE0F\n')).toBe('taller activo con inscritos ⚠')

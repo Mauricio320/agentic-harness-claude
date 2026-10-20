@@ -97,6 +97,18 @@ test('un diagnóstico en un archivo ignorado por git (lo generado de next dev) n
   assert.match(red.stdout, /src\/a\.js · TS2322 · nuevo de verdad/);
 });
 
+test('las convenciones del manifiesto corren antes del lint, sobre lo que cambió, y ponen el gate en rojo con archivo y línea', () => {
+  const { dir, head } = repo({ conventions: [{ id: 'sin-console', pattern: '\\bconsole\\.', message: 'sin console fuera de los tests' }] });
+  fs.appendFileSync(path.join(dir, 'src/a.js'), 'console.log(1);\n');
+  const r = gate(dir, ['--base', head]);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /convenciones FALLA · 1 hallazgo\(s\)\n\s+src\/a\.js:2 · sin-console · sin console fuera de los tests\n\s+lint/);
+  const ok = repo({ conventions: [{ id: 'sin-console', pattern: '\\bconsole\\.', message: 'x' }] });
+  fs.appendFileSync(path.join(ok.dir, 'src/a.js'), 'b\n');
+  assert.match(gate(ok.dir, ['--base', ok.head]).stdout, /convenciones ok · 1 archivo\(s\), 1 convención\(es\)/);
+  assert.match(gate(repo().dir, ['--base', 'HEAD']).stdout, /resultado: VERDE/);
+});
+
 test('el base se lee del commit base, no del árbol: un error preexistente desplazado no es rojo', () => {
   const { dir, head } = repo();
   fs.writeFileSync(path.join(dir, 'tsc-out.txt'), "src/a.js(40,7): error TS2304: Cannot find name 'x'.\n");

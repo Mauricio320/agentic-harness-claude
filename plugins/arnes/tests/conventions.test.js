@@ -1,0 +1,62 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { validate } = require('../scripts/lib/manifest.js');
+const h = require('./helpers.js');
+
+const CONVENTIONS = [
+  { id: 'sin-comentarios', pattern: '(^|\\s|\\{)(//|/\\*)|^\\s*\\*(\\s|/|$)', message: 'sin comentarios', unless: 'eslint-disable|\\bany\\b' },
+  { id: 'sin-any', pattern: '\\bas unknown as\\b|:\\s*any\\b', message: 'sin any', unless: 'eslint-disable' },
+  { id: 'sin-console', pattern: '\\bconsole\\.', message: 'sin console', exclude: ['**/*.spec.*'] },
+];
+
+function repo(conventions = CONVENTIONS) {
+  const dir = h.tmp('conv');
+  h.repo(dir, {
+    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', conventions })),
+    'src/viejo.ts': '// comentario que ya estaba\nconst a = 1;\n',
+  });
+  return dir;
+}
+
+const conv = (dir, args = []) => h.run('conventions.js', ['--ws', 'api', ...args], { cwd: dir });
+
+test('marca con archivo y línea lo agregado o cambiado; lo que ya estaba en un archivo tocado no', () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, 'src/viejo.ts'), 'const b = 2; // nuevo\n');
+  h.write(dir, 'src/nuevo.ts', 'const x = y as unknown as Z;\nconsole.log(x);\nlet v: any; // eslint-disable-line\n');
+  h.write(dir, 'src/nuevo.spec.ts', 'console.log("en un spec sí");\n');
+  const r = conv(dir);
+  assert.equal(r.status, 1);
+  assert.deepEqual(h.lines(r.stdout), [
+    'src/nuevo.ts:1 · sin-any · sin any',
+    'src/nuevo.ts:2 · sin-console · sin console',
+    'src/viejo.ts:3 · sin-comentarios · sin comentarios',
+    'api: 3 hallazgo(s) en 3 archivo(s), 3 convención(es)',
+  ]);
+});
+
+test('con archivos dados revisa esos; sin hallazgos sale en 0; sin reglas no hay nada que comprobar', () => {
+  const dir = repo();
+  h.write(dir, 'src/limpio.ts', 'export const limpio = 1;\n');
+  h.write(dir, 'src/sucio.ts', 'console.log(1);\n');
+  const r = conv(dir, ['src/limpio.ts']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /api: sin hallazgos en 1 archivo\(s\)/);
+  assert.equal(conv(dir, [path.join(dir, 'src', 'sucio.ts')]).status, 1, 'una ruta absoluta también');
+  const sin = repo(undefined);
+  fs.writeFileSync(path.join(sin, '.claude', 'harness.json'), h.repoManifest('api'));
+  assert.match(conv(sin).stdout, /sin conventions en el manifiesto/);
+});
+
+test('una regla que no compila sale en 2; el schema valida las convenciones', () => {
+  assert.equal(conv(repo([{ id: 'rota', pattern: '(', message: 'x' }])).status, 2);
+  const manifest = (c) => JSON.parse(h.repoManifest('api', h.workspace({ name: 'api', conventions: c })));
+  assert.deepEqual(validate(manifest(CONVENTIONS)), []);
+  assert.notDeepEqual(validate(manifest([{ id: 'Sin Id', pattern: 'x', message: 'y' }])), []);
+  assert.notDeepEqual(validate(manifest([{ id: 'x', pattern: 'x' }])), [], 'sin message');
+  assert.notDeepEqual(validate(manifest([{ id: 'x', pattern: 'x', message: 'y', otra: 1 }])), []);
+});

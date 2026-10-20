@@ -70,6 +70,7 @@ Si `input.md` lista riskPaths tocadas en algún workspace, la primera línea de 
 # Qué no reportar
 
 - Formato que cubre el lint, que ya corrió.
+- Lo que cubren las convenciones del manifiesto (`conventions`: comentarios, `as unknown as`, `console.`, TODO…), que corrieron en verify. Tú te quedas con lo que exige criterio.
 - Estilo de gusto personal.
 - Deuda preexistente fuera del diff.
 - Hipótesis que no puedes señalar en una línea concreta.

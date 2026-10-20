@@ -64,6 +64,7 @@
         "codeGlobs": { "$ref": "#/$defs/globs" },
         "sharedPaths": { "$ref": "#/$defs/globs" },
         "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
+        "conventions": { "description": "Convenciones que se comprueban sin criterio (conventions.js), antes del lint y del reviewer.", "type": "array", "items": { "$ref": "#/$defs/convention" } },
         "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" }
       }
     },
@@ -85,6 +86,19 @@
       "description": "{dir}: carpeta del archivo, relativa al workspace; {ancestor}: esa carpeta o cualquier ancestro dentro del workspace, gana el más cercano donde exista el spec; {name}: nombre sin la última extensión.",
       "type": "string",
       "pattern": "\\{name\\}"
+    },
+    "convention": {
+      "description": "Una convención mecánica (docs/PLAN.md §6.1). pattern es una expresión regular que se busca en cada línea agregada o cambiada de un archivo de código tocado; message dice qué hacer. exclude son globs de archivos, relativos al workspace, donde no aplica; unless, una expresión que exceptúa la línea que también la cumple.",
+      "type": "object",
+      "required": ["id", "pattern", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "pattern": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "exclude": { "$ref": "#/$defs/globs" },
+        "unless": { "type": "string", "minLength": 1 }
+      }
     },
     "contract": {
       "type": "object",

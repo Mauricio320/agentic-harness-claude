@@ -70,7 +70,8 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.deepEqual(Object.keys(d).sort(), ['.claude/harness.json', 'api/.claude/harness.json', 'client/.claude/harness.json']);
   assert.deepEqual(d['.claude/harness.json'].repos, [{ path: 'academicoBitbuckett' }, { path: 'api' }, { path: 'client' }]);
 
-  const [api] = d['api/.claude/harness.json'].workspaces;
+  const [{ conventions, ...api }] = d['api/.claude/harness.json'].workspaces;
+  assert.deepEqual(conventions.map((c) => c.id), ['sin-comentarios', 'sin-any', 'sin-console', 'sin-todo'], 'las convenciones mecánicas de un repo JS/TS');
   assert.deepEqual(
     { ...api },
     {

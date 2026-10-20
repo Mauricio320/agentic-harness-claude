@@ -34,6 +34,15 @@ const { databaseForbidden } = require('./lib/database.js');
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
 
+// Las convenciones mecánicas que se proponen a un repo de JavaScript o TypeScript (conventions.js):
+// lo que la ronda 1 de review marcaba una y otra vez, y que no necesita criterio.
+const CONVENTIONS = [
+  { id: 'sin-comentarios', pattern: '(^|\\s|\\{)(//|/\\*)|^\\s*\\*(\\s|/|$)', message: 'sin comentarios: el código se explica solo', unless: 'eslint-disable|@ts-expect-error|\\bany\\b' },
+  { id: 'sin-any', pattern: '\\bas unknown as\\b|:\\s*any\\b', message: 'sin as unknown as ni : any: tipa el valor', unless: 'eslint-disable' },
+  { id: 'sin-console', pattern: '\\bconsole\\.', message: 'sin console. fuera de los tests: usa el logger del proyecto', exclude: ['**/*.spec.*', '**/*.test.*', '**/__tests__/**', '**/__test__/**'] },
+  { id: 'sin-todo', pattern: '\\bTODO\\b', message: 'sin TODO: hazlo ahora o abre un issue' },
+];
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -148,6 +157,7 @@ function detectRepo(dir) {
     stack: stackOf(deps, composer),
     commands,
     specPattern: specPatterns(dir),
+    conventions: CONVENTIONS,
     forbidden: forbidden.length ? forbidden : undefined,
   };
   for (const k of Object.keys(ws)) if (ws[k] === undefined) delete ws[k];

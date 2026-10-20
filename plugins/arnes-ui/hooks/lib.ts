@@ -158,7 +158,7 @@ export function gateMarks(out: string): { ws: string; tsc?: Mark; tests?: Mark; 
   for (const l of out.split(/\r?\n/)) {
     const ws = /^== (\S+) \(/.exec(l)
     if (ws) res.push({ ws: ws[1]!, failed: [] })
-    const step = /^ {2}(typecheck|lint|tests|FALLA)\s+(ok|FALLA)?/.exec(l)
+    const step = /^ {2}(typecheck|convenciones|lint|tests|FALLA)\s+(ok|FALLA)?/.exec(l)
     const cur = res[res.length - 1]
     if (ws || !step || !cur || (step[1] !== 'FALLA' && !step[2])) continue
     if (step[1] === 'FALLA' || step[2] === 'FALLA') cur.failed.push(step[1] === 'FALLA' ? 'base' : step[1]!)

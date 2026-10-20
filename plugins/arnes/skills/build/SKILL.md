@@ -16,6 +16,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start build --ws <ws>`.
    - Lanza un agente `arnes:dev`, uno por workspace, nunca uno para dos. Su prompt lleva, en este orden:
      - El nombre del workspace y su carpeta absoluta.
+     - Si su manifiesto declara `conventions`, el comando de convenciones para correr antes de entregar: `node "${CLAUDE_PLUGIN_ROOT}/scripts/conventions.js" --ws <ws> <sus archivos>`, desde la carpeta de la sesión.
      - El plan entero, pegado tal cual.
      - Los criterios que le tocan a ese workspace.
      - Si consume un contrato, la sección `## Contrato resultante` que devolvió el dev del back, copiada textual entre las líneas `--- contrato del back ---` y `--- fin del contrato ---`. No la resumas ni la reescribas: el front se escribe contra ese texto.
