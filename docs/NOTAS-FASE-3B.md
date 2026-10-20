@@ -104,7 +104,7 @@ La prueba corrió sobre un clon de `api-academico`, en la rama `feature/crud-tal
 - En esa rama, `.gitignore` ignora `docs`. Las decisiones que escribe memory no se versionan sin `git add -f`, aunque `docs/decisions/0001-…` sí está trackeado de antes. memory lo avisa, y adoptar el repo debería quitar `docs` del `.gitignore`.
 - El eslint de api-academico no cubre `scripts/*.js`: todo archivo ahí falla con `was not found by the project service`. Es un error previo, que en verify y en sync aparece como lint rojo de un archivo que entró.
 - El issue pedía "solo ADMIN y COORDINADOR". El plan lo tradujo a permisos `taller.*` más los otorgamientos en el mantenedor de roles, porque las rules del repo prohíben comparar nombres de rol: eso salió como pregunta cerrada (P3). `coordinador` existe como rol de datos (`acl_rol`), no como constante `ACL_ROL_*`.
-- El dev movió `TallerRepository` a `PersistenciaModule` (regla §7 del repo). Es un error de DI que no detectan ni tsc ni jest: hace falta `npm run start` con base de datos, y el arnés no lo corre.
+- El dev movió `TallerRepository` a `PersistenciaModule` (regla §7 del repo). Si ese cambio rompiera la inyección de dependencias, ni tsc ni jest lo detectarían: hace falta `npm run start` con base de datos, y el arnés no lo corre.
 
 ## Para CHANGELOG.md
 
