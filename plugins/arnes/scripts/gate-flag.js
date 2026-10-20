@@ -103,7 +103,7 @@ function turnChanged(project, ws) {
   return !snap || !!s.error || s.touchedHash !== snap.touchedHash || s.contentHash !== snap.contentHash;
 }
 
-module.exports = { MAX_AGE_MS, flagPath, writeFlag, checkFlag, turnPath, writeTurn, turnChanged };
+module.exports = { MAX_AGE_MS, stateOf, flagPath, writeFlag, checkFlag, turnPath, writeTurn, turnChanged };
 
 function main() {
   let args;

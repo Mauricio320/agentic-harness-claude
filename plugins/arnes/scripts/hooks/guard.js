@@ -214,7 +214,7 @@ function judge(text, dir, depth = 0) {
   return null;
 }
 
-module.exports = { judge };
+module.exports = { judge, suspicious };
 
 if (require.main === module) {
   run('guard', (input) => {
