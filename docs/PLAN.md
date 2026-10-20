@@ -1,7 +1,7 @@
 # Plan: arnés multi-proyecto para Claude Code
 
 Fecha: 2026-10-19. Estado: plan aprobado en conversación, sin código aún.
-Primer caso real: `C:\Users\MauricioTriana\Desktop\PDV\academico` (tres repos, tres stacks, raíz sin git).
+Primer caso real: la carpeta `academico` (tres repos, tres stacks, raíz sin git). En las guías de prueba, `$PDV` es la carpeta que la contiene junto a `agentic-harness`.
 Segundo caso: `renova365` (dos repos, raíz sin git), absorbiendo su `.claude/` actual y el fork de `api-academico/.claude/`.
 
 ## 1. Objetivo
@@ -95,7 +95,7 @@ agentic-harness/
         gate-flag.js                     # escribe/valida la bandera de verificación
         adoption-check.js                # las 7 comprobaciones del mínimo
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + lint + test-select sobre el MR
-        hooks/{session-start,prompt-context,after-edit,guard,stop-gate,worktree-remove}.js
+        hooks/{session-start,prompt-context,after-edit,guard,read-guard,stop-gate,worktree-remove}.js
       tests/                             # repos de juguete + node --test; corre en CI del arnés
     arnes-ui/
       .claude-plugin/plugin.json         # solo interfaz: banda, panel, status, toasts (§6.5b)
@@ -195,16 +195,18 @@ Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio 
 - `gate-flag.js write <ws>` escribe `.tmp/harness/gate/<ws>.json` = `{ head, touchedHash, contentHash, result, at }`; `check <ws>` valida vigencia (mismo HEAD, mismo hash de la lista de tocados, mismo hash del contenido de cada tocado, trackeado o no, < 30 min). Cambio de la fase 2b (2026-10-19): la prueba manual mostró que editar un archivo ya tocado no vencía la bandera, y por eso entró `contentHash`. Sigue sin ser la huella del árbol entero (§11), solo de los tocados: el CI es quien garantiza la honestidad, no el marcador.
 - `adoption-check.js`: manifiesto válido; `CLAUDE.md` presente; lint y typecheck ejecutables; CI con el job del gate; rutas de riesgo declaradas; versión del plugin fijada; ningún hook del `.claude/settings.json` de un repo o de la carpeta que corra scripts propios de `.claude/hooks/`. Un repo de la composición sin manifiesto propio sale como "no adoptable todavía" y no bloquea.
 - `ci-gate.js`: el base es `--base`, o `CI_MERGE_REQUEST_DIFF_BASE_SHA` en GitLab, o el merge-base con `origin/<defaultBranch>`. La foto de typecheck del base sale de `git archive <base>` a un directorio temporal, que no toca `.git` ni crea worktrees ni ramas, con el `node_modules` del workspace enlazado: symlink en CI (Linux), junction en Windows local, o copia si no se puede crear el enlace. Se compara contra el árbol actual con la misma clave y los mismos conteos que `typecheck-baseline`. Después corre lint sobre los tocados que caen en `codeGlobs` y los tests que elige `test-select`. Cachear la foto por SHA del merge-base queda como mejora posterior, fuera de la fase 1.
+- Línea base de tests commiteada (mejora tomada de coding-agent-harness; se construye en la fase 3). `ci-gate` y `verify` comparan los totales de tests que pasan, fallan y se saltan contra una línea base commiteada en el repo: `tests/baseline.json`, o la ruta que fije el schema. Si el total cae por debajo de la base, el gate se pone rojo aunque lo que queda esté verde, porque un test borrado o saltado es una regresión silenciosa. Los saltos se declaran por nombre en la base. Un commit que cambia la base lleva el prefijo `gates:` en el asunto.
 
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
 | Evento | Script | Hace |
 |---|---|---|
-| `SessionStart` | `session-start.js` | Lee el manifiesto; imprime workspaces, rama de cada uno, árbol sucio, worktrees pendientes de integrar (§7), últimas 5 decisiones de `docs/decisions`; inyecta el protocolo en ≤ 40 líneas. Si no hay manifiesto, dice cómo crearlo y no inventa nada |
+| `SessionStart` | `session-start.js` | Lee el manifiesto; imprime workspaces, rama de cada uno, árbol sucio, worktrees pendientes de integrar (§7), últimas 5 decisiones de `docs/decisions`; inyecta el protocolo en ≤ 40 líneas. Si no hay manifiesto, dice cómo crearlo y no inventa nada. Desde la fase 3 (mejora 3, con el ledger), avisa si otra sesión de Claude está activa en la misma carpeta o el mismo repo, detectada por los archivos de sesión o por un lock propio en `.tmp/harness`, y dice que la segunda trabaje en un worktree (§7) |
 | `UserPromptSubmit` | `prompt-context.js` | Adjunta estado corto (rutas de riesgo tocadas, bandera vigente o no). Nunca bloquea |
 | `PostToolUse` (`Edit\|Write`) | `after-edit.js` | Lintea solo el archivo editado (segundos) y devuelve los hallazgos como `additionalContext`. Corre typecheck solo si el workspace declara `commands.typecheckFast` (incremental), con debounce de 20 s por workspace; sin esa variante, el typecheck completo se deja para `verify`, porque un `tsc` de un minuto tras cada edición destruye la sesión. Nunca bloquea |
 | `PreToolUse` (`Bash\|PowerShell`) | `guard.js` | Parsea el comando por segmentos (`&&`, `;`, `\|`, saltos) y solo juzga segmentos que empiezan por el ejecutable. Deniega siempre, haya o no manifiesto: `git reset --hard`, `push --force`, `clean -f`, `branch -D` de ramas con commits sin mergear y `git worktree remove` de un worktree con commits sin integrar. Con manifiesto, además: comandos de `forbidden`; `git commit` sin bandera vigente para ese workspace; `git add .` con `.env`/logs sin trackear. Nunca mira texto de heredocs ni argumentos de `echo`/`cat` |
 | `Stop` | `stop-gate.js` | Bloquea terminar si (a) hay cambios en archivos de `codeGlobs` sin bandera de verificación vigente, o (b) hay worktrees del issue con commits sin integrar. Un solo bloqueo por turno: si la entrada trae `stop_hook_active: true`, deja pasar con aviso visible y escribe el pendiente en la timeline. Cada bloqueo también queda en la timeline (nota `bloqueado`), que es de donde `arnes-ui` saca su aviso. Solo bloquea un turno que cambió algo: `prompt-context` deja en cada prompt una foto de la lista y del contenido de los tocados (`.tmp/harness/turn.json`), y si al cerrar el turno nada cambió respecto de esa foto, el `Stop` solo avisa con `systemMessage`. Sin foto bloquea. No engancha `SubagentStop`. No bloquea si no hay manifiesto |
 | `PreToolUse` (`ExitWorktree`) | `worktree-remove.js` | Deniega `action: "remove"` si la rama del worktree tiene commits no contenidos en la rama por defecto del workspace (cuando exista el ledger, en su rama destino). `git worktree remove` por shell lo cubre `guard.js` con la misma regla |
+| `PreToolUse` (`Read\|Glob\|Grep`) | `read-guard.js` | Deniega abrir o buscar en archivos de secretos, para que nunca entren al transcript. La lista fija cubre `.env` y variantes (salvo `.env.example`), lo que esté dentro de `~/.ssh` y `~/.aws`, credenciales, tokens y llaves privadas; `secretPaths` del manifiesto la amplía por workspace. Aplica siempre, haya o no manifiesto, como las reglas destructivas de git. Read se juzga por `file_path`, Glob por `path` y `pattern`, y Grep por `path` y `glob`. Un Grep sobre una carpeta entera no se deniega (ripgrep salta lo ignorado), y un `cat .env` por Bash no lo mira este hook. Mejora 2, construida con las correcciones de la fase 2b |
 
 Cambio de la fase 2 (2026-10-19): `WorktreeRemove` no sirve para este rechazo. Según la documentación de 2.1.303, ese evento solo se dispara para worktrees creados por un hook `WorktreeCreate` propio, y un hook que sale con 0 cuenta como si hubiera borrado el directorio. Los worktrees de git, que son los del §7, los borra Claude Code sin pasar por él. Los dos caminos reales para que un agente borre un worktree son la herramienta `ExitWorktree` (exige `discard_changes: true` con commits sin mergear, pero el modelo puede pasarlo) y `git worktree remove` por shell, y los dos pasan por `PreToolUse`.
 
@@ -277,6 +279,7 @@ Diseño:
 3. **Ledger**: `.tmp/harness/worktrees.json` con `{ ws, path, branch, target, issue, openedAt, status }`. Solo la skill `worktree` abre y cierra; en carpetas multi-repo abre un *set* (uno por workspace, mismo nombre).
 4. **Fan-in determinista**: el agente no pushea ni mergea. Cuando termina, el orquestador integra en la misma respuesta: `git merge --no-ff wt/...` en la rama del issue (decisión tomada: nunca squash en este nivel; el squash lo hace el host git al mergear el MR a `main`), resuelve conflictos, corre `verify`, borra worktree y rama, cierra el ledger. Un agente "terminó" solo cuando su rama ya no existe.
 5. **Cuatro cercos** para cuando algo se salta el paso 4: `Stop` bloquea terminar el turno con worktrees sin integrar; `SessionStart` lista los pendientes al abrir ("tienes 3 ramas de agente sin integrar en api"); `ship` se niega a abrir MR con pendientes; `WorktreeRemove` se niega a borrar con commits sin integrar.
+   Antes del primer cerco está el aviso de sesión concurrente (mejora 3, fase 3): si `SessionStart` ve otra sesión activa en la misma carpeta o en el mismo repo, avisa que esta debe abrir su propio worktree en vez de compartir el árbol.
 6. **Cuándo no usar worktrees**: si los agentes tocan archivos disjuntos, corren en el mismo árbol, secuenciales o en paralelo, sin ramas: cero integración. Worktrees solo cuando habría conflicto real.
 7. **Limpieza**: `worktree prune` + barrido en `SessionStart` de worktrees con más de 7 días sin commits nuevos → aviso, nunca borrado silencioso.
 8. `.worktreeinclude` con `.env` en cada repo para que los worktrees arranquen con entorno.
@@ -294,6 +297,7 @@ Adoptar un repo empieza por quitar los hooks del arnés anterior de su `.claude/
 5. `riskPaths` declaradas y regla de aprobación en el host git: GitLab, approval rules por patrón de archivo o `CODEOWNERS` (según plan; en Free: rama protegida + pipeline obligatorio + plantilla de MR con el revisor); Bitbucket, default reviewers + restricciones de rama.
 6. Plugin fijado a un tag en `~/.claude/settings.json` o en `.claude/settings.json` del repo.
 7. Ningún hook del `.claude/settings.json` del repo o de la carpeta corre scripts propios de `.claude/hooks/`.
+8. Línea base de tests commiteada (`tests/baseline.json` o la ruta del schema), con los saltos declarados por nombre; un commit que la cambia lleva el prefijo `gates:` (§6.1). Desde la fase 3.
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
@@ -312,10 +316,11 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 | 1 | Schema + manifiesto + `init` + `touched-files`, `typecheck-baseline`, `test-select`, `gate-flag`, `adoption-check`, `ci-gate`, `lib/timeline` con tests de juguete | Los scripts pasan en academico (3 ws) y en renova365 (2 ws); `ci-gate` corre en un pipeline real |
 | 2 | Hooks clásicos: `guard` → `after-edit` → `session-start` → `stop-gate` → `worktree-remove` | Una sesión normal en api-academico lintea sola tras editar y no deja commitear sin bandera; el `Stop` bloquea una vez y suelta con `stop_hook_active` |
 | 2b | `arnes-ui`: banda, panel, status, toasts, `/arnes-panel`; `/arnes:timeline` en el plugin base | Muestra etapa, agentes y gate en una sesión real; desactivado, nada cambia y la timeline sigue existiendo |
-| 3 | Skills `plan/build/verify/review/ship/memory/sync` + 4 agentes + `worktree` con ledger | Un issue real de api-academico de punta a punta, sin invocar comandos |
+| 3 | Skills `plan/build/verify/review/ship/memory/sync` + 4 agentes + `worktree` con ledger; línea base de tests en `ci-gate` y `verify` (§6.1) y aviso de sesión concurrente en `session-start` (§6.2) | Un issue real de api-academico de punta a punta, sin invocar comandos |
 | 4 | Piloto: un issue de back de patrón conocido hecho por un dev de front con el arnés | Cuatro números anotados: hallazgos del reviewer, hallazgos del humano en el plan, defectos que llegaron a QA, minutos por etapa según la timeline |
 | 5 | `arnes-mod` (protocolo en system prompt, reviewer determinista) | Funciona y, desactivado, el plugin sigue completo |
 | 6 | graphify por repo, memoria en markdown, script de setup por carpeta, migración de renova365 y api-academico (borrar sus `.claude/` viejos, limpiar worktrees huérfanos, quitar permisos de push, sacar la contraseña de `settings.local.json`) | Las tres carpetas corren el mismo tag |
+| 7 | Publicación: licencia MIT; README en español e inglés (qué problema resuelve, qué no hace, instalación, el manifiesto con un ejemplo de repo y uno de carpeta, y una comparación honesta con gentle-ai, coding-agent-harness, harness-template y Superpowers); limpieza de todo lo personal en docs y tests (rutas con nombre de usuario, nombres de repos privados y de personas, reemplazados por ejemplos genéricos; los manifiestos reales de academico y renova365 fuera del repo, con fixtures anónimos en su lugar); `CONTRIBUTING` y `SECURITY` cortos; CI público con validate, tests y `plugin test`; espejo en GitHub con el marketplace apuntando a él, porque el atajo `owner/repo` de instalación y la mayoría de los usuarios de plugins están ahí | El CI público está en verde, el espejo instala con `owner/repo` y no queda nada personal en el repo. El tag 1.0.0 sale solo cuando el piloto de la fase 4 haya pasado y las tres carpetas corran el mismo tag |
 
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
@@ -341,6 +346,7 @@ Abiertas:
 5. Qué issue y qué persona para el piloto de la fase 4.
 6. Si `academicoBitbuckett` (PHP) entra en la fase 1 o se deja como workspace "solo lectura" hasta tener lint y tests.
 7. El `CLAUDE.md` global del usuario exige Engram en toda sesión; cuando la memoria pase a markdown (fase 6) hay que reescribir ese archivo, o Engram seguirá siendo obligatorio por instrucción aunque el arnés no lo use.
+8. Si el arnés se envía a la comunidad de plugins de Anthropic una vez publicado (fase 7).
 
 ## 13. Fuentes consultadas
 

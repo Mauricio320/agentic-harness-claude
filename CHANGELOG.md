@@ -21,8 +21,11 @@ Fase 2b: mod de interfaz. Escrito contra los tipos de la API de mods de Claude C
 - Tests del mod con `claude plugin test plugins/arnes-ui`.
 - `/arnes:timeline` y `timeline.js print`: la timeline como texto, con la duración por etapa. Funcionan sin el mod.
 - `docs/PRUEBA-FASE-2B.md` con la prueba manual.
+- `read-guard.js`, un `PreToolUse` sobre Read, Glob y Grep: deniega abrir o buscar en `.env` y variantes (salvo `.env.example`), `~/.ssh`, `~/.aws`, credenciales, tokens y llaves privadas, haya o no manifiesto. `secretPaths` en el manifiesto amplía la lista por workspace. Es la mejora 2 de `docs/PLAN.md` §6.2.
 
 ### Cambiado
+- `docs/PLAN.md` registra tres mejoras tomadas de otros arneses: la línea base de tests commiteada (§6.1 y §8, fase 3), el guard de lectura de secretos (§6.2) y el aviso de sesión concurrente (§6.2 y §7, fase 3). También registra la fase 7 de publicación (§10) y, en §12, la decisión abierta sobre la comunidad de plugins de Anthropic.
+- Las guías de prueba usan `$PDV` en los comandos y `<PDV>` en los textos esperados, en vez de la ruta personal.
 - `stop-gate` solo bloquea un turno que cambió la lista o el contenido de los tocados respecto de la foto que deja `prompt-context` en cada prompt (`.tmp/harness/turn.json`). Un turno que no tocó nada solo avisa.
 - `arnes-ui` deduce el workspace de un comando de `cd`, `-C`, `--prefix` o el cwd. Si no puede, la etapa va sin workspace y no marca ningún gate; antes caía en el primer repo de la composición.
 - `gate-flag`: la bandera lleva `contentHash`, el hash del contenido de cada tocado, trackeado o no. Editar un archivo ya tocado la vence. Una bandera escrita antes, sin ese campo, ya no vale.
