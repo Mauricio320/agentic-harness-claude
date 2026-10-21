@@ -287,3 +287,15 @@ test('input: las reglas que aplican van con su texto sin frontmatter, las otras 
   assert.ok(md().length < 252000);
   assert.match(md(), /… input cortado en 250000 caracteres\. Quedó fuera: .*src\/m\d+\.ts.*\. Lee esos archivos con Read/);
 });
+
+test('mark --clean escribe el reporte mínimo si el reviewer no escribió el suyo, y solo sin bloqueantes', () => {
+  const dir = changed();
+  assert.equal(review(dir, ['input']).status, 0);
+  assert.equal(review(dir, ['mark', '--clean', '--blockers', '1']).status, 2);
+  const r = review(dir, ['mark', '--clean']);
+  assert.equal(r.status, 0, r.stderr);
+  const rep = fs.readFileSync(harness(dir, 'review', 'ronda-1.md'), 'utf8');
+  assert.match(rep, /^REVISIÓN HUMANA OBLIGATORIA: prisma\/migrations\/001\/migration\.sql\n\n### Resumen\n0 bloqueantes: se puede entregar\.\n\n### Hallazgos por archivo\nSin hallazgos\.\n\nBLOQUEANTES: 0\n$/);
+  assert.equal(review(dir, ['check']).status, 0);
+  assert.equal(review(dir, ['input', '--clean']).status, 2);
+});

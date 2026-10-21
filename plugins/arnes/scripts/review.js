@@ -22,11 +22,12 @@
 //   mark   escribe .tmp/harness/review.json con los bloqueantes, la ronda y la huella de input.json;
 //          se niega si el árbol cambió desde input, porque lo revisado ya no es lo que hay. Exige el
 //          reporte del reviewer tal cual en .tmp/harness/review/report.md, con su línea BLOQUEANTES
-//          igual a --blockers, y lo guarda como review/ronda-<n>.md para la ronda siguiente
+//          igual a --blockers, y lo guarda como review/ronda-<n>.md para la ronda siguiente. Con --clean
+//          (sin bloqueantes), si el reviewer no escribió reporte, escribe el mínimo: Sin hallazgos
 //   check  revisión hecha: cada workspace adoptable con tocados está en review.json con su huella
 //          actual, y la revisión terminó sin bloqueantes
 // Uso: node review.js input [--completa]
-//      node review.js mark --blockers <n>
+//      node review.js mark --blockers <n> | mark --clean
 //      node review.js check
 // Salida: una línea por workspace, con las riskPaths tocadas; input sigue con la ronda y su modo y
 // termina con la ruta de input.md.
@@ -329,6 +330,7 @@ function input(project, full) {
       ? `Ronda ${r.round} de ${MAX_ROUNDS}, acotada: revisa solo el diff desde lo revisado en la ronda ${r.from}, ${r.blockers ? `contra sus ${r.blockers} bloqueante(s)` : 'que terminó sin bloqueantes'}. Su reporte va abajo.`
       : `Ronda ${r.round} de ${MAX_ROUNDS}, completa${r.reason ? ` porque ${r.reason}` : ''}.`,
     fs.existsSync(plan) ? `Plan: ${plan}` : 'Plan: no hay (.tmp/harness/plan.md no existe); el reporte va sin la sección de criterios.',
+    `Tu reporte va en ${reportFile(project)}: escríbelo ahí con Write, entero, y devuélvelo igual.`,
     `Lee el árbol final con Read: cada ruta de abajo es relativa a la carpeta de su workspace. ${bounded ? 'El diff es el del cambio desde esa ronda.' : 'El diff es contra el HEAD de base.'}`,
     'Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final; las borradas van sin número. Cita esos números.',
     '',
@@ -357,10 +359,17 @@ function same(a, b) {
   return a && b && a.head === b.head && a.touchedHash === b.touchedHash && a.contentHash === b.contentHash;
 }
 
-function mark(project, blockers) {
+// El reporte mínimo de una revisión sin hallazgos, para cuando el reviewer no escribió el suyo.
+function cleanReport(inp) {
+  const risk = Object.values(inp.workspaces || {}).flatMap((m) => m.risk || []);
+  return [...(risk.length ? [`${RISK}: ${risk.join(', ')}`, ''] : []), '### Resumen', '0 bloqueantes: se puede entregar.', '', '### Hallazgos por archivo', 'Sin hallazgos.', '', 'BLOQUEANTES: 0', ''].join('\n');
+}
+
+function mark(project, blockers, clean = false) {
   const inp = readJson(path.join(reviewDir(project), 'input.json'));
   if (!inp) die('review: no hay input.json; corre review.js input antes de revisar');
   const rep = reportFile(project);
+  if (clean && !fs.existsSync(rep)) fs.writeFileSync(rep, cleanReport(inp));
   if (!fs.existsSync(rep)) die(`review: falta ${rep}: guarda ahí el reporte del reviewer, tal cual, antes de marcar`);
   const said = [...fs.readFileSync(rep, 'utf8').matchAll(/^BLOQUEANTES:\s*(\d+)\s*$/gm)].pop();
   if (said && Number(said[1]) !== blockers) die(`review: el reporte dice BLOQUEANTES: ${said[1]} y --blockers dice ${blockers}`);
@@ -400,19 +409,21 @@ module.exports = { RISK, rulePaths, checkReview, rulesBlock, numbered };
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { blockers: { type: 'string' }, completa: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { blockers: { type: 'string' }, clean: { type: 'boolean' }, completa: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`review: ${e.message}`);
   }
   if (args.values.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const n = Number(args.values.blockers);
-  if (!['input', 'mark', 'check'].includes(mode) || extra) die('uso: review.js input [--completa] | mark --blockers <n> | check');
+  const clean = Boolean(args.values.clean);
+  const n = clean && args.values.blockers === undefined ? 0 : Number(args.values.blockers);
+  if (!['input', 'mark', 'check'].includes(mode) || extra) die('uso: review.js input [--completa] | mark --blockers <n> | mark --clean | check');
+  if (clean && (mode !== 'mark' || n !== 0)) die('review: --clean solo va con mark, y es una revisión sin bloqueantes');
   if (mode === 'mark' && !(Number.isInteger(n) && n >= 0)) die('review: mark necesita --blockers <n>, un entero ≥ 0');
   if (mode !== 'input' && args.values.completa) die('review: --completa solo va con input');
   const project = requireProject();
   if (mode === 'input') return input(project, !!args.values.completa);
-  if (mode === 'mark') return mark(project, n);
+  if (mode === 'mark') return mark(project, n, clean);
   const rows = checkReview(project);
   if (!rows.length) console.log('sin tocados en ningún workspace adoptable');
   for (const r of rows) console.log(`${r.ws}: ${r.ok ? 'ok' : 'FALTA'} · ${r.reason}${r.risk.length ? ` · ${RISK}: ${r.risk.join(', ')}` : ''}`);

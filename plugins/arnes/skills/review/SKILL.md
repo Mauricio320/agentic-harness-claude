@@ -27,12 +27,12 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
    - **No agregues tu opinión del cambio** ni un resumen de lo que hiciste: el reviewer juzga el árbol, no tu relato.
    - **No lo relances** para "confirmar" ni para que reconsidere un bloqueante.
 
-4. Guarda el reporte del reviewer, entero y tal cual, en `.tmp/harness/review/report.md` con Write. Mark lo exige, y es la entrada de la ronda siguiente.
+4. El reviewer escribe su reporte en `.tmp/harness/review/report.md`. No lo copies ni lo reescribas. Si no lo escribió y respondió `Sin hallazgos.` con `BLOQUEANTES: 0`, marca con `node "S/review.js" mark --clean`, que escribe el reporte mínimo, y salta el paso 5.
 
 5. Marca la revisión con el número de la última línea del reporte (`BLOQUEANTES: <n>`): `node "S/review.js" mark --blockers <n>`.
    - **Si el reporte no trae esa línea:** cuenta las líneas `BLOQUEANTE` del reporte.
    - **Si mark sale con 1:** el árbol cambió durante la revisión. Dilo, anota `end review --result fail --detail "el árbol cambió"` y termina.
-   - **Si sale con 2:** falta el reporte o su número no coincide. Corrígelo y vuelve a marcar.
+   - **Si sale con 2:** falta el reporte o su número no coincide. Dilo y relanza al reviewer una vez para que lo escriba; no lo escribas tú.
 
 6. Anota el fin: `node "S/lib/timeline.js" end review --result ok|fail --detail "<n> bloqueante(s) · ronda <r> <modo>"`. Es `fail` si hay bloqueantes.
 
@@ -56,7 +56,7 @@ Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`) no te deten
   - por archivo, primero los archivos con bloqueantes;
   - dentro de cada archivo, los bloqueantes antes que las sugerencias;
   - cada uno con su línea, su regla y cómo arreglarlo.
-  Copia el texto del reviewer, no lo suavices ni lo reescribas.
+  Muestra el reporte del reviewer tal cual, no lo suavices ni lo reescribas.
 - **Criterios:** la sección de cumplimiento de criterios si hubo plan, o la línea que dice que no lo hubo. En una ronda acotada, la de bloqueantes anteriores.
 - **El cierre:** `BLOQUEANTES: <n>` y la ronda. Con bloqueantes, ship no entrega. Se corrige, se verifica y se revisa otra vez, hasta el tope.
 

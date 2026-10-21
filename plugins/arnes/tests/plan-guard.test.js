@@ -105,3 +105,17 @@ test('plan-state trivial: solo si el último mensaje de la persona fue /arnes:pl
   assert.equal(planState(dir, ['trivial', '--pedido', 'otro', '--criterio', 'x']).status, 1, 'ya hay plan aprobado');
   for (const args of [[], ['otra'], ['trivial'], ['trivial', '--pedido', 'x'], ['status', '--pedido', 'x']]) assert.equal(planState(dir, args).status, 2, args.join(' '));
 });
+
+test('el reviewer solo escribe su reporte en .tmp/harness/review; el resto de los agentes no cambia', () => {
+  const dir = h.tmp('pg-reviewer');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  const write = (file, agent) => h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: path.join(dir, file) }, cwd: dir, ...(agent ? { agent_id: 'x', agent_type: agent } : {}) });
+  assert.equal(write('.tmp/harness/review/report.md', 'arnes:reviewer').out, null);
+  for (const f of ['src/a.ts', 'README.md', '.tmp/harness/plan.md']) {
+    const r = write(f, 'arnes:reviewer');
+    assert.equal(r.out.hookSpecificOutput.permissionDecision, 'deny', f);
+    assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /el reviewer solo escribe su reporte en .*\/\.tmp\/harness\/review\/report\.md/);
+  }
+  assert.equal(write('README.md', 'arnes:dev').out, null, 'el dev no tiene esa regla');
+  assert.equal(write('README.md').out, null, 'el hilo principal tampoco');
+});

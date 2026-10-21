@@ -36,7 +36,7 @@ test('política de invocación de §4: init, setup, ship, worktree y sync solo p
   for (const s of model) assert.ok(!dmi(s), `${s} debe ser invocable por el modelo`);
 });
 
-test('agentes de §6.4 con su model y su effort; el reviewer sin herramientas de escritura ni Bash', () => {
+test('agentes de §6.4 con su model y su effort; el reviewer sin Bash ni Edit, con Write para su reporte', () => {
   const want = { dev: 'sonnet', reviewer: 'opus', 'test-writer': 'sonnet', 'test-runner': 'haiku' };
   assert.deepEqual(agents.map((a) => a.replace(/\.md$/, '')).sort(), Object.keys(want).sort());
   for (const [name, model] of Object.entries(want)) {
@@ -47,7 +47,7 @@ test('agentes de §6.4 con su model y su effort; el reviewer sin herramientas de
     assert.ok(fm.description, `${name} sin description`);
   }
   const tools = frontmatter(path.join(PLUGIN, 'agents', 'reviewer.md')).fm.tools.split(/,\s*/);
-  assert.deepEqual(tools.sort(), ['Glob', 'Grep', 'Read']);
+  assert.deepEqual(tools.sort(), ['Glob', 'Grep', 'Read', 'Write'], 'Write solo para su reporte: el guard niega el resto');
   assert.ok(!fs.existsSync(path.join(PLUGIN, 'agents', 'README.md')), 'todo .md de agents/ se carga como agente');
 });
 
