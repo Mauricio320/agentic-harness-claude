@@ -69,6 +69,8 @@ function parseEnv(text) {
 }
 
 const DB_URL = /^(postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|sqlserver|mssql):\/\//i;
+// El nombre de una variable de conexión a una base: DB_HOST, DATABASE_URL, MYSQL_PORT, REDIS_HOST…
+const DB_VAR = /(database|postgres|mysql|mariadb|mongo|redis|(^|_)db(_|$)|(^|_)pg(_|$))/i;
 const DEFAULT_PORT = { mysql: 3306, mariadb: 3306, postgres: 5432, postgresql: 5432, sqlserver: 1433, mssql: 1433 };
 
 // El host y el puerto de una conexión, sin usuario, contraseña ni base; null si no se leen.
@@ -120,4 +122,4 @@ function afterBuildDraft(pkg, pm, example) {
   };
 }
 
-module.exports = { SCRIPT_NAME, TOOLS, DB_URL, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };
+module.exports = { SCRIPT_NAME, TOOLS, DB_URL, DB_VAR, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };

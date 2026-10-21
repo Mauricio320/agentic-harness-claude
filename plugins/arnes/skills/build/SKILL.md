@@ -21,7 +21,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - Abre dos o tres de las líneas citadas para comprobar que dicen lo que el dev afirma. Si un criterio falta, o una desviación contradice una decisión del plan, relanza el dev con la corrección concreta, una vez. Si sigue igual, repórtalo; no lo arregles tú en silencio.
    - Anota el fin: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end build --ws <ws> --result ok`, o `--result parcial` si quedó algo sin cubrir.
 4. Worktrees solo si dos devs tocarían los mismos archivos a la vez (docs/PLAN.md §7). En ese caso, pídele a la persona `/arnes:worktree open <slug>`. Un dev en un worktree termina cuando su rama está integrada.
-   - **El dev en un worktree** recibe en su prompt la carpeta del worktree y el mapa de puertos de su set (`worktree-ledger.js list`). Para probar la app, la arranca desde el worktree con esos puertos, nunca desde el checkout principal.
+   - **El dev en un worktree** recibe en su prompt la carpeta del worktree y el mapa de puertos de su set (`worktree-ledger.js list`). Para probar la app, la arranca desde el worktree con esos puertos, nunca desde el checkout principal, y con `node --env-file=.env` si open avisó de Prisma.
 5. Reporta a la persona, por workspace y en el orden en que se construyó:
    - El contrato resultante.
    - Los archivos tocados.

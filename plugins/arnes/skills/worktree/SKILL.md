@@ -24,7 +24,7 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
    - El worktree nace usable: `node_modules` enlazado al del checkout principal y los `.env*` copiados, para que verify corra adentro y la persona pueda levantar la app ahí.
    - **`--no-link`** cuando el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma` (`prisma generate`): con el enlace, regenerar en el worktree pisaría el del principal. Instala las dependencias dentro del worktree y tarda; pídele el sí a la persona.
    - **Puertos:** el set toma un desplazamiento (10 el primero, 20 el segundo) y las copias de `.env` lo llevan, para que su app corra al lado de la del principal. `--port-offset N` lo elige la persona; `--port-offset 0` no toca nada.
-3. Muestra la salida y después `list`. Di la ruta de cada worktree y repite el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
+3. Muestra la salida y después `list`. Di la ruta de cada worktree y repite el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Si open avisó que Prisma carga el `.env` del principal, se arranca con el del worktree ya cargado: `node --env-file=.env <entrada>`. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
 4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
 
 ## integrate <slug>

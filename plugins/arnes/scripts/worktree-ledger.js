@@ -8,7 +8,9 @@
 //
 // open deja cada worktree usable: por cada workspace del repo enlaza node_modules del checkout
 // principal (junction en Windows, symlink en el resto, lib/links.js) y copia, no enlaza, cada .env*
-// de la raíz del workspace salvo .env.example. Con --no-link no enlaza y corre la instalación del
+// de la raíz del workspace salvo .env.example. Si el node_modules enlazado trae el cliente generado de
+// Prisma, avisa que este carga el .env del principal y que la app se arranca con node --env-file=.env.
+// Con --no-link no enlaza y corre la instalación del
 // paso deps de setup.js dentro del worktree: para un issue que regenera algo dentro de node_modules,
 // como prisma/schema.prisma. Lo enlazado y lo copiado queda en el registro (links, copies), y
 // integrate y close lo deshacen antes de git worktree remove: un enlace se quita sin seguirlo.
@@ -35,6 +37,7 @@ const { loadProject, requireProject, selectWorkspaces, harnessDir, posix } = req
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
+const { DB_VAR } = require('./lib/database.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -209,6 +212,11 @@ function equip(project, entries, e, noLink, say) {
         e.copiedDirs.push(posix(dst));
         say(`${ws.name}: node_modules copiado, no se pudo enlazar`);
       } else say(`${ws.name}: node_modules enlazado desde ${posix(nm)}`);
+      // El cliente generado de Prisma vive en node_modules/.prisma/client y carga el .env de la raíz
+      // desde su ruta real, que es la del principal; dotenv no pisa lo que ya está en el entorno.
+      if (fs.existsSync(path.join(nm, '.prisma', 'client'))) {
+        say(`${ws.name}: aviso: Prisma carga el .env del checkout principal desde node_modules enlazado, con sus puertos y su base. Arranca la app del worktree con su .env ya cargado: node --env-file=.env <entrada>, por ejemplo node --env-file=.env dist/main (o abre con --no-link)`);
+      }
     }
     for (const f of envFiles(ws.dir)) {
       const to = path.join(dir, f);
@@ -260,8 +268,14 @@ function open(project, slug, { ws: names, issue, 'no-link': noLink, 'port-offset
 
 // Puertos (§7): un set abierto corre su app al lado de la del checkout principal. Cada set toma un
 // desplazamiento múltiplo de 10 que no use otro set abierto: el primero 10, el segundo 20.
-const PORT_LINE = /^(\s*(?:export\s+)?[A-Za-z0-9_]*PORT\s*=\s*)(["']?)(\d+)\2(\s*(?:#.*)?)$/i;
+const PORT_LINE = /^(\s*(?:export\s+)?([A-Za-z0-9_]*PORT)\s*=\s*)(["']?)(\d+)\3(\s*(?:#.*)?)$/i;
 const LOCAL_PORT = /\b(localhost|127\.0\.0\.1):(\d+)\b/g;
+// El puerto de la app, no el de su base: DB_PORT o MYSQL_PORT apuntan a la base que el worktree
+// comparte con el principal, y desplazarlos lo dejaría sin base.
+const appPort = (l) => {
+  const m = l.match(PORT_LINE);
+  return m && !DB_VAR.test(m[2]) ? { head: m[1], quote: m[3], port: Number(m[4]), tail: m[5] } : null;
+};
 
 function pickOffset(entries, slug) {
   const used = new Set(entries.filter((e) => e.status === 'abierto' && slugOf(e) !== slug && e.ports).map((e) => e.ports.offset));
@@ -271,7 +285,7 @@ function pickOffset(entries, slug) {
 }
 
 // En las copias de .env del set: cada variable que termina en PORT con valor numérico suma el
-// desplazamiento, y cada localhost:<puerto> o 127.0.0.1:<puerto> que apunta al puerto original de
+// desplazamiento, salvo la de una base (DB_PORT, MYSQL_PORT…), y cada localhost:<puerto> o 127.0.0.1:<puerto> que apunta al puerto original de
 // otro workspace del set pasa al nuevo, para que el front del worktree hable con su back. Con 0 no
 // se toca nada. Anota { offset, map } en cada registro del set. → la línea del mapa
 function movePorts(project, set, slug, offset) {
@@ -279,8 +293,8 @@ function movePorts(project, set, slug, offset) {
   const own = new Map();
   for (const f of files) {
     for (const l of fs.readFileSync(f.file, 'utf8').split(/\r?\n/)) {
-      const m = l.match(PORT_LINE);
-      if (m) own.set(f.ws, [...new Set([...(own.get(f.ws) || []), Number(m[3])])]);
+      const m = appPort(l);
+      if (m) own.set(f.ws, [...new Set([...(own.get(f.ws) || []), m.port])]);
     }
   }
   const map = [...own].flatMap(([ws, ports]) => ports.map((from) => ({ ws, from, to: from + offset })));
@@ -292,8 +306,8 @@ function movePorts(project, set, slug, offset) {
     const next = text
       .split(/(\r?\n)/)
       .map((l) => {
-        const m = l.match(PORT_LINE);
-        if (m) return `${m[1]}${m[2]}${Number(m[3]) + offset}${m[2]}${m[4]}`;
+        const m = appPort(l);
+        if (m) return `${m.head}${m.quote}${m.port + offset}${m.quote}${m.tail}`;
         return l.replace(LOCAL_PORT, (all, host, p) => (others.has(Number(p)) ? `${host}:${Number(p) + offset}` : all));
       })
       .join('');

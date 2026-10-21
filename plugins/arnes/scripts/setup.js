@@ -37,7 +37,7 @@ const { parseArgs } = require('util');
 const { spawnSync } = require('child_process');
 const { MANIFEST, validate, requireProject, posix } = require('./lib/manifest.js');
 const { git, sh, quote, firstLine, lines, help, die } = require('./lib/exec.js');
-const { touchesDatabase, parseEnv, DB_URL } = require('./lib/database.js');
+const { touchesDatabase, parseEnv, DB_URL, DB_VAR: DB_NAME } = require('./lib/database.js');
 const tb = require('./test-baseline.js');
 const adopt = require('./adopt.js');
 
@@ -46,7 +46,6 @@ const LOCKS = [
   { file: 'package-lock.json', cmd: 'npm ci', marker: '.package-lock.json' },
   { file: 'yarn.lock', cmd: 'yarn install --frozen-lockfile', marker: '.yarn-integrity' },
 ];
-const DB_NAME = /(database|postgres|mysql|mariadb|mongo|redis|(^|_)db(_|$)|(^|_)pg(_|$))/i;
 const GRAPHIFY = 'https://github.com/Graphify-Labs/graphify';
 
 const rel = (dir, p) => posix(path.relative(dir, p)) || '.';

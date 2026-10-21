@@ -236,6 +236,15 @@ test('open deja el worktree usable: node_modules enlazado, los .env copiados y t
   assert.deepEqual(e.copies, [p('.env'), p('.env.local')], '.env.example no se copia: viene con el checkout');
   fs.writeFileSync(path.join(wt, '.env'), 'PORT=4000\n');
   assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'PORT=3003\n', 'la copia es propia del worktree');
+  assert.doesNotMatch(r.stdout, /Prisma carga el \.env/, 'sin cliente de Prisma no hay aviso');
+});
+
+test('open avisa que el cliente de Prisma enlazado carga el .env del principal, y cómo arrancar la app', () => {
+  const dir = equipped();
+  h.write(dir, 'node_modules/.prisma/client/index.js', 'module.exports = {};\n');
+  const r = ledger(dir, 'open', 'prisma');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /api: aviso: Prisma carga el \.env del checkout principal desde node_modules enlazado, con sus puertos y su base\. Arranca la app del worktree con su \.env ya cargado: node --env-file=\.env <entrada>/);
 });
 
 test('open sin node_modules en el principal lo dice y sigue; --no-link instala dentro del worktree', () => {
@@ -262,22 +271,22 @@ test('puertos: cada set suma su desplazamiento en las copias de .env y el front 
   for (const d of [api, front]) h.write(d, '.gitignore', '.env\n');
   h.commitAll(api, 'ignora .env');
   h.commitAll(front, 'ignora .env');
-  h.write(api, '.env', 'PORT=3003\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n');
+  h.write(api, '.env', 'PORT=3003\nDB_PORT=3306\nMYSQL_PORT="3307"\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n');
   h.write(front, '.env', 'PORT="3000"\nNEXT_PUBLIC_API_URL=http://localhost:3003/api\nOTRO=http://127.0.0.1:9999\n');
   let r = ledger(root, 'open', 'talleres');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^set talleres: api 3003 → 3013, front 3000 → 3010$/m);
   const env = (ws, slug) => fs.readFileSync(path.join(wtDir(root, ws, slug), '.env'), 'utf8');
-  assert.equal(env('api', 'talleres'), 'PORT=3013\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n', 'la base no es de un workspace del set: no se toca');
+  assert.equal(env('api', 'talleres'), 'PORT=3013\nDB_PORT=3306\nMYSQL_PORT="3307"\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n', 'la base no es de un workspace del set: ni su url ni su puerto se tocan');
   assert.equal(env('front', 'talleres'), 'PORT="3010"\nNEXT_PUBLIC_API_URL=http://localhost:3013/api\nOTRO=http://127.0.0.1:9999\n');
-  assert.equal(fs.readFileSync(path.join(api, '.env'), 'utf8'), 'PORT=3003\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n', 'el principal queda igual');
+  assert.equal(fs.readFileSync(path.join(api, '.env'), 'utf8'), 'PORT=3003\nDB_PORT=3306\nMYSQL_PORT="3307"\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n', 'el principal queda igual');
   assert.deepEqual(entries(root)[0].ports, { offset: 10, map: [{ ws: 'api', from: 3003, to: 3013 }, { ws: 'front', from: 3000, to: 3010 }] });
 
   r = ledger(root, 'open', 'pagos');
   assert.match(r.stdout, /^set pagos: api 3003 → 3023, front 3000 → 3020$/m, 'el segundo set abierto toma 20');
   r = ledger(root, 'open', 'quieto', '--port-offset', '0');
   assert.match(r.stdout, /set quieto: --port-offset 0, los puertos quedan como en el principal/);
-  assert.equal(env('api', 'quieto'), 'PORT=3003\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n');
+  assert.equal(env('api', 'quieto'), 'PORT=3003\nDB_PORT=3306\nMYSQL_PORT="3307"\nDATABASE_URL=mysql://u:p@127.0.0.1:3312/db\n');
   r = ledger(root, 'open', 'elegido', '--port-offset', '100', '--ws', 'api');
   assert.match(r.stdout, /set elegido: api 3003 → 3103/);
   assert.equal(ledger(root, 'open', 'malo', '--port-offset', 'diez').status, 1);
