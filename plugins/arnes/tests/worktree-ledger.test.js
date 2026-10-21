@@ -340,3 +340,20 @@ test('git worktree remove a mano y ExitWorktree se niegan con un enlace del arn�
   assert.equal(x.out.hookSpecificOutput.permissionDecision, 'deny');
   assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'index.js')));
 });
+
+test('verify adentro: ci-gate corre en el worktree con el node_modules enlazado del principal', () => {
+  const manifest = h.repoManifest('api', h.workspace({ name: 'api', commands: { typecheck: ['node node_modules/typescript/bin/tsc'] } }));
+  const dir = equipped({ '.claude/harness.json': manifest });
+  h.write(dir, 'node_modules/typescript/bin/tsc', "require('fs').appendFileSync(process.env.TSC_LOG, process.cwd() + String.fromCharCode(10));\n");
+  assert.equal(ledger(dir, 'open', 'login').status, 0);
+  const wt = wtDir(dir, 'api', 'login');
+  fs.appendFileSync(path.join(wt, 'src/a.ts'), 'b\n');
+  const log = path.join(h.tmp('wt-log'), 'tsc.txt');
+  const r = h.run('ci-gate.js', ['--base', 'HEAD'], { cwd: wt, env: { TSC_LOG: log } });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /typecheck\s+ok/);
+  assert.match(fs.readFileSync(log, 'utf8'), /worktrees[\\/]api[\\/]login$/m, 'el typecheck corrió dentro del worktree');
+  assert.ok(isLink(path.join(wt, 'node_modules')), 'la foto del base no tocó el enlace');
+  assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'typescript', 'bin', 'tsc')), 'ni el node_modules del principal');
+  assert.match(ledger(wt, 'list').stdout, /abierto/, 'desde adentro, el registro es el del principal');
+});

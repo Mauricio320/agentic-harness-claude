@@ -463,6 +463,7 @@ Cambio de la ronda de worktrees (2026-10-21, rama `feature/worktrees`), que cier
   3. recién entonces corren `git worktree remove`.
 
   Cada paso se anota en el registro. Si algo falla a medias, el registro sigue abierto con `undo`, que dice qué quedó (`left`, `links`, `copies`), y no se intenta el remove. Un `integrate` que ya hizo el merge guarda `merge` antes de borrar, para que el siguiente lo conserve. El test del incidente crea un `node_modules` real con un archivo adentro, abre un worktree, integra y comprueba que el archivo sigue en el principal. Además, el guard niega un `git worktree remove` a mano, y `worktree-remove.js` un `ExitWorktree` con `remove`, mientras el worktree tenga un enlace del arnés vivo (`liveLinks`), y mandan a `integrate` o `close`. La foto del base de ci-gate usa el mismo `unlink`.
+- **El flujo adentro.** verify dentro de un worktree ya usaba el registro del principal. Un test lo comprueba con un `node_modules` falso enlazado: ci-gate corre el typecheck dentro del worktree con lo que hay detrás del enlace, la foto del base no toca ni el enlace ni el principal, y `list` desde adentro lee el registro del principal. La skill build, cuando el dev trabaja en un worktree, le pasa la carpeta y el mapa de puertos de su set, y le dice que arranque la app desde el worktree con esos puertos, nunca desde el principal. La skill worktree muestra el mapa al abrir, explica `--no-link` y `--port-offset`, y `list` repite el mapa de cada set.
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
 

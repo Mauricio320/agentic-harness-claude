@@ -1,7 +1,7 @@
 ---
 name: worktree
 description: Abrir, integrar o cerrar los worktrees de las tareas de un issue, en ramas wt/<rama-issue>/<slug> registradas en .tmp/harness/worktrees.json. Integrar es git merge --no-ff en la rama del issue, nunca squash.
-argument-hint: "open <slug> [--ws <workspace>]... [--issue <ref>] | integrate <slug> | close <slug> | list | pending"
+argument-hint: "open <slug> [--ws <workspace>]... [--issue <ref>] [--no-link] [--port-offset N] | integrate <slug> | close <slug> | list | pending"
 disable-model-invocation: true
 ---
 
@@ -23,13 +23,14 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
 2. Corre `open <slug>`. El slug va en kebab-case y describe la tarea, como `crud-talleres-back`. Agrega `--ws` para limitar el set a esos workspaces (sin `--ws`, abre uno por repo adoptable) y `--issue` con el número o la URL.
    - El worktree nace usable: `node_modules` enlazado al del checkout principal y los `.env*` copiados, para que verify corra adentro y la persona pueda levantar la app ahí.
    - **`--no-link`** cuando el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma` (`prisma generate`): con el enlace, regenerar en el worktree pisaría el del principal. Instala las dependencias dentro del worktree y tarda; pídele el sí a la persona.
-3. Muestra la salida y después `list`. Di la ruta de cada worktree. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
+   - **Puertos:** el set toma un desplazamiento (10 el primero, 20 el segundo) y las copias de `.env` lo llevan, para que su app corra al lado de la del principal. `--port-offset N` lo elige la persona; `--port-offset 0` no toca nada.
+3. Muestra la salida y después `list`. Di la ruta de cada worktree y repite el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
 4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
 
 ## integrate <slug>
 
 1. Comprueba que el trabajo del worktree está commiteado. El script se niega si hay cambios sin commitear.
-2. Corre `integrate <slug>`. Hace `git merge --no-ff` de cada rama del set en la rama del issue, borra el worktree y la rama, y marca el registro como `integrado`.
+2. Corre `integrate <slug>`. Hace `git merge --no-ff` de cada rama del set en la rama del issue, quita los enlaces y las copias de `.env` del worktree, borra el worktree y la rama, y marca el registro como `integrado`. Si dice que no pudo deshacer algo, muestra lo que quedó y para: nunca borres el worktree a mano, porque un `git worktree remove` con un enlace vivo borra el `node_modules` del principal.
 3. Si sale con 1 por conflicto, el merge queda a medias en el checkout principal:
    - Lista los archivos en conflicto y resuelve cada uno leyendo los dos lados. Nunca uses `checkout --ours` ni `--theirs` en masa.
    - Verifica el workspace (skill verify) y commitea el merge con `git commit --no-edit`.
@@ -43,6 +44,6 @@ Cierra un worktree sin commits propios, por ejemplo una tarea descartada antes d
 
 ## list y pending
 
-`list` muestra los abiertos, y `list --all` también los integrados y cerrados. `pending` sale con 1 si queda algo sin integrar; ship y el Stop lo consultan. Muestra la salida tal cual.
+`list` muestra los abiertos con el mapa de puertos de cada set, y `list --all` también los integrados y cerrados. `pending` sale con 1 si queda algo sin integrar; ship y el Stop lo consultan. Muestra la salida tal cual.
 
 El Stop bloquea un turno que dejó commits sin integrar en un worktree del issue. SessionStart lista los pendientes y avisa de los que llevan más de 7 días sin commits nuevos. Ningún hook borra un worktree solo.
