@@ -201,6 +201,37 @@ function forbiddenIn(dir) {
   return p.workspaces.flatMap((w) => w.forbidden || []);
 }
 
+// Instala las dependencias de una carpeta según su lockfile, o dice qué haría. Lo usan el paso deps
+// y worktree-ledger.js open --no-link. → true si queda algo pendiente
+function installIn(target, forbidden, write, say) {
+  const d = depsOf(target);
+  if (!d) return false;
+  if (!d.lock) {
+    say('package.json sin lockfile; no instalo: decide tú con qué');
+    return true;
+  }
+  if (d.fresh) {
+    say(`dependencias al día (node_modules más nuevo que ${d.lock.file})`);
+    return false;
+  }
+  if (forbidden.includes(d.cmd)) {
+    say(`${d.cmd} está en forbidden; no lo corro`);
+    return true;
+  }
+  if (!write) {
+    say(`instalaría con ${d.cmd} (${d.lock.file})`);
+    return false;
+  }
+  say(`${d.cmd}…`);
+  const r = spawnSync(d.cmd, { cwd: target, shell: true, stdio: 'inherit' });
+  if (r.status !== 0) {
+    say(`${d.cmd} salió con ${r.status}`);
+    return true;
+  }
+  say(`instalado con ${d.cmd}`);
+  return false;
+}
+
 function deps(dir, only, write) {
   const c = requireComposition(dir);
   const forbidden = forbiddenIn(dir);
@@ -213,32 +244,7 @@ function deps(dir, only, write) {
       pending++;
       continue;
     }
-    const d = depsOf(target);
-    if (!d) continue;
-    if (!d.lock) {
-      say('package.json sin lockfile; no instalo: decide tú con qué');
-      pending++;
-      continue;
-    }
-    if (d.fresh) {
-      say(`dependencias al día (node_modules más nuevo que ${d.lock.file})`);
-      continue;
-    }
-    if (forbidden.includes(d.cmd)) {
-      say(`${d.cmd} está en forbidden; no lo corro`);
-      pending++;
-      continue;
-    }
-    if (!write) {
-      say(`instalaría con ${d.cmd} (${d.lock.file})`);
-      continue;
-    }
-    say(`${d.cmd}…`);
-    const r = spawnSync(d.cmd, { cwd: target, shell: true, stdio: 'inherit' });
-    if (r.status !== 0) {
-      say(`${d.cmd} salió con ${r.status}`);
-      pending++;
-    } else say(`instalado con ${d.cmd}`);
+    if (installIn(target, forbidden, write, say)) pending++;
   }
   return pending ? 1 : 0;
 }
@@ -411,7 +417,7 @@ function close(dir) {
   return check.status === 0 ? 0 : 1;
 }
 
-module.exports = { parseEnv, dbHosts };
+module.exports = { parseEnv, dbHosts, installIn };
 
 function main() {
   let args;

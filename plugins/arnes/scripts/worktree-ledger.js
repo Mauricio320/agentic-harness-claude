@@ -6,7 +6,14 @@
 // Integrar es git merge --no-ff en la rama del issue, borrar el worktree y la rama, y cerrar el
 // registro; nunca squash. Desde dentro de un worktree, el registro es el del checkout principal.
 //
-// Uso: node worktree-ledger.js open <slug> [--ws <nombre>]... [--issue <número, URL o texto>]
+// open deja cada worktree usable: por cada workspace del repo enlaza node_modules del checkout
+// principal (junction en Windows, symlink en el resto, lib/links.js) y copia, no enlaza, cada .env*
+// de la raíz del workspace salvo .env.example. Con --no-link no enlaza y corre la instalación del
+// paso deps de setup.js dentro del worktree: para un issue que regenera algo dentro de node_modules,
+// como prisma/schema.prisma. Lo enlazado y lo copiado queda en el registro (links, copies), y
+// integrate y close lo deshacen antes de git worktree remove: un enlace se quita sin seguirlo.
+//
+// Uso: node worktree-ledger.js open <slug> [--ws <nombre>]... [--issue <número, URL o texto>] [--no-link]
 //      node worktree-ledger.js integrate <slug> [--ws <nombre>]...
 //      node worktree-ledger.js close <slug> [--ws <nombre>]...   cierra sin integrar; solo sin commits propios
 //      node worktree-ledger.js list [--all] [--json]
@@ -14,7 +21,8 @@
 // Sin --ws, open abre uno por cada workspace adoptable (uno por repo) e integrate y close actúan
 // sobre todo el set del slug. pending lista los abiertos, con sus commits sin integrar.
 // Registro: { ws, path, branch, target, issue, openedAt, status: abierto|integrado|cerrado,
-//             closedAt?, merge? } · worktrees en <raíz>/.tmp/harness/worktrees/<ws>/<slug>
+//             links, copies, copiedDirs, closedAt?, merge? } · worktrees en
+//             <raíz>/.tmp/harness/worktrees/<ws>/<slug>
 // Exit: 0 hecho, o pending sin abiertos · 1 pending con abiertos, o rechazado (motivo en stderr;
 //       un conflicto de merge deja el merge a medias en el checkout principal) · 2 uso inválido o sin manifiesto
 
@@ -26,6 +34,7 @@ const { parseArgs } = require('util');
 const { loadProject, requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged } = require('./lib/branches.js');
+const { link, unlink, isLink } = require('./lib/links.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -145,7 +154,66 @@ function perRepo(workspaces) {
   return [...byRoot.values()];
 }
 
-function open(project, slug, { ws: names, issue } = {}, now = new Date()) {
+// Los workspaces del repo de un registro, con su carpeta dentro del worktree.
+function inWorktree(project, e) {
+  const main = wsOf(project, e);
+  return project.workspaces.filter((w) => norm(w.gitRoot) === norm(main.gitRoot)).map((w) => ({ ws: w, dir: path.join(e.path, path.relative(w.gitRoot, w.dir)) }));
+}
+
+// Los .env* de la raíz de un workspace que se copian al worktree: todos menos .env.example.
+function envFiles(dir) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && /^\.env(\..+)?$/.test(d.name) && d.name !== '.env.example').map((d) => d.name);
+  } catch {
+    /* sin carpeta */
+  }
+  return names.sort();
+}
+
+const present = (p) => {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Deja el worktree usable: node_modules enlazado (o instalado con --no-link) y los .env copiados.
+// Cada enlace se anota en el registro antes de crearlo, para que nunca quede uno sin registrar.
+function equip(project, entries, e, noLink, say) {
+  Object.assign(e, { links: [], copies: [], copiedDirs: [] });
+  for (const { ws, dir } of inWorktree(project, e)) {
+    const nm = path.join(ws.dir, 'node_modules');
+    const dst = path.join(dir, 'node_modules');
+    if (noLink) {
+      const { installIn } = require('./setup.js');
+      installIn(dir, ws.forbidden || [], true, (m) => say(`${ws.name}: ${m}`));
+    } else if (!fs.existsSync(nm)) say(`${ws.name}: el checkout principal no tiene node_modules; no enlazo nada (instálalas en el principal, o abre con --no-link)`);
+    else if (present(dst)) say(`${ws.name}: el worktree ya trae node_modules; no lo toco`);
+    else {
+      e.links.push(posix(dst));
+      writeLedger(project, entries);
+      if (link(nm, dst) === 'copy') {
+        e.links.pop();
+        e.copiedDirs.push(posix(dst));
+        say(`${ws.name}: node_modules copiado, no se pudo enlazar`);
+      } else say(`${ws.name}: node_modules enlazado desde ${posix(nm)}`);
+    }
+    for (const f of envFiles(ws.dir)) {
+      const to = path.join(dir, f);
+      if (present(to)) continue;
+      fs.mkdirSync(dir, { recursive: true });
+      fs.copyFileSync(path.join(ws.dir, f), to);
+      e.copies.push(posix(to));
+    }
+    if (e.copies.length) say(`${ws.name}: copiados ${e.copies.filter((c) => norm(path.dirname(c)) === norm(dir)).map((c) => path.basename(c)).join(', ')}`);
+  }
+  writeLedger(project, entries);
+}
+
+function open(project, slug, { ws: names, issue, 'no-link': noLink } = {}, now = new Date()) {
   if (!SLUG.test(slug)) refuse(`slug inválido "${slug}": minúsculas, números y guiones`);
   const chosen = names && names.length ? selectWorkspaces(project, names) : project.workspaces.filter((w) => w.adoptable);
   if (!chosen.length) refuse('no hay workspaces adoptables donde abrir');
@@ -170,6 +238,7 @@ function open(project, slug, { ws: names, issue } = {}, now = new Date()) {
     entries.push(e);
     writeLedger(project, entries);
     out.push(`abierto ${e.ws}: ${e.path} en ${e.branch} (desde ${e.target})`);
+    equip(project, entries, e, noLink, (m) => out.push(`  ${m}`));
   }
   return out;
 }
@@ -181,15 +250,25 @@ function setOf(project, slug, names) {
   return { entries, set };
 }
 
-// Cambios sin commitear del worktree, sin contar el estado del arnés de una sesión que corrió ahí.
-function dirtyIn(dir) {
+// Cambios sin commitear del worktree, sin contar el estado del arnés de una sesión que corrió ahí
+// ni lo que open enlazó o copió.
+function dirtyIn(dir, own = []) {
   const r = git(dir, ['status', '--porcelain', '--untracked-files=all']);
   if (r.status !== 0) return [];
-  return lines(r.stdout).map((l) => l.slice(3)).filter((f) => !f.replace(/^"/, '').startsWith('.tmp/harness/'));
+  const mine = new Set(own.map((p) => posix(path.relative(dir, p))));
+  return lines(r.stdout)
+    .map((l) => l.slice(3).replace(/^"|"$/g, '').replace(/\/$/, ''))
+    .filter((f) => !f.startsWith('.tmp/harness/') && !mine.has(f) && ![...mine].some((m) => f.startsWith(`${m}/`)));
 }
 
-// Borra el worktree y su rama. La rama ya no tiene commits fuera del destino: -d basta.
+const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDirs || [])];
+
+// Borra el worktree y su rama. La rama ya no tiene commits fuera del destino: -d basta. Antes quita
+// los enlaces que open registró, sin seguirlos: git worktree remove borraría lo que hay detrás.
 function removeWorktree(ws, e) {
+  const left = (e.links || []).map(unlink).filter(Boolean);
+  if (left.length) refuse(`${e.ws}: ${left.join('; ')}; no corro git worktree remove`);
+  e.links = [];
   if (fs.existsSync(e.path)) {
     fs.rmSync(path.join(e.path, '.tmp', 'harness'), { recursive: true, force: true });
     ok(git(ws.gitRoot, ['worktree', 'remove', e.path]), `git worktree remove ${e.path}`);
@@ -198,7 +277,7 @@ function removeWorktree(ws, e) {
 }
 
 function checkClean(e) {
-  const dirty = fs.existsSync(e.path) ? dirtyIn(e.path) : [];
+  const dirty = fs.existsSync(e.path) ? dirtyIn(e.path, ownFiles(e)) : [];
   if (dirty.length) refuse(`${e.ws}: el worktree tiene cambios sin commitear (${dirty.slice(0, 3).join(', ')}); commitéalos ahí o descártalos tú`);
 }
 
@@ -286,6 +365,7 @@ function main() {
         issue: { type: 'string' },
         target: { type: 'string' },
         all: { type: 'boolean' },
+        'no-link': { type: 'boolean' },
         json: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },

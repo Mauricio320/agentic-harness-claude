@@ -21,6 +21,8 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
 
 1. El checkout principal de cada workspace tiene que estar en la rama del issue, nunca en la rama por defecto. Si está en `main`, propón crear la rama del issue con el `integration.branchPrefix` del manifiesto y el número del issue, y créala solo con el visto bueno de la persona.
 2. Corre `open <slug>`. El slug va en kebab-case y describe la tarea, como `crud-talleres-back`. Agrega `--ws` para limitar el set a esos workspaces (sin `--ws`, abre uno por repo adoptable) y `--issue` con el número o la URL.
+   - El worktree nace usable: `node_modules` enlazado al del checkout principal y los `.env*` copiados, para que verify corra adentro y la persona pueda levantar la app ahí.
+   - **`--no-link`** cuando el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma` (`prisma generate`): con el enlace, regenerar en el worktree pisaría el del principal. Instala las dependencias dentro del worktree y tarda; pídele el sí a la persona.
 3. Muestra la salida y después `list`. Di la ruta de cada worktree. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
 4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
 

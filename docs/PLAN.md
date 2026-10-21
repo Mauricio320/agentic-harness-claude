@@ -441,9 +441,17 @@ Cambio de la fase 3 (2026-10-19 y 20):
   - ship, con `worktree-ledger.js pending --target <rama>`, que sale con 1 si hay abiertos;
   - borrar un worktree, por el ledger en `ExitWorktree` y en el guard.
 - Punto 7: `SessionStart` solo avisa y nunca corre `git worktree prune`, porque un hook no escribe en git. `integrate` y `close` hacen `prune` cuando la carpeta del worktree ya no existe.
-- Punto 8: no se hizo. Los worktrees que abre el ledger no copian `.env` ni enlazan `node_modules`: para verificar dentro de uno hay que instalar dependencias. Va con los templates de la fase 6.
+- Punto 8: no se hizo. Los worktrees que abre el ledger no copian `.env` ni enlazan `node_modules`: para verificar dentro de uno hay que instalar dependencias. Va con los templates de la fase 6. Hecho en la ronda de worktrees (abajo).
 
 Nota: Claude Code trae `/batch`, donde cada subagente trabaja en su worktree y abre su propio PR. Sirve cuando las tareas son issues independientes; no para partes de un mismo issue, que es el caso de este diseño.
+
+Cambio de la ronda de worktrees (2026-10-21, rama `feature/worktrees`), que cierra el punto 8. Los worktrees del ledger nacían sin `node_modules` ni `.env`: verify fallaba adentro hasta instalar dependencias a mano, y la persona no podía levantar la app desde el worktree para probarla, que es justo para lo que lo abrió.
+- **open deja el worktree usable.** Después de crear cada worktree del set, por cada workspace de ese repo, `worktree-ledger.js open`:
+  - enlaza `node_modules` del checkout principal: junction en Windows, symlink en el resto, con el helper que ya usaba la foto del base de ci-gate, ahora en `lib/links.js`. Si el principal no tiene `node_modules`, lo dice y sigue;
+  - copia, no enlaza, cada `.env*` de la raíz del workspace salvo `.env.example`, para que el worktree tenga sus propios puertos;
+  - registra en el ledger qué enlazó (`links`) y qué copió (`copies`; `copiedDirs` si un enlace no se pudo crear y cayó a copia), para saber exactamente qué deshacer. Cada enlace se anota antes de crearlo.
+  - Con `--no-link` no enlaza: corre dentro del worktree la instalación del paso deps de `setup.js` (`installIn`). Es para los issues que regeneran algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma`, que con el enlace pisaría el cliente generado del principal. La skill worktree explica cuándo elegirlo.
+  - Lo enlazado y lo copiado no cuenta como cambio sin commitear al integrar o cerrar.
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
 

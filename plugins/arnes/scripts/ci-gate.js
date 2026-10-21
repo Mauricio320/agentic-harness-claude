@@ -30,6 +30,7 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, sh, quote, runExpanded, firstLine, tail, help, die } = require('./lib/exec.js');
+const { link, unlink } = require('./lib/links.js');
 const { touched } = require('./touched-files.js');
 const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
@@ -49,31 +50,10 @@ function baseOf(ws, explicit) {
   return { error: `sin base: no hay merge-base con origin/${branch} ni ${branch}; pasa --base` };
 }
 
-function link(src, dst) {
-  try {
-    fs.symlinkSync(src, dst, 'junction');
-    return 'link';
-  } catch {
-    fs.cpSync(src, dst, { recursive: true });
-    return 'copy';
-  }
-}
-
 // Quita los enlaces sin seguirlos; solo después se borra el directorio temporal. Si un enlace no
 // se pudo quitar, el temporal se deja en disco antes que arriesgar borrar node_modules del workspace.
 function cleanup(tmp, links) {
-  let safe = true;
-  for (const l of links) {
-    try {
-      fs.unlinkSync(l);
-    } catch {
-      try {
-        fs.rmdirSync(l);
-      } catch {
-        safe = false;
-      }
-    }
-  }
+  const safe = links.every((l) => unlink(l) === null);
   if (safe) fs.rmSync(tmp, { recursive: true, force: true });
   return safe ? null : `no se pudo quitar un enlace; queda ${tmp} para borrar a mano`;
 }

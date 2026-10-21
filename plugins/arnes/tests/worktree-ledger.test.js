@@ -45,6 +45,9 @@ test('open: worktree en wt/<rama-issue>/<slug> desde la rama del issue, y su reg
     issue: '#12',
     openedAt: undefined,
     status: 'abierto',
+    links: [],
+    copies: [],
+    copiedDirs: [],
   });
   assert.ok(!Number.isNaN(Date.parse(e.openedAt)));
   const wt = wtDir(dir, 'api', 'login');
@@ -204,4 +207,49 @@ test('usos inválidos y sin manifiesto → 2', () => {
   const sin = h.tmp('wt-nada');
   h.repo(sin);
   assert.equal(ledger(sin, 'pending').status, 2);
+});
+
+// Un repo con node_modules y .env de verdad en el checkout principal, ignorados por git.
+function equipped(files = {}) {
+  const dir = single({ '.gitignore': '.tmp/\nnode_modules/\n.env\n.env.*\n!.env.example\n', '.env.example': 'PORT=\n', ...files });
+  h.write(dir, 'node_modules/paquete/index.js', 'module.exports = 1;\n');
+  h.write(dir, '.env', 'PORT=3003\n');
+  h.write(dir, '.env.local', 'DEBUG=1\n');
+  return dir;
+}
+const { isLink } = require('../scripts/lib/links.js');
+
+test('open deja el worktree usable: node_modules enlazado, los .env copiados y todo registrado', () => {
+  const dir = equipped();
+  const r = ledger(dir, 'open', 'login');
+  assert.equal(r.status, 0, r.stderr);
+  const wt = wtDir(dir, 'api', 'login');
+  assert.match(r.stdout, /api: node_modules enlazado desde .*\/node_modules/);
+  assert.match(r.stdout, /api: copiados \.env, \.env\.local/);
+  assert.ok(isLink(path.join(wt, 'node_modules')), 'un enlace, no una copia');
+  assert.ok(fs.existsSync(path.join(wt, 'node_modules', 'paquete', 'index.js')));
+  for (const f of ['.env', '.env.local']) assert.ok(!isLink(path.join(wt, f)) && fs.existsSync(path.join(wt, f)), `${f} copiado`);
+  const [e] = entries(dir);
+  const p = (f) => path.join(wt, f).split(path.sep).join('/');
+  assert.deepEqual(e.links, [p('node_modules')]);
+  assert.deepEqual(e.copies, [p('.env'), p('.env.local')], '.env.example no se copia: viene con el checkout');
+  fs.writeFileSync(path.join(wt, '.env'), 'PORT=4000\n');
+  assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'PORT=3003\n', 'la copia es propia del worktree');
+});
+
+test('open sin node_modules en el principal lo dice y sigue; --no-link instala dentro del worktree', () => {
+  const dir = single({ '.gitignore': '.tmp/\nnode_modules/\n', 'package.json': '{}', 'package-lock.json': '{}' });
+  let r = ledger(dir, 'open', 'uno');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /api: el checkout principal no tiene node_modules; no enlazo nada/);
+  const npm = `const fs = require('fs'); fs.mkdirSync('node_modules', { recursive: true }); fs.writeFileSync('node_modules/.package-lock.json', '{}'); fs.writeFileSync('node_modules/hecho.txt', process.cwd());`;
+  const bin = h.fakeBin(h.tmp('wt-npm'), 'npm', npm);
+  h.write(dir, 'node_modules/paquete/index.js', 'x');
+  r = h.run('worktree-ledger.js', ['open', 'prisma', '--no-link'], { cwd: dir, env: { ...ID, ...h.withPath(bin) } });
+  assert.equal(r.status, 0, r.stderr);
+  const wt = wtDir(dir, 'api', 'prisma');
+  assert.match(r.stdout, /api: instalado con npm ci/);
+  assert.ok(!isLink(path.join(wt, 'node_modules')), 'con --no-link no hay enlace');
+  assert.ok(fs.existsSync(path.join(wt, 'node_modules', 'hecho.txt')));
+  assert.deepEqual(entries(dir).find((e) => e.branch.endsWith('/prisma')).links, []);
 });
