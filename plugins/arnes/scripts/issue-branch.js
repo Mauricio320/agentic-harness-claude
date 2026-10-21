@@ -18,10 +18,13 @@
 //           niega, como ship
 //   stay    la persona eligió construir en la rama actual: no la mueve, solo avisa si va atrás de
 //           origin/<defaultBranch> y ofrece /arnes:sync
+//   behind  al empezar plan, antes de que haya plan: git fetch de cada repo adoptable y, por cada uno
+//           cuya rama actual va atrás de origin/<defaultBranch>, una línea con cuántos commits y
+//           /arnes:sync para traerlos. Nunca hace pull
 // create y stay anotan la rama en el plan (la línea "Rama:" bajo el título) y en la timeline (nota
 // "rama" de plan).
-// Exit: 0 hecho · 1 check con algún repo en otra rama, o create negado en algún repo (motivo en
-//       stdout) · 2 uso inválido, sin manifiesto o sin plan
+// Exit: 0 hecho · 1 check con algún repo en otra rama, create negado en algún repo (motivo en
+//       stdout), o behind con alguna rama atrás · 2 uso inválido, sin manifiesto o sin plan
 
 'use strict';
 
@@ -193,6 +196,24 @@ function stay(project) {
   return 0;
 }
 
+// Un workspace por repo, de todos los adoptables: al empezar plan todavía no hay plan que los nombre.
+function behind(project) {
+  const seen = new Set();
+  let late = 0;
+  for (const ws of project.workspaces.filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
+    const f = fetch(ws);
+    if (f) console.log(`${ws.name}: ${f}; no sé si va atrás`);
+    const s = stateOf(ws);
+    if (!s.hasOrigin || !s.behind) continue;
+    late++;
+    console.log(s.onDefault
+      ? `${ws.name}: ${s.branch} va ${s.behind} commit(s) atrás de ${s.origin}; la rama del issue saldrá de ${s.origin} al aprobar el plan`
+      : `${ws.name}: ${s.branch} va ${s.behind} commit(s) atrás de ${s.origin}; /arnes:sync los trae antes de seguir`);
+  }
+  if (!late) console.log('todas las ramas al día con origin');
+  return late ? 1 : 0;
+}
+
 module.exports = { slugOf };
 
 function main() {
@@ -205,10 +226,11 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: issue-branch.js check | create [--nombre <slug>] [--desde-otra] | stay';
-  if (extra || !['check', 'create', 'stay'].includes(mode) || (mode !== 'create' && (o.nombre || o['desde-otra']))) die(usage);
+  const usage = 'uso: issue-branch.js check | create [--nombre <slug>] [--desde-otra] | stay | behind';
+  if (extra || !['check', 'create', 'stay', 'behind'].includes(mode) || (mode !== 'create' && (o.nombre || o['desde-otra']))) die(usage);
   const project = requireProject();
   if (mode === 'check') process.exit(check(project));
+  if (mode === 'behind') process.exit(behind(project));
   if (mode === 'stay') process.exit(stay(project));
   process.exit(create(project, o.nombre, o['desde-otra']));
 }

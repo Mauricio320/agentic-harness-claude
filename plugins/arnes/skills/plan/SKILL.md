@@ -14,6 +14,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 1. Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start plan --detail "<el issue en pocas palabras>"`.
 2. Proyecto: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show` da la raíz y los workspaces. Lee `.claude/harness.json` del workspace que vas a tocar: sus `riskPaths` y su `contract`. Si sale con 2, no hay manifiesto: sigue y dilo en el plan.
+   - **¿La rama va atrás?** `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" behind` hace fetch y dice, en una línea por repo, cuántos commits va atrás de origin. Si dice alguna, repítela tal cual al inicio del mensaje del plan y ofrece `/arnes:sync` antes de construir. Nunca hagas pull por tu cuenta.
 3. El issue:
    - Número o URL: con `glab issue view <n> --comments` si el remote es GitLab, o `gh issue view <n> --comments` si es GitHub, siempre que el CLI exista. Si no existe o falla, pide el texto a la persona. Nunca lo inventes.
    - Texto: úsalo tal cual. Es la fuente de los criterios literales.

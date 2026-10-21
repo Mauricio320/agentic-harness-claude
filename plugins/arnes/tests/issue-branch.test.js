@@ -111,3 +111,21 @@ test('con la alternativa: se queda en su rama, avisa si va atrás de main y lo a
   assert.equal(branch(root, 'api'), 'feature/x');
   assert.match(plan(root), /^Rama: feature\/x en api, main en front: la persona eligió construir en la rama actual/m);
 });
+
+test('behind, al empezar plan y sin plan todavía: fetch y una línea por rama atrás de origin, sin pull', () => {
+  const root = folder();
+  fs.rmSync(path.join(root, '.tmp', 'harness', 'plan.md'));
+  at(root, 'front', 'switch', '-q', '-c', 'feature/x');
+  const before = at(root, 'front', 'rev-parse', 'HEAD');
+  const r = ib(root, 'behind');
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: main va 1 commit\(s\) atrás de origin\/main; la rama del issue saldrá de origin\/main al aprobar el plan$/m);
+  assert.match(r.stdout, /^front: feature\/x va 1 commit\(s\) atrás de origin\/main; \/arnes:sync los trae antes de seguir$/m);
+  assert.equal(at(root, 'front', 'rev-parse', 'HEAD'), before, 'no hace pull');
+  assert.notEqual(at(root, 'api', 'rev-parse', 'main'), at(root, 'api', 'rev-parse', 'origin/main'), 'tampoco adelanta main');
+  at(root, 'front', 'merge', '-q', '--ff-only', 'origin/main');
+  at(root, 'api', 'merge', '-q', '--ff-only', 'origin/main');
+  const ok = ib(root, 'behind');
+  assert.equal(ok.status, 0);
+  assert.match(ok.stdout, /todas las ramas al día con origin/);
+});

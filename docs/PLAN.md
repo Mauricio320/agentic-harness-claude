@@ -337,6 +337,7 @@ Cambio de la rama del issue (2026-10-21, rama `feature/rama-del-issue`): **la ra
   - Sin `--desde-otra`, `create` nunca mueve un repo que está en otra rama.
   - La elección va además a `## Decisiones`.
 - **Ship la reutiliza.** La rama del issue es la actual, y `ship.js branch` reutiliza la actual; crearla en ship queda solo para cuando nadie la creó antes. Una rama que ya existe en otro commit hace que plan, como ship, se niegue en ese repo.
+- **El plan avisa si la rama va atrás** (ronda de init amable, 2026-10-21). Al empezar, antes de que haya plan, `issue-branch.js behind` hace `git fetch` de cada repo adoptable y cuenta los commits que la rama actual tiene detrás de `origin/<defaultBranch>`. Por cada repo atrás imprime una línea con el número: en otra rama, que `/arnes:sync` los trae antes de seguir; en la rama por defecto, que la rama del issue saldrá de `origin/<defaultBranch>` al aprobar el plan. La skill plan la repite al inicio del mensaje del plan y ofrece `/arnes:sync` antes de construir. Nunca hace pull: el pull es de la persona, y sync es quien trae main a una rama empezada.
 
 Tests sobre orígenes bare (`tests/issue-branch.test.js`): main limpio y atrás de origin, main con cambios, otra rama sin el sí, otra rama con el sí (limpia y con cambios) y la alternativa. `docs/PROBADORES.md` dice: "la rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear".
 
