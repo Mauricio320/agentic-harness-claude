@@ -214,3 +214,15 @@ test('folder-settings sin --marketplace toma la url y el ref del marketplace ins
   const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
   assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'v0.6.4' });
 });
+
+test('baseref: avisa de un settings versionado que fija worktree.baseRef en head y lo quita sin tocar lo demás', () => {
+  const dir = repo(undefined, { '.claude/settings.json': h.manifestJson({ model: 'opus', worktree: { baseRef: 'head' } }) });
+  let r = adopt(dir, ['baseref']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /settings\.json: fija worktree\.baseRef "head": un worktree nativo nacería del HEAD de quien lo abre/);
+  r = adopt(dir, ['baseref', '--remove']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')), { model: 'opus' });
+  assert.match(adopt(dir, ['baseref']).stdout, /ningún \.claude\/settings\.json fija worktree\.baseRef en head/);
+  assert.equal(adopt(dir, ['baseref', '--write']).status, 2);
+});

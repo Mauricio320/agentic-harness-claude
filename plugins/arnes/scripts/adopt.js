@@ -24,6 +24,10 @@
 //                           contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
+//   baseref [--remove]      los .claude/settings.json versionados del proyecto y de cada repo que fijan
+//                           worktree.baseRef en "head": un worktree nativo tiene que nacer de
+//                           origin/<rama por defecto>, no del HEAD de quien lo abre. --remove lo quita
+//                           y deja lo demás
 //   worktreeinclude [--write]
 //                           el .worktreeinclude de cada repo con .env o .env.local: Claude Code copia
 //                           esos archivos ignorados a cada worktree nativo que crea (claude --worktree,
@@ -282,6 +286,35 @@ function complete(project, only, write) {
   return 0;
 }
 
+// Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
+function baseRefs(project) {
+  return settingsFiles(project).filter((f) => {
+    try {
+      return (readJson(f).worktree || {}).baseRef === 'head';
+    } catch {
+      return false;
+    }
+  });
+}
+
+function baseRef(project, remove) {
+  const files = baseRefs(project);
+  if (!files.length) {
+    console.log('ningún .claude/settings.json fija worktree.baseRef en head: los worktrees nativos nacen de origin');
+    return 0;
+  }
+  for (const file of files) {
+    if (remove) {
+      const s = readJson(file);
+      delete s.worktree.baseRef;
+      if (!Object.keys(s.worktree).length) delete s.worktree;
+      writeJson(file, s);
+    }
+    console.log(`${file}: ${remove ? 'quitado' : 'fija'} worktree.baseRef "head"${remove ? '; commitéalo en el repo' : ': un worktree nativo nacería del HEAD de quien lo abre, no de origin (--remove lo quita)'}`);
+  }
+  return remove ? 0 : 1;
+}
+
 // Las líneas de .worktreeinclude que le faltan a cada repo: .env y .env.local de cada workspace que
 // tiene alguno de los dos, relativos a la raíz del repo. → [{ file, add: [líneas] }]
 function worktreeIncludes(project) {
@@ -373,7 +406,7 @@ function folderSettings(project, marketplace, ref, write) {
   return 0;
 }
 
-module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes };
+module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs };
 
 function main() {
   let args;
@@ -391,15 +424,15 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
   const run = {
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
-    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
+    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   process.exit(run[mode]());
 }
