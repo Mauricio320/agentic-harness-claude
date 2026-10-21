@@ -2,6 +2,25 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.2] - sin etiquetar
+
+Ronda de menos vueltas por agente, sin perder determinismo: lo que un script puede juntar lo junta antes, y el agente lee su entrada. Rama `feature/menos-turnos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y medida con una corrida antes y otra después sobre un clon de api-academico (`docs/PLAN.md` §10).
+
+### Añadido
+- `build.js input --ws <ws>`, que arma `.tmp/harness/build/<ws>-input.md` con los comandos, las riskPaths y los forbidden del workspace, el plan en lo que lo toca, el contrato del back si es el front y el texto de las reglas que aplican a los archivos previstos. Con `--para test-writer --files …`, la entrada del test-writer, con la ruta del spec de cada archivo.
+- `review.js mark --clean`, que escribe el reporte mínimo de una revisión sin hallazgos.
+- En `arnes-mod`, un atajo determinista solo para preguntas: si el mensaje empieza con signo de interrogación o con cómo, qué, cuál, dónde, por qué, explica o muestra, y no trae un verbo de cambio, no pide plan ni llama a haiku.
+
+### Cambiado
+- `review.js input` mete en el bloque del diff, enteros y numerados, los nuevos sin trackear que caen en `codeGlobs`, con el tope de 400 líneas por archivo; la nota nombra los que quedan fuera.
+- `review.js input` vuelca el texto sin frontmatter de las reglas que aplican y pone en una línea las que no, con un tope de 40000 caracteres de reglas y de 250000 del input entero, y dice qué omitió.
+- La skill build le pasa al dev su entrada en vez del plan entero, y verify hace lo mismo con el test-writer. `dev.md` y `test-writer.md` dejan de leer el `CLAUDE.md`, las reglas y `harness.json` por su cuenta.
+- El reviewer escribe su reporte en `.tmp/harness/review/report.md`: gana Write, y `plan-guard.js` le niega cualquier escritura fuera de `.tmp/harness/review`. El hook lo identifica por `agent_type`.
+- `docs/PROBADORES.md` y `adopt.js folder-settings` instalan desde la rama `probadores`, con nombre fijo: publicar es un push sobre ella.
+
+### Quitado
+- El agente `test-runner`: verify corre `ci-gate.js` directo desde hace dos versiones.
+
 ## [0.6.1] - sin etiquetar
 
 Ronda corta antes de cerrar la fase de setup: los worktrees que abre el ledger nacen usables. Cierra el punto 8 de `docs/PLAN.md` §7. Rama `feature/worktrees`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods.
