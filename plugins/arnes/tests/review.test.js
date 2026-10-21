@@ -63,9 +63,9 @@ test('input deja al reviewer lo que no saca sin Bash: HEAD, tocados, borrados, r
     /REVISIÓN HUMANA OBLIGATORIA: toca riskPaths: prisma\/migrations\/001\/migration\.sql/,
     /Contrato: provee src\/\*\*\/dto\/\*\*/,
     /CLAUDE\.md: .*CLAUDE\.md/,
-    /arquitectura\.md · siempre/,
-    /tests\.md · paths \*\*\/\*\.spec\.ts · aplica a src\/b\.spec\.ts/,
-    /dto\.md · paths src\/\*\*\/dto\/\*\* · no aplica a lo tocado/,
+    /#### .*arquitectura\.md · siempre\nCapas\.\n/,
+    /#### .*tests\.md · paths \*\*\/\*\.spec\.ts · aplica a src\/b\.spec\.ts\nEstándar\.\n/,
+    /No aplican a lo tocado: dto\.md \(paths src\/\*\*\/dto\/\*\*\)\./,
     /- src\/a\.ts · modificado/,
     /- src\/b\.spec\.ts · nuevo sin trackear: va entero en el diff/,
     /diff --git a\/src\/b\.spec\.ts b\/src\/b\.spec\.ts\nnew file \(sin trackear\)\n--- \/dev\/null\n\+\+\+ b\/src\/b\.spec\.ts\n@@ -0,0 \+1,1 @@\n {4}1 \+nuevo/,
@@ -268,4 +268,22 @@ test('input: un nuevo sin trackear que pasa del tope queda fuera con su nota, y 
   assert.match(md, /Quedaron fuera del diff por pasar de 400 líneas o no poder leerse: src\/grande\.ts\. Léelos enteros\./);
   assert.doesNotMatch(md, /const x400/);
   assert.doesNotMatch(md, /\+no es código/);
+});
+
+test('input: las reglas que aplican van con su texto sin frontmatter, las otras en una línea, y los topes dicen qué se omitió', () => {
+  const dir = changed();
+  const md = () => fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.equal(review(dir, ['input']).status, 0);
+  assert.doesNotMatch(md(), /description: siempre|paths:\n {2}- '\*\*\/\*\.spec\.ts'/, 'sin frontmatter');
+  assert.doesNotMatch(md(), /DTOs\./, 'la que no aplica no trae texto');
+  const { rulesBlock } = require('../scripts/review.js');
+  const p = require('../scripts/lib/manifest.js').loadProject(dir);
+  const b = rulesBlock(p.workspaces[0], ['src/b.spec.ts'], 6);
+  assert.deepEqual(b.omitted.map((f) => path.basename(f)), ['tests.md']);
+  assert.match(b.lines.join('\n'), /tests\.md · paths .*\n\(texto omitido por el tope de 6 caracteres de reglas: léela con Read\)/);
+  h.write(dir, 'src/c.ts', 'const c = 1;\n'.repeat(300));
+  for (let i = 0; i < 80; i++) h.write(dir, `src/m${i}.ts`, `${'const largo = "' + 'x'.repeat(3000) + '";\n'}`);
+  assert.equal(review(dir, ['input', '--completa']).status, 0);
+  assert.ok(md().length < 252000);
+  assert.match(md(), /… input cortado en 250000 caracteres\. Quedó fuera: .*src\/m\d+\.ts.*\. Lee esos archivos con Read/);
 });

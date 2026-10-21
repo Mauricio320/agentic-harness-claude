@@ -3,11 +3,12 @@
 // sacar con Read, Grep y Glob se lo deja este script en .tmp/harness/review/input.md, y la skill
 // review marca la revisión hecha para que ship la compruebe.
 //   input  por cada workspace adoptable con tocados respecto de HEAD: el HEAD de base, los tocados
-//          (los nuevos, para leerlos enteros) y los borrados, las riskPaths tocadas con REVISIÓN
-//          HUMANA OBLIGATORIA, el contrato, las reglas de .claude/rules del repo con sus paths: y si
-//          aplican a lo tocado, el CLAUDE.md y el diff contra HEAD (hasta 400 líneas por archivo), con
-//          los nuevos sin trackear que caen en codeGlobs enteros dentro del mismo bloque, numerados
-//          igual; uno que pasa de 400 líneas queda fuera y la nota lo nombra para que se lea entero.
+//          y los borrados, las riskPaths tocadas con REVISIÓN HUMANA OBLIGATORIA, el contrato, el
+//          texto sin frontmatter de las reglas de .claude/rules que aplican a lo tocado (y una línea
+//          con las que no), hasta 40000 caracteres, el CLAUDE.md y el diff contra HEAD (hasta 400
+//          líneas por archivo), con los nuevos sin trackear que caen en codeGlobs enteros dentro del
+//          mismo bloque, numerados igual; uno que pasa de 400 líneas queda fuera y la nota lo nombra.
+//          El input entero no pasa de 250000 caracteres: si se corta, la nota dice qué quedó fuera.
 //          Del proyecto, el plan si existe .tmp/harness/plan.md. Guarda en input.json la huella de
 //          los tocados de cada workspace, la misma de gate-flag, y el árbol revisado: un árbol de
 //          git escrito con un índice temporal, que no toca el índice, las ramas ni el disco.
@@ -46,6 +47,9 @@ const { stateOf } = require('./gate-flag.js');
 
 const MAX_DIFF_LINES = 400;
 const MAX_ROUNDS = 3;
+// Topes de la entrada: el texto de las reglas, y el input entero; lo que no cabe se nombra.
+const MAX_RULES_CHARS = 40000;
+const MAX_INPUT_CHARS = 250000;
 const RISK = 'REVISIÓN HUMANA OBLIGATORIA';
 
 const reviewDir = (project) => path.join(harnessDir(project), 'review');
@@ -81,7 +85,8 @@ function rulePaths(text) {
   return out;
 }
 
-// Reglas del repo y a qué tocados aplican. Los paths: de una regla son relativos a la raíz del repo.
+// Reglas del repo y a qué archivos aplican. Los paths: de una regla son relativos a la raíz del
+// repo; una regla sin paths: aplica siempre. → [{ file, globs, hits, text }]
 function rules(ws, files) {
   const dir = path.join(ws.repo, '.claude', 'rules');
   if (!fs.existsSync(dir)) return [];
@@ -92,11 +97,37 @@ function rules(ws, files) {
     .sort()
     .map((f) => {
       const file = path.join(dir, f);
-      const globs = rulePaths(fs.readFileSync(file, 'utf8'));
-      if (!globs.length) return `- ${file} · siempre`;
-      const hits = fromRepo.filter((p) => matchAny(globs, p));
-      return `- ${file} · paths ${globs.join(', ')} · ${hits.length ? `aplica a ${hits.slice(0, 5).join(', ')}${hits.length > 5 ? ', …' : ''}` : 'no aplica a lo tocado'}`;
+      const text = fs.readFileSync(file, 'utf8');
+      const globs = rulePaths(text);
+      return { file, globs, hits: globs.length ? fromRepo.filter((p) => matchAny(globs, p)) : null, text };
     });
+}
+
+const withoutFrontmatter = (text) => text.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+
+// El bloque de reglas de una entrada (review, build): el texto sin frontmatter de las que aplican, con
+// por qué aplican, y una sola línea con las que no. Los textos entran hasta `budget` caracteres; los
+// que no caben se nombran para leerlos aparte. → { lines, omitted }
+function rulesBlock(ws, files, budget = MAX_RULES_CHARS) {
+  const all = rules(ws, files);
+  if (!all.length) return { lines: ['- no hay'], omitted: [] };
+  const lines = [];
+  const omitted = [];
+  let used = 0;
+  for (const r of all.filter((x) => !x.hits || x.hits.length)) {
+    const why = r.hits ? `paths ${r.globs.join(', ')} · aplica a ${r.hits.slice(0, 5).join(', ')}${r.hits.length > 5 ? ', …' : ''}` : 'siempre';
+    const body = withoutFrontmatter(r.text);
+    if (used + body.length > budget) {
+      omitted.push(r.file);
+      lines.push(`#### ${r.file} · ${why}`, `(texto omitido por el tope de ${budget} caracteres de reglas: léela con Read)`, '');
+      continue;
+    }
+    used += body.length;
+    lines.push(`#### ${r.file} · ${why}`, body, '');
+  }
+  const skipped = all.filter((x) => x.hits && !x.hits.length);
+  if (skipped.length) lines.push(`No aplican a lo tocado: ${skipped.map((r) => `${path.basename(r.file)} (paths ${r.globs.join(', ')})`).join(', ')}.`);
+  return { lines, omitted };
 }
 
 // El diff con el número de línea del archivo en el árbol final a la izquierda de cada línea que
@@ -175,7 +206,7 @@ function section(project, ws, files, corr) {
   const risk = riskOf(ws, files);
   const contract = ws.contract ? [ws.contract.provides && `provee ${ws.contract.provides.join(', ')}`, ws.contract.consumes && `consume ${ws.contract.consumes.join(', ')}`].filter(Boolean).join(' · ') : '';
   const claude = [...new Set([ws.repo, ws.dir].map((d) => path.join(d, 'CLAUDE.md')))].filter((f) => fs.existsSync(f));
-  const rl = rules(ws, files);
+  const rl = rulesBlock(ws, files);
   const extra = corr ? { text: '', out: [] } : untrackedDiff(ws, files.filter((f) => untracked.has(f) && matchAny(ws.codeGlobs, f)));
   const inDiff = (f) => !corr && untracked.has(f) && matchAny(ws.codeGlobs, f) && !extra.out.includes(f);
   const tag = (f) => (inDiff(f) ? 'nuevo sin trackear: va entero en el diff' : untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado');
@@ -187,8 +218,8 @@ function section(project, ws, files, corr) {
     risk.length ? `${RISK}: toca riskPaths: ${risk.join(', ')}` : 'riskPaths tocadas: ninguna',
     `Contrato: ${contract || 'sin contrato declarado'}`,
     `CLAUDE.md: ${claude.length ? claude.join(' · ') : 'no hay'}`,
-    'Reglas del repo (.claude/rules):',
-    ...(rl.length ? rl : ['- no hay']),
+    'Reglas del repo (.claude/rules) que aplican a lo tocado, con su texto:',
+    ...rl.lines,
     `Tocados (${files.length}), rutas relativas a la carpeta:`,
     ...files.map((f) => `- ${f} · ${tag(f)}`),
     ...(gone.files.length ? ['Borrados:', ...gone.files.map((f) => `- ${f}`)] : []),
@@ -259,6 +290,16 @@ function roundOf(project, now, full) {
   return { round, mode: 'acotada', from: prev.round, blockers: prev.blockers, changed };
 }
 
+// El input entero bajo MAX_INPUT_CHARS: se corta en un fin de línea y la nota dice qué secciones
+// quedaron fuera, para leerlas con Read.
+function capInput(text, max = MAX_INPUT_CHARS) {
+  if (text.length <= max) return text;
+  const cut = text.lastIndexOf('\n', max);
+  const rest = text.slice(cut + 1);
+  const lost = rest.split('\n').filter((l) => /^#{2,4} |^diff --git /.test(l)).map((l) => l.replace(/^diff --git a\/(\S+).*/, '$1').replace(/^#+ /, ''));
+  return `${text.slice(0, cut)}\n\n… input cortado en ${max} caracteres. Quedó fuera: ${lost.join(', ') || 'el final de la última sección'}. Lee esos archivos con Read; los tocados de cada workspace están listados arriba.\n`;
+}
+
 function input(project, full) {
   const now = {};
   for (const ws of project.workspaces.filter((w) => w.adoptable)) {
@@ -304,7 +345,7 @@ function input(project, full) {
   }
   const dir = reviewDir(project);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'input.md'), parts.join('\n'));
+  fs.writeFileSync(path.join(dir, 'input.md'), capInput(parts.join('\n')));
   fs.writeFileSync(path.join(dir, 'input.json'), JSON.stringify({ at: new Date().toISOString(), round: r.round, mode: r.mode, workspaces: marks }, null, 2) + '\n');
   const why = bounded ? (r.blockers ? `el diff de la corrección contra los ${r.blockers} bloqueante(s) de la ronda ${r.from}` : `el diff desde la ronda ${r.from}, que terminó sin bloqueantes`) : r.reason;
   console.log(`ronda ${r.round} de ${MAX_ROUNDS} · ${r.mode}${why ? `: ${why}` : ''}`);
@@ -354,7 +395,7 @@ function checkReview(project) {
   return out;
 }
 
-module.exports = { RISK, rulePaths, checkReview };
+module.exports = { RISK, rulePaths, checkReview, rulesBlock, numbered };
 
 function main() {
   let args;

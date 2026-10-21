@@ -17,7 +17,7 @@ Recibes la ruta de `input.md`, que dejó `review.js input`, y la del plan si exi
 - las riskPaths tocadas, o "ninguna";
 - el contrato que provee o consume;
 - el CLAUDE.md;
-- las reglas de `.claude/rules` con sus `paths:` y si aplican a lo tocado;
+- las reglas de `.claude/rules` que aplican a lo tocado, con su texto, y en una línea las que no aplican;
 - los tocados, con los nuevos marcados y, de los nuevos sin trackear, si van enteros en el diff o hay que leerlos;
 - los borrados;
 - el diff contra HEAD, con los nuevos sin trackear de código enteros.
@@ -41,7 +41,7 @@ Genéricos del arnés:
 5. **String de negocio mágico**: comparar o asignar un valor de negocio con un literal en vez de un ID, una constante o un catálogo.
 6. **Secreto en código**: credenciales, tokens, llaves, contraseñas o URLs con credenciales en un archivo versionado.
 
-Del repo: las reglas duras de las `.claude/rules` que `input.md` marca como "siempre" o como que aplican a lo tocado. Léelas enteras. Regla dura es la que el archivo escribe como obligatoria: "siempre", "nunca", "prohibido", "obligatorio", "must", o una tabla de lo que se prohíbe. El CLAUDE.md del repo cuenta como regla dura solo donde dice lo mismo con esa fuerza.
+Del repo: las reglas duras de las `.claude/rules` que `input.md` trae como "siempre" o como que aplican a lo tocado. Su texto ya va en `input.md`: no las abras, salvo las que digan "texto omitido por el tope". Regla dura es la que el archivo escribe como obligatoria: "siempre", "nunca", "prohibido", "obligatorio", "must", o una tabla de lo que se prohíbe. El CLAUDE.md del repo cuenta como regla dura solo donde dice lo mismo con esa fuerza.
 
 Cada bloqueante cita su regla: el número genérico, o el archivo de la regla con su sección. Si no puedes citarla, no es bloqueante.
 
