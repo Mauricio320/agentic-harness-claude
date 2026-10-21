@@ -168,3 +168,23 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   assert.match(adopt(root, ['complete']).stdout, /nada que completar/);
   assert.equal(adopt(root, ['complete', '--only', 'otro']).status, 2);
 });
+
+test('folder-settings: el settings.json del repo de carpeta fija el marketplace a un ref y habilita los tres plugins, sin tocar lo demás', () => {
+  const root = h.tmp('adopt-settings');
+  h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
+  h.write(root, '.claude/settings.json', JSON.stringify({ model: 'opus', enabledPlugins: { 'otro@x': true } }));
+  const url = 'https://gitlab.com/g/agentic-harness.git';
+  assert.equal(adopt(root, ['folder-settings']).status, 2, 'sin --marketplace ni --ref');
+  assert.equal(adopt(root, ['folder-settings', '--marketplace', 'https://oauth2:tok@gitlab.com/g/a.git', '--ref', 'v0.6.0']).status, 2, 'nunca una url con token');
+  let r = adopt(root, ['folder-settings', '--marketplace', url, '--ref', 'v0.6.0']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /falta  extraKnownMarketplaces\.agentic-harness: \{"source":\{"source":"git","url":"https:\/\/gitlab\.com\/g\/agentic-harness\.git","ref":"v0\.6\.0"\}\}/);
+  assert.equal(adopt(root, ['folder-settings', '--marketplace', url, '--ref', 'v0.6.0', '--write']).status, 0);
+  const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+  assert.equal(s.model, 'opus');
+  assert.deepEqual(s.enabledPlugins, { 'otro@x': true, 'arnes@agentic-harness': true, 'arnes-ui@agentic-harness': true, 'arnes-mod@agentic-harness': true });
+  r = adopt(root, ['folder-settings', '--marketplace', url, '--ref', 'main']);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /ya está fijado a .*v0\.6\.0.*; no lo cambio/);
+});

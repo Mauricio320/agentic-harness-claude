@@ -23,6 +23,10 @@
 //                           una base) y, en la composición, el contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
+//   folder-settings --marketplace <url> --ref <tag o rama> [--write]
+//                           el .claude/settings.json del repo de carpeta: extraKnownMarketplaces con el
+//                           marketplace del arnés fijado a ese tag o rama y enabledPlugins con los tres
+//                           plugins. --write agrega lo que falte; un marketplace ya fijado no se cambia
 // Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuya salida de tests no se lee, una base
 //       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write ·
 //       2 uso inválido o sin manifiesto
@@ -48,6 +52,8 @@ const CONTRACT = {
   provides: { stacks: ['nestjs', 'nestjs-prisma'], globs: ['src/**/dto/**', 'src/**/*.controller.ts'] },
   consumes: { stacks: ['nextjs', 'react', 'angular', 'vue'], globs: ['src/**/types/**', 'src/**/api/**'] },
 };
+const MARKETPLACE = 'agentic-harness';
+const PLUGINS = ['arnes', 'arnes-ui', 'arnes-mod'];
 const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'merge-base'].map((c) => `Bash(git ${c} *)`);
 const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
 
@@ -279,14 +285,44 @@ function complete(project, only, write) {
   return 0;
 }
 
-module.exports = { recommended, compositionDraft, gaps };
+// El settings.json que se commitea en el repo de carpeta: quien la clona recibe el marketplace y los
+// plugins al confiar en la carpeta. Lleva la url sin credenciales: el clon usa las de git.
+function folderSettings(project, marketplace, ref, write) {
+  if (project.kind !== 'folder') {
+    console.log('no es una carpeta multi-repo: el settings.json del repo de carpeta no aplica');
+    return 0;
+  }
+  if (!marketplace || !ref) die('adopt: folder-settings necesita --marketplace <url> y --ref <tag o rama>');
+  if (/^[a-z+]+:\/\/[^@/]+@/i.test(marketplace)) die('adopt: la url del marketplace lleva usuario o token; usa la url sin credenciales');
+  const file = path.join(project.root, '.claude', 'settings.json');
+  const s = fs.existsSync(file) ? readJson(file) : {};
+  const add = [];
+  const known = (s.extraKnownMarketplaces || {})[MARKETPLACE];
+  if (known) console.log(`${MARKETPLACE} ya está fijado a ${JSON.stringify(known.source)}; no lo cambio`);
+  else add.push(['extraKnownMarketplaces', MARKETPLACE, { source: { source: 'git', url: marketplace, ref } }]);
+  for (const p of PLUGINS) if (!(s.enabledPlugins || {})[`${p}@${MARKETPLACE}`]) add.push(['enabledPlugins', `${p}@${MARKETPLACE}`, true]);
+  if (!add.length) {
+    console.log(`${file}: ya tiene el marketplace y los plugins`);
+    return 0;
+  }
+  for (const [k, key, v] of add) console.log(`${write ? 'agregado' : 'falta'}  ${k}.${key}: ${JSON.stringify(v)}`);
+  if (!write) return 1;
+  for (const [k, key, v] of add) s[k] = { ...(s[k] || {}), [key]: v };
+  writeJson(file, s);
+  return 0;
+}
+
+module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: {
+        ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, marketplace: { type: 'string' }, ref: { type: 'string' },
+        write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
+      },
     });
   } catch (e) {
     die(`adopt: ${e.message}`);
@@ -294,12 +330,16 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | folder-settings --marketplace <url> --ref <r> [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'folder-settings'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
-  const run = { probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write), 'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write) };
+  const run = {
+    probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
+    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
+  };
   process.exit(run[mode]());
 }
 

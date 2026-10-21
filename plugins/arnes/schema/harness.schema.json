@@ -37,6 +37,8 @@
       "additionalProperties": false,
       "properties": {
         "path": { "$ref": "#/$defs/relPath" },
+        "remote": { "description": "URL de clonado del repo (git remote get-url origin); la usa /arnes:setup para clonarlo.", "type": "string", "minLength": 1 },
+        "branch": { "description": "Rama en que /arnes:setup deja el repo; sin ella, la rama por defecto del repo.", "type": "string", "minLength": 1 },
         "contract": { "$ref": "#/$defs/contract" }
       }
     },

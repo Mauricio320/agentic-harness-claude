@@ -27,9 +27,9 @@ test('presupuesto de §2: ninguna skill pasa de 80 líneas y ningún agente de 1
   for (const a of agents) assert.ok(frontmatter(path.join(PLUGIN, 'agents', a)).lines <= 120, `agente ${a}`);
 });
 
-test('política de invocación de §4: init, ship, worktree y sync solo por la persona; el resto también por el modelo', () => {
+test('política de invocación de §4: init, setup, ship, worktree y sync solo por la persona; el resto también por el modelo', () => {
   const dmi = (s) => frontmatter(path.join(PLUGIN, 'skills', s, 'SKILL.md')).fm['disable-model-invocation'] === 'true';
-  const person = ['init', 'ship', 'worktree', 'sync'];
+  const person = ['init', 'setup', 'ship', 'worktree', 'sync'];
   const model = ['plan', 'build', 'verify', 'review', 'memory', 'timeline'];
   assert.deepEqual([...person, ...model].sort(), [...skills].sort(), 'cada skill está en una de las dos listas');
   for (const s of person) assert.ok(dmi(s), `${s} debe llevar disable-model-invocation: true`);
@@ -51,8 +51,8 @@ test('agentes de §6.4 con su model y su effort; el reviewer sin herramientas de
   assert.ok(!fs.existsSync(path.join(PLUGIN, 'agents', 'README.md')), 'todo .md de agents/ se carga como agente');
 });
 
-test('plan, build, verify, review y ship piden correr cada comando solo', () => {
-  for (const s of ['plan', 'build', 'verify', 'review', 'ship']) {
+test('plan, build, verify, review, ship y setup piden correr cada comando solo', () => {
+  for (const s of ['plan', 'build', 'verify', 'review', 'ship', 'setup']) {
     const text = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
     assert.match(text, /Corre cada comando solo, sin `&&`, `;` ni `echo`/, s);
   }

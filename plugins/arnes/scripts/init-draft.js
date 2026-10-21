@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Borradores de manifiesto para arnes:init (docs/PLAN.md §5), detectados desde el cwd:
 //   - cwd con repos git anidados (un nivel; vale aunque el cwd sea a su vez un repo-workspace):
-//     un manifiesto por repo adoptable y la composición de la carpeta
+//     un manifiesto por repo adoptable y la composición de la carpeta, con el remote (git remote
+//     get-url origin) y la rama actual de cada repo, y el .gitignore del repo de carpeta: las
+//     carpetas de los repos anidados, .tmp, settings.local.json y graphify-out
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
 // lint (eslint con configuración), test (jest, vitest o karma), build, specPattern (formatos que
@@ -13,7 +15,8 @@
 //
 // Uso: node init-draft.js [--write] [--force]
 //   sin --write  imprime los borradores en stdout, cada uno precedido por "# <ruta>"
-//   --write      los escribe en <repo>/.claude/harness.json y <carpeta>/.claude/harness.json
+//   --write      los escribe en <repo>/.claude/harness.json y <carpeta>/.claude/harness.json, y en
+//                una carpeta agrega al .gitignore las líneas que le falten
 //   --force      permite pisar un manifiesto existente
 // Lo que no se infiere (riskPaths, contract, sharedPaths, integration, memory) va a stderr. De un
 // repo sin manifiesto dice en qué rama está y qué ramas remotas sí lo traen; si alguna lo trae, la
@@ -78,6 +81,31 @@ function defaultBranch(dir) {
     if (git(dir, ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${b}`]).status === 0) return b;
   }
   return undefined;
+}
+
+// La URL de clonado sin usuario ni contraseña: un remote https puede llevar un token
+// (https://oauth2:<token>@host/…), y la composición se commitea. Un remote ssh (git@host:ruta) queda.
+function cloneUrl(url) {
+  return url.trim().replace(/^([a-z+]+:\/\/)[^@/]+@/i, '$1');
+}
+
+function currentBranch(dir) {
+  const r = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const b = r.status === 0 ? r.stdout.trim() : '';
+  return b && b !== 'HEAD' ? b : undefined;
+}
+
+// Las líneas del .gitignore del repo de carpeta (docs/PLAN.md §8): los repos de verdad se clonan
+// dentro y git los ignora.
+function gitignoreLines(root, nested) {
+  return [...nested.map((d) => `/${posix(path.relative(root, d))}/`), '/.tmp/', '/.claude/settings.local.json', '/graphify-out/'];
+}
+
+// Las que le faltan al .gitignore de la carpeta.
+function missingIgnores(root, nested) {
+  const file = path.join(root, '.gitignore');
+  const have = new Set(fs.existsSync(file) ? lines(fs.readFileSync(file, 'utf8')).map((l) => l.trim()) : []);
+  return gitignoreLines(root, nested).filter((l) => !have.has(l) && !have.has(l.replace(/^\//, '')) && !have.has(l.replace(/\/$/, '')));
 }
 
 function stackOf(deps, composer) {
@@ -164,12 +192,14 @@ function detectRepo(dir) {
   return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] } };
 }
 
-// → { drafts: [{ file, data }], notes: [string], elsewhere: [repos cuyo manifiesto está en otra rama] }
+// → { drafts: [{ file, data }], notes: [string], elsewhere: [repos cuyo manifiesto está en otra rama],
+//     ignores: [líneas que le faltan al .gitignore de la carpeta] }
 function draft(root) {
   const nested = nestedRepos(root);
   const notes = [];
   const drafts = [];
   const elsewhere = [];
+  let ignores = [];
   const where = (dir, name) => {
     if (fs.existsSync(path.join(dir, MANIFEST))) return;
     const w = manifestElsewhere(dir);
@@ -188,12 +218,17 @@ function draft(root) {
       const rel = posix(path.relative(root, dir));
       const r = detectRepo(dir);
       where(dir, rel);
-      repos.push({ path: rel });
+      const remote = git(dir, ['remote', 'get-url', 'origin']);
+      const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: currentBranch(dir) };
+      for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
+      repos.push(entry);
       if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos } });
     notes.push('pendiente     carpeta: contract por repo (globs que provee o consume) e integration (branchPrefix, sameBranchAcrossWorkspaces)');
+    ignores = missingIgnores(root, nested);
+    if (ignores.length) notes.push(`gitignore     carpeta: le faltan ${ignores.join(' ')}`);
   }
   for (const d of drafts) {
     for (const ws of d.data.workspaces || []) {
@@ -202,10 +237,10 @@ function draft(root) {
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);
     }
   }
-  return { drafts, notes, elsewhere };
+  return { drafts, notes, elsewhere, ignores };
 }
 
-module.exports = { cleanRemote, specPatterns, detectRepo, draft };
+module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines };
 
 function main() {
   let args;
@@ -242,6 +277,12 @@ function main() {
     fs.mkdirSync(path.dirname(d.file), { recursive: true });
     fs.writeFileSync(d.file, JSON.stringify(d.data, null, 2) + '\n');
     console.log(`escrito       ${d.file}`);
+  }
+  if (r.ignores.length) {
+    const file = path.join(root, '.gitignore');
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${r.ignores.join('\n')}\n`);
+    console.log(`gitignore     ${file}: ${r.ignores.join(' ')}`);
   }
 }
 

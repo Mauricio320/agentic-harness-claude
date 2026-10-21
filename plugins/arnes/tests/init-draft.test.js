@@ -68,7 +68,12 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.equal(r.status, 0, r.stderr);
   const d = parseDrafts(r.stdout);
   assert.deepEqual(Object.keys(d).sort(), ['.claude/harness.json', 'api/.claude/harness.json', 'client/.claude/harness.json']);
-  assert.deepEqual(d['.claude/harness.json'].repos, [{ path: 'academicoBitbuckett' }, { path: 'api' }, { path: 'client' }]);
+  assert.deepEqual(d['.claude/harness.json'].repos, [
+    { path: 'academicoBitbuckett', branch: 'main' },
+    { path: 'api', remote: 'https://gitlab.com/grupo/sub/api.git', branch: 'main' },
+    { path: 'client', branch: 'main' },
+  ], 'remote y rama de cada repo, para /arnes:setup');
+  assert.match(r.stderr, /gitignore\s+carpeta: le faltan \/academicoBitbuckett\/ \/api\/ \/client\/ \/\.tmp\/ \/\.claude\/settings\.local\.json \/graphify-out\//);
 
   const [{ conventions, ...api }] = d['api/.claude/harness.json'].workspaces;
   assert.deepEqual(conventions.map((c) => c.id), ['sin-comentarios', 'sin-any', 'sin-console', 'sin-todo'], 'las convenciones mecánicas de un repo JS/TS');
@@ -105,7 +110,9 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
 
 test('--write escribe los tres, no pisa sin --force, y el resultado resuelve como carpeta', () => {
   const root = folder();
+  h.write(root, '.gitignore', 'api/\n/.tmp');
   assert.equal(h.run('init-draft.js', ['--write'], { cwd: root }).status, 0);
+  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), 'api/\n/.tmp\n/academicoBitbuckett/\n/client/\n/.claude/settings.local.json\n/graphify-out/\n', 'agrega solo lo que falta');
   for (const f of ['.claude/harness.json', 'api/.claude/harness.json', 'client/.claude/harness.json']) {
     assert.ok(fs.existsSync(path.join(root, f)), f);
   }
@@ -187,4 +194,11 @@ test('propone en forbidden los scripts que tocan una base por su nombre o por lo
   const r = h.run('init-draft.js', [], { cwd: dir });
   const [ws] = JSON.parse(r.stdout.split('\n').slice(1).join('\n')).workspaces;
   assert.deepEqual(ws.forbidden, ['npm run acl:sync', 'npm run acl:migrar-otorgamientos', 'npm run db:up', 'knex migrate:latest', 'knex migrate:up', 'knex migrate:down', 'knex migrate:rollback', 'knex seed:run']);
+});
+
+test('cloneUrl quita usuario y token de un remote https y deja el ssh', () => {
+  const { cloneUrl } = require('../scripts/init-draft.js');
+  assert.equal(cloneUrl('https://oauth2:glpat-xyz@gitlab.com/g/api.git\n'), 'https://gitlab.com/g/api.git');
+  assert.equal(cloneUrl('git@gitlab.com:g/api.git'), 'git@gitlab.com:g/api.git');
+  assert.equal(cloneUrl('/srv/repos/api.git'), '/srv/repos/api.git');
 });

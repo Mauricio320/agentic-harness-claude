@@ -38,7 +38,8 @@ Pasos:
 5. Valida cada archivo escrito con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" validate <archivo>`. Valida además el proyecto resuelto con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`. Si algo no valida, corrígelo antes de seguir.
 6. Recuerda dónde se versiona cada archivo:
    - El manifiesto de un repo se commitea en ese repo, cuando su equipo lo adopte. Tú no commiteas.
-   - La composición va en el repo-workspace de la carpeta. Si la carpeta no es un repo, o si su repo es otro (como el del arnés en academico), va a su `.gitignore`.
+   - La composición va en el repo de carpeta: un repo chico propio de la carpeta que versiona la composición, su `CLAUDE.md`, `.claude/settings.json` y un `.gitignore` con los repos anidados, que `--write` ya escribió. Si la carpeta no es un repo, propón a la persona `git init` y que ella lo suba; con eso, otra persona la prepara con `/arnes:setup <url>`.
+   - El `.claude/settings.json` de la carpeta: `adopt.js folder-settings --marketplace <url del arnés sin credenciales> --ref <tag o rama>` lo muestra; con el sí, `--write`.
 7. Sigue con lo determinista de la adopción, y después ofrece `/arnes:init --check` para ver qué falta del mínimo.
 
 ## Completar un manifiesto existente
