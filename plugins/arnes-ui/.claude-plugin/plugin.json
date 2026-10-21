@@ -1,6 +1,6 @@
 {
   "name": "arnes-ui",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Interfaz del arnés: banda, panel, status y avisos. Solo muestra; desactivarlo no cambia el flujo.",
   "author": { "name": "Mauricio Triana" },
   "types": "./types/index.d.ts"
