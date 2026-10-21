@@ -117,12 +117,12 @@ test('la voz del arnés: las nueve skills del flujo la siguen, con el detalle en
   }
 });
 
-test('la voz del arnés también en los hooks: SessionStart y el Stop no nombran scripts, rutas ni las skills que carga el modelo', () => {
+test('la voz del arnés también en los hooks: SessionStart, el Stop y ExitWorktree no nombran scripts, rutas ni las skills que carga el modelo', () => {
   // Los textos que la persona o el modelo leen salen de los literales de estos dos hooks. Se permite
   // el nombre de una skill solo cuando la persona tiene que escribirla.
   const banned = [/\.js\b/, /\.tmp\//, /node "/, /\$\{SCRIPTS\}/, /\/arnes:(verify|review|build|memory|timeline)\b/, /\/arnes:plan(?! --trivial)/, /\b(gate|bandera|manifiesto)\b/i];
   let seen = 0;
-  for (const f of ['session-start.js', 'stop-gate.js']) {
+  for (const f of ['session-start.js', 'stop-gate.js', 'worktree-remove.js']) {
     const code = fs.readFileSync(path.join(PLUGIN, 'scripts', 'hooks', f), 'utf8').split(/\r?\n/).filter((l) => !/^\s*\/\/|require\(/.test(l)).join('\n');
     for (const m of code.matchAll(/(['`])((?:\\.|(?!\1)[^\\])*?)\1/g)) {
       const text = m[2];

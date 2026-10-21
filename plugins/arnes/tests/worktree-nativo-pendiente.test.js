@@ -52,5 +52,7 @@ test('el guard niega git worktree remove con el enlace vivo; ExitWorktree lo dej
   assert.equal(exitWorktree(wt).out, null, 'Claude Code borra solo el enlace: sin trabajo sin subir, puede borrarlo');
   h.write(wt, 'src/b.ts', 'b\n');
   h.commitAll(wt, 'trabajo');
-  assert.match(reason(exitWorktree(wt)), /este worktree \(rama worktree-talleres\) tiene 1 commit\(s\) sin subir; borrarlo los pierde/);
+  const why = reason(exitWorktree(wt));
+  assert.match(why, /este worktree \(rama worktree-talleres\) tiene 1 commit\(s\) sin subir; borrarlo los pierde\. Sube la rama con \/arnes:ship, o commitea y sube a mano/);
+  assert.doesNotMatch(why, /integrate|merge --no-ff/, 'integrar es del registro, no de un worktree nativo');
 });

@@ -32,7 +32,7 @@ function judgeNative(dir) {
   const own = nativeWork(dir, hit && hit.ws.defaultBranch).find((n) => path.resolve(n.path).toLowerCase() === path.resolve(top).toLowerCase());
   if (!own) return null;
   const what = [own.unpushed && `${own.unpushed} commit(s) sin subir`, own.dirty && `${own.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
-  return `este worktree (rama ${own.branch}) tiene ${what}; borrarlo los pierde. Entrégalo con /arnes:ship, que pide el sí para subirlo, o sal con action "keep".`;
+  return `este worktree (rama ${own.branch}) tiene ${what}; borrarlo los pierde. Sube la rama con /arnes:ship, o commitea y sube a mano; después se puede borrar. Si no, sal con action "keep". Un worktree de Claude Code no se integra con un merge local.`;
 }
 
 // Destino de integración del worktree en dir: el registrado en el ledger, o la rama por defecto.
