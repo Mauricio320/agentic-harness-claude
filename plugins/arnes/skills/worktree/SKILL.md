@@ -13,6 +13,11 @@ Todo pasa por `node "${CLAUDE_PLUGIN_ROOT}/scripts/worktree-ledger.js" <subcoman
 
 Antes de nada, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start worktree --detail "<subcomando> <slug>"`. Al terminar, anota `end worktree --result ok`, o `--result rechazado` si el script salió con 1.
 
+## Cuál worktree
+
+- **En un repo solo:** la persona abre la sesión con `claude --worktree <nombre>`, o en el escritorio con worktree, y el arnés hace el resto al arrancar: enlaza las dependencias, mueve los puertos y toma la rama del worktree como la del issue. No hace falta esta skill.
+- **En una carpeta multi-repo:** `--worktree` no sirve, porque la raíz es el repo de carpeta y los repos anidados no entran en el worktree. Ahí es `/arnes:worktree open`, que abre un worktree por repo, y también para las tareas de un mismo issue.
+
 ## Cuándo no hace falta
 
 Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrás de otro o en paralelo, sin ramas: no hay nada que integrar. Un worktree sirve cuando dos tareas del mismo issue chocarían en los mismos archivos, o cuando otra sesión ya trabaja en este árbol (docs/PLAN.md §7).

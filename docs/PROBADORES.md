@@ -158,11 +158,13 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 
 **¿Cuándo se crea la rama del issue?** No al abrir la sesión ni mientras se planifica: la crea el arnés al aprobar el plan, en todos los repos del plan con el mismo nombre. ship la reutiliza al entregar, y solo la crea él si nadie la creó antes.
 
-**¿Cuándo uso un worktree, y cómo?** Cuando dos tareas del mismo issue tocarían los mismos archivos a la vez, o cuando otra sesión ya trabaja en esta carpeta (al abrir, el arnés te avisa). Si las tareas tocan archivos distintos, no hace falta.
-- Ábrelo desde la rama del issue: `/arnes:worktree open <tarea>`. Te dice la carpeta y el mapa de puertos (`set talleres: api 3003 → 3013`).
-- Trabaja ahí abriendo Claude Code en esa carpeta: verifica y commitea adentro, en su rama `wt/...`.
-- Para probar la app, arráncala desde esa carpeta, con sus puertos. Si al abrir te avisó que Prisma carga el `.env` del principal, arráncala con `node --env-file=.env <entrada>`, por ejemplo `node --env-file=.env dist/main`.
-- Al terminar, desde la sesión del checkout principal: `/arnes:worktree integrate <tarea>`. Nunca lo borres a mano: integrate quita primero el enlace de `node_modules`, y un borrado a mano puede llevarse el `node_modules` del principal.
+**¿Cuándo uso un worktree, y cómo?** Cuando quieres trabajar en dos cosas a la vez sin que se pisen, cuando dos tareas del mismo issue tocarían los mismos archivos, o cuando otra sesión ya trabaja en esta carpeta (al abrir, el arnés te avisa). Si las tareas tocan archivos distintos, no hace falta.
+- **En un repo solo**, abre la sesión con `claude --worktree <nombre>`, o en el escritorio con worktree, y el arnés hace el resto: enlaza las dependencias, mueve los puertos de tu `.env` y toma la rama del worktree como la del issue. Al terminar, `/arnes:ship` desde esa sesión; el arnés te avisa si un worktree queda con trabajo sin subir. Para que el worktree nazca con tu `.env`, el repo necesita un `.worktreeinclude`, que propone `/arnes:init`.
+- **En una carpeta multi-repo**, `--worktree` no sirve, porque la raíz es el repo de carpeta y los repos de adentro no entran en el worktree. Ahí es `/arnes:worktree open`, que abre uno por repo, y es lo que sigue:
+  - Ábrelo desde la rama del issue: `/arnes:worktree open <tarea>`. Te dice la carpeta y el mapa de puertos (`set talleres: api 3003 → 3013`).
+  - Trabaja ahí abriendo Claude Code en esa carpeta: verifica y commitea adentro, en su rama `wt/...`.
+  - Para probar la app, arráncala desde esa carpeta, con sus puertos. Si al abrir te avisó que Prisma carga el `.env` del principal, arráncala con `node --env-file=.env <entrada>`, por ejemplo `node --env-file=.env dist/main`.
+  - Al terminar, desde la sesión del checkout principal: `/arnes:worktree integrate <tarea>`. Nunca lo borres a mano: integrate quita primero el enlace de `node_modules`, y un borrado a mano puede llevarse el `node_modules` del principal.
 
 ## 9. Reportar un problema
 
