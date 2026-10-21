@@ -24,7 +24,7 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
    - El worktree nace usable: `node_modules` enlazado al del checkout principal y los `.env*` copiados, para que verify corra adentro y la persona pueda levantar la app ahí.
    - **`--no-link`** cuando el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma` (`prisma generate`): con el enlace, regenerar en el worktree pisaría el del principal. Instala las dependencias dentro del worktree y tarda; pídele el sí a la persona.
    - **Puertos:** el set toma un desplazamiento (10 el primero, 20 el segundo) y las copias de `.env` lo llevan, para que su app corra al lado de la del principal. `--port-offset N` lo elige la persona; `--port-offset 0` no toca nada.
-3. Muestra la salida y después `list`. Di la ruta de cada worktree y repite el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Si open avisó que Prisma carga el `.env` del principal, se arranca con el del worktree ya cargado: `node --env-file=.env <entrada>`. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
+3. Di en pocas líneas la carpeta de cada worktree y el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Si open avisó que Prisma carga el `.env` del principal, se arranca con el del worktree ya cargado: `node --env-file=.env <entrada>`. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
 4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
 
 ## integrate <slug>
@@ -36,14 +36,16 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
    - Verifica el workspace (skill verify) y commitea el merge con `git commit --no-edit`.
    - Vuelve a correr `integrate <slug>` para borrar el worktree y cerrar el registro.
 4. Después de integrar, verifica la rama del issue con la skill verify: el merge juntó trabajo que se verificó por separado.
-5. Muestra `list --all`.
+5. Di en una línea cómo quedó el registro (`list --all`).
 
 ## close <slug>
 
-Cierra un worktree sin commits propios, por ejemplo una tarea descartada antes de empezar. Si la rama tiene commits sin integrar, el script se niega. No lo fuerces: o se integra, o la persona lo borra desde su terminal. Muestra `list --all`.
+Cierra un worktree sin commits propios, por ejemplo una tarea descartada antes de empezar. Si la rama tiene commits sin integrar, el script se niega. No lo fuerces: o se integra, o la persona lo borra desde su terminal. Di en una línea cómo quedó el registro.
 
 ## list y pending
 
-`list` muestra los abiertos con el mapa de puertos de cada set, y `list --all` también los integrados y cerrados. `pending` sale con 1 si queda algo sin integrar; ship y el Stop lo consultan. Muestra la salida tal cual.
+`list` muestra los abiertos con el mapa de puertos de cada set, y `list --all` también los integrados y cerrados. `pending` sale con 1 si queda algo sin integrar; ship y el Stop lo consultan. Di cada worktree en una línea, con su rama, su destino y su mapa de puertos.
 
 El Stop bloquea un turno que dejó commits sin integrar en un worktree del issue. SessionStart lista los pendientes y avisa de los que llevan más de 7 días sin commits nuevos. Ningún hook borra un worktree solo.
+
+Lo que lee la persona (docs/PLAN.md §2): lo de arriba, sin nombres de scripts, códigos de salida ni rutas del plugin. La salida completa de cada subcomando va al informe: `node "${CLAUDE_PLUGIN_ROOT}/scripts/informe.js" path worktree` da la ruta, y el chat la dice en una línea.

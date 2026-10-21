@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Argumentos: `$ARGUMENTS`
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`; abajo, `S`. Córrelos con `node "S/<script>"`, la ruta entre comillas, desde el directorio de la sesión, cada comando solo. Quien lee no conoce el arnés: no le nombres scripts, flags ni códigos de salida. Dile qué vas a escribir, en qué archivo y para qué, en frases cortas.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`; abajo, `S`. Córrelos con `node "S/<script>"`, la ruta entre comillas, desde el directorio de la sesión, cada comando solo. Quien lee no conoce el arnés (docs/PLAN.md §2): no le nombres scripts, flags ni códigos de salida. Dile qué vas a escribir, en qué archivo y para qué, en frases cortas.
 
 ## Con --check
 
@@ -37,7 +37,7 @@ Un solo mensaje, con un bloque numerado. Cada punto dice qué se escribe y dónd
 - **La configuración de cada repo nuevo** (`<repo>/.claude/harness.json`): sus comandos, y las rutas que exigen revisión humana (`riskPaths`). Propón las que ves en el código, como migraciones, autenticación o permisos, y di de dónde salen.
 - **La composición de la carpeta**: los repos, la rama de cada uno, qué provee y qué consume cada uno, y la misma rama del issue en todos con `feature/`.
 - **Lo que le falta a una configuración existente**, un punto por campo: las convenciones (comentarios, `any`, `console.`, TODO), los comandos que tocan una base o reescriben archivos, que se le prohíben al modelo, y el contract.
-- **La sincronización después del build** (`afterBuild`), si el repo tiene scripts de sync: el build y la sincronización corren solos al cerrar cada build, solo si el `.env` apunta a la base local. Muestra el patrón de base local y pide confirmarlo.
+- **La sincronización después del build** (`afterBuild`), si el repo tiene scripts de sync: el build y la sincronización corren solos al cerrar cada build, solo si el `.env` apunta a la base local. Di el patrón de base local en palabras (host y puerto) y pide confirmarlo.
 - **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace y **la línea base de tests** de cada repo con el árbol limpio.
 - **Un flag que le falta al comando de test** si probe lo dice.
 
@@ -53,10 +53,10 @@ Aplica lo aceptado, sin volver a preguntar:
 
 ### 5. El cierre
 
-Una línea con lo que quedó escrito y una lista corta de lo que le toca a la persona:
+El detalle (cada archivo escrito, las salidas de los pasos) va al informe: `node "S/informe.js" path init` da la ruta; escríbelo ahí con Write. En el chat, una línea con lo que quedó escrito y la ruta del informe, y una lista corta de lo que le toca a la persona:
 - commitear la configuración de cada repo en ese repo, y la línea base con `gates:` al inicio del asunto;
 - si la carpeta no es un repo, `git init` y subirla: con eso otra persona la prepara con `/arnes:setup <url>`.
 
-Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Nunca sugieras invocar plan, build, verify ni review a mano.
+Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Nunca sugieras invocar plan, build, verify ni review a mano. Si informe.js dijo `frase: dila`, cierra con "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
 
 Un repo con solo `composer.json` (PHP), o sin typecheck ni test detectables, entra en la composición sin manifiesto propio, y eso no es un error.

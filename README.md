@@ -18,9 +18,10 @@ Falta el resto de `arnes-mod` (fase 5).
 1. Cada pieza existe porque el modelo no lo hace solo. Cuando un modelo nuevo lo haga, la pieza se quita.
 2. Lo que debe cumplirse siempre va a una herramienta (lint, tsc, tests, hook, CI, aprobación en el host git). Lo que requiere juicio va en prosa corta. Lo demás se borra.
 3. Nada del stack queda cableado en el arnés: todo lo específico se lee del manifiesto del proyecto y de su `CLAUDE.md`.
-4. El verde del arnés significa "cumple convenciones y compila/testea", nunca "es correcto en el negocio". Se dice así en cada reporte.
+4. El verde del arnés significa "cumple convenciones y compila/testea", nunca "es correcto en el negocio". Se dice así una vez por corrida (principio 7).
 5. El plugin funciona completo sin el mod. El mod es opcional y delgado.
 6. Presupuesto: ninguna skill supera ~80 líneas; ningún agente supera ~120; el `CLAUDE.md` raíz de un proyecto no supera 200.
+7. La voz del arnés. Quien lee el chat puede no conocer el arnés, y un reporte largo con salidas de scripts, rutas y hashes lo abruma. De cada skill lee como máximo una línea de qué pasó y una lista corta de lo que tiene que decidir o hacer, sin nombres de scripts, códigos de salida, hashes ni rutas del plugin. El detalle completo (la salida del gate tal cual, la lista de archivos, los motivos) va a `.tmp/harness/informes/<etapa>-<hora>.md`, y el chat dice su ruta en una línea; `arnes-ui` muestra lo vivo. Quedan en el chat, textuales, los bloqueantes del reviewer, que la persona tiene que ver, y las preguntas del plan con su recomendación. La frase "verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio" sale una sola vez por corrida, no en cada reporte. Las preguntas de cualquier skill van en un solo bloque numerado, cada una con su recomendación, contestable con "sí a todo".
 
 ## Instalación
 

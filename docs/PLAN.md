@@ -13,9 +13,10 @@ Un plugin de Claude Code, versionado en su propio repo, que haga que cualquier s
 1. Cada pieza existe porque el modelo no lo hace solo. Cuando un modelo nuevo lo haga, la pieza se quita.
 2. Lo que debe cumplirse siempre va a una herramienta (lint, tsc, tests, hook, CI, aprobación en el host git). Lo que requiere juicio va en prosa corta. Lo demás se borra.
 3. Nada del stack queda cableado en el arnés: todo lo específico se lee del manifiesto del proyecto y de su `CLAUDE.md`.
-4. El verde del arnés significa "cumple convenciones y compila/testea", nunca "es correcto en el negocio". Se dice así en cada reporte.
+4. El verde del arnés significa "cumple convenciones y compila/testea", nunca "es correcto en el negocio". Se dice así una vez por corrida (principio 7).
 5. El plugin funciona completo sin el mod. El mod es opcional y delgado.
 6. Presupuesto: ninguna skill supera ~80 líneas; ningún agente supera ~120; el `CLAUDE.md` raíz de un proyecto no supera 200.
+7. La voz del arnés. Quien lee el chat puede no conocer el arnés, y un reporte largo con salidas de scripts, rutas y hashes lo abruma. De cada skill lee como máximo una línea de qué pasó y una lista corta de lo que tiene que decidir o hacer, sin nombres de scripts, códigos de salida, hashes ni rutas del plugin. El detalle completo (la salida del gate tal cual, la lista de archivos, los motivos) va a `.tmp/harness/informes/<etapa>-<hora>.md`, y el chat dice su ruta en una línea; `arnes-ui` muestra lo vivo. Quedan en el chat, textuales, los bloqueantes del reviewer, que la persona tiene que ver, y las preguntas del plan con su recomendación. La frase "verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio" sale una sola vez por corrida, no en cada reporte. Las preguntas de cualquier skill van en un solo bloque numerado, cada una con su recomendación, contestable con "sí a todo".
 
 ## 3. Arquitectura en capas
 
@@ -110,6 +111,7 @@ agentic-harness/
         ci-gate.js                       # lo que corre el CI: touched-files + typecheck + convenciones + lint + test-select sobre el MR
         conventions.js                   # las convenciones mecánicas del manifiesto sobre lo que cambió, con archivo y línea
         plan-state.js                    # el plan de la corrida: estado, aprobación de la persona y plan trivial
+        informe.js                       # la ruta del informe de cada etapa y si la frase del verde ya salió en la corrida (§2)
         hooks/{session-start,prompt-context,after-edit,guard,plan-guard,read-guard,stop-gate,worktree-remove}.js   # session-start atiende también SessionEnd
       tests/                             # repos de juguete + node --test; corre en CI del arnés
     arnes-ui/
@@ -339,6 +341,13 @@ Cambio de la rama del issue (2026-10-21, rama `feature/rama-del-issue`): **la ra
   - La elección va además a `## Decisiones`.
 - **Ship la reutiliza.** La rama del issue es la actual, y `ship.js branch` reutiliza la actual; crearla en ship queda solo para cuando nadie la creó antes. Una rama que ya existe en otro commit hace que plan, como ship, se niegue en ese repo.
 - **El plan avisa si la rama va atrás** (ronda de init amable, 2026-10-21). Al empezar, antes de que haya plan, `issue-branch.js behind` hace `git fetch` de cada repo adoptable y cuenta los commits que la rama actual tiene detrás de `origin/<defaultBranch>`. Por cada repo atrás imprime una línea con el número: en otra rama, que `/arnes:sync` los trae antes de seguir; en la rama por defecto, que la rama del issue saldrá de `origin/<defaultBranch>` al aprobar el plan. La skill plan la repite al inicio del mensaje del plan y ofrece `/arnes:sync` antes de construir. Nunca hace pull: el pull es de la persona, y sync es quien trae main a una rama empezada.
+
+Cambio de la ronda de init amable (2026-10-21): **la voz del arnés** (principio 7, §2). Un probador de front dijo que el arnés lo abrumaba: cada reporte traía salidas de scripts, rutas, hashes y la frase del verde repetida. Se aplicó a los reportes de init, setup, plan, build, verify, review, ship, worktree y sync:
+- `scripts/informe.js path <etapa> [--dir <carpeta>]` da la ruta del informe de la etapa, `.tmp/harness/informes/<etapa>-<HHMMSS>.md`, y dice si la frase del verde ya salió en la corrida (desde el último `start` de plan, init o setup). La primera vez anota en la timeline la nota `frase` y responde `frase: dila`; las siguientes, `frase: ya se dijo en esta corrida`. Así lo decide un script y no la memoria del modelo.
+- Cada skill escribe el detalle en ese informe con Write y en el chat deja una línea por workspace, la ruta del informe y lo que le toca a la persona. verify ya no pega las líneas de ci-gate en el chat; review copia textuales solo los bloqueantes, y las sugerencias y los criterios van al informe; ship lleva al informe la salida del check y el `log --stat` de cada commit, y en el cuerpo de cada MR la frase va siempre.
+- setup deja de preguntar paso por paso: hace sin preguntar lo que pidió la persona (clonar, fetch, copiar `.env.example`), mira lo demás sin escribir y hace una sola ronda con el cambio de rama, las dependencias, la línea base, el grafo, el `CLAUDE.md` y los permisos. plan pide la aprobación con una línea, los criterios y las preguntas numeradas, sin salidas de comandos.
+- Un test (`skills-agents.test.js`) busca en los SKILL.md "tal cual", "muestra la salida" y "muestra su salida", y solo los deja pasar en una línea que habla de bloqueantes o de preguntas. timeline queda fuera de ese test: lo que pide la persona al invocarla es ver el registro. Otro comprueba que las nueve skills remiten a §2, mandan el detalle a un informe (salvo plan, cuyo detalle es `plan.md`) y no repiten la frase sin preguntarle a `informe.js`.
+- El principio 4 dice ahora "una vez por corrida" en vez de "en cada reporte".
 
 Tests sobre orígenes bare (`tests/issue-branch.test.js`): main limpio y atrás de origin, main con cambios, otra rama sin el sí, otra rama con el sí (limpia y con cambios) y la alternativa. `docs/PROBADORES.md` dice: "la rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear".
 

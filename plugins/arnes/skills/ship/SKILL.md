@@ -14,7 +14,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 ## 1. Comprobar
 
 1. Anota el inicio: `node "S/lib/timeline.js" start ship`.
-2. Corre `node "S/ship.js" check`. Muestra su salida tal cual.
+2. Corre `node "S/ship.js" check`. Su salida va al informe de ship (abajo); en el chat, una línea con lo que encontró.
    - **Si sale con 1:** anota `end ship --result fail --detail "<motivo>"` y termina. Di qué falta: `/arnes:verify` si es la bandera, `/arnes:review` si es la revisión o tiene bloqueantes, `/arnes:worktree integrate <slug>` si son worktrees, o sacar del árbol un archivo que no debe entrar.
    - **Nunca verifiques ni revises desde aquí.**
 
@@ -25,7 +25,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - la rama del issue que creó plan al aprobar (la línea `Rama:` de `.tmp/harness/plan.md`), que es la actual: `ship.js branch` la reutiliza;
    - la "rama propuesta" del check;
    - una corta en kebab-case a partir del título de `.tmp/harness/plan.md` o del pedido de la persona.
-2. Corre `node "S/worktree-ledger.js" pending --target <rama>`, con el prefijo incluido. Si sale con 1, muestra su salida tal cual, anota `end ship --result fail --detail "worktrees sin integrar"` y termina: falta `/arnes:worktree integrate <slug>`.
+2. Corre `node "S/worktree-ledger.js" pending --target <rama>`, con el prefijo incluido. Si sale con 1, di qué worktrees siguen abiertos, anota `end ship --result fail --detail "worktrees sin integrar"` y termina: falta `/arnes:worktree integrate <slug>`.
 3. Corre `node "S/ship.js" branch <rama>`. El prefijo del manifiesto se agrega solo. Si plan ya la creó, la reutiliza; crearla aquí queda solo para cuando nadie la creó antes.
 4. Si sale con 1, muestra el motivo y termina. Nunca muevas un HEAD a mano.
 
@@ -40,10 +40,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Cuerpo:** el porqué, en pocas líneas.
    - **Línea base:** si el check dice que la línea base cambia, el asunto empieza con `gates: `.
 3. **Commit:** `git -C "<carpeta del workspace>" commit -m "<asunto>" -m "<cuerpo>"`. Si el guard lo niega, no lo rodees: di el motivo y termina.
-4. **Muestra el commit:** `git -C "<carpeta>" log -1 --stat`.
-5. **Comprueba lo commiteado:** `node "S/ship.js" committed <ws>`. Si sale con 1, un hook del repo cambió archivos después de verificar: muestra la salida tal cual, anota `end ship --result fail --detail "el commit no es lo verificado"` y termina, sin otro workspace ni push. Decide la persona. Una nota `quedó sin commitear: <archivo>` no es una falla: dila y sigue.
+4. **El commit:** `git -C "<carpeta>" log -1 --stat` va al informe; en el chat, el asunto y cuántos archivos.
+5. **Comprueba lo commiteado:** `node "S/ship.js" committed <ws>`. Si sale con 1, un hook del repo cambió archivos después de verificar: di cuáles, anota `end ship --result fail --detail "el commit no es lo verificado"` y termina, sin otro workspace ni push. Decide la persona. Una nota `quedó sin commitear: <archivo>` no es una falla: dila y sigue.
 
-**Con `--solo-commit`:** anota `end ship --result ok --detail "solo commit"`, muestra los commits creados y termina.
+**Con `--solo-commit`:** anota `end ship --result ok --detail "solo commit"`, di los commits creados en una línea por repo y termina.
 
 ## 4. Push y MR, solo con un sí explícito
 
@@ -65,4 +65,6 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Sin glab ni gh:** muestra el enlace que imprimió el push y el cuerpo listo para pegar.
 5. **Anota el fin:** `node "S/lib/timeline.js" end ship --result ok --detail "<MR o commits>"`.
 
-Cierra el reporte con esta frase, literal: **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.**
+## Reporte
+
+Lo que lee la persona (docs/PLAN.md §2): una línea por repo con lo que se entregó, y lo que tiene que decidir o hacer. La confirmación del push y los MR es una sola pregunta, con todo lo que va a salir. Sin nombres de scripts, códigos de salida, hashes completos ni rutas del plugin. El detalle (la salida del check, `log --stat` de cada commit, los cuerpos de los MR) va al informe: `node "S/informe.js" path ship` da la ruta, y el chat la dice en una línea. La frase "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si informe.js dijo `frase: dila`; en el cuerpo de cada MR va siempre.

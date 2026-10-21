@@ -7,48 +7,48 @@ disable-model-invocation: true
 
 # arnes:setup
 
-Argumentos: `$ARGUMENTS`. Con `--check` no se toca nada: corre cada paso sin `--write`, muestra lo que haría y termina. Lo demás es la url o la ruta del repo de carpeta y, opcional, el destino.
+Argumentos: `$ARGUMENTS`. Con `--check` no se toca nada: corre cada paso sin `--write`, di en pocas líneas lo que haría y termina. Lo demás es la url o la ruta del repo de carpeta y, opcional, el destino.
 
-El script es `${CLAUDE_PLUGIN_ROOT}/scripts/setup.js`; abajo, `S`. Córrelo con `node "S" <paso>` y la ruta entre comillas. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. Cada paso, antes de correrlo, dilo en una línea: qué hace y por qué. Muestra su salida tal cual.
+El script es `${CLAUDE_PLUGIN_ROOT}/scripts/setup.js`; abajo, `S`. Córrelo con `node "S" <paso>` y la ruta entre comillas. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. Todo paso salvo clone lleva `--dir "<carpeta>"`, la carpeta del proyecto.
+
+Quien lee no conoce el arnés (docs/PLAN.md §2): no le nombres scripts, pasos ni códigos de salida. Dile qué vas a hacer y dónde, en frases cortas.
 
 Reglas:
 - **Nunca corras un comando de `forbidden`** ni nada contra una base. Los comandos contra la base son de la persona.
 - **Nunca escribas un valor en un `.env`** ni muestres uno: ni credenciales, ni tokens, ni contraseñas.
-- **Un paso que dice qué haría** (sin `--write`) y que cambia algo se corre con `--write` solo después del sí que se indica. Si la persona dice no, sigue con el próximo paso y anótalo para el cierre.
-- **Todo paso salvo clone** lleva `--dir "<carpeta>"`, la carpeta del proyecto.
+- **Lo que cambia algo de la persona** se hace solo con su sí, pedido en la única ronda de preguntas de abajo.
 
-## Pasos, en orden
+## 1. Lo que se hace sin preguntar
 
-1. **Repo de carpeta:** `node "S" clone <fuente> [destino]`.
-   - Sin fuente, o si el destino ya tiene composición, usa esa carpeta y dilo.
-   - Si dice "clonaría", corre lo mismo con `--write`. Clonar no necesita confirmación: lo pidió la persona.
-   - Si sale con 1, explica el motivo y termina.
-   - Con la carpeta lista, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`, y al cerrar `end setup --dir "<carpeta>" --result ok`: mientras setup está en curso, las respuestas de la persona no se toman como pedidos de código.
-2. **Repos de la composición:** `node "S" repos --dir "<carpeta>"`, y después con `--write`: clona los que faltan y hace fetch de los que existen.
-   - **Un repo en otra rama:** di en cuál está y cuál declara la composición, y pregunta si lo cambias. Solo con un sí, `repos --switch <ruta> --write`. Con cambios sin commitear no se mueve.
-3. **Dependencias:** `node "S" deps --dir "<carpeta>"` lista el comando de cada repo según su lockfile.
-   - **Pregunta antes,** en un mensaje con todos los comandos: tarda.
-   - Con el sí, `deps --write`, o `--repo <ruta>` por cada repo aceptado.
-4. **Entorno:** `node "S" env --dir "<carpeta>" --write`. Copia `.env.example` donde no hay `.env`.
-   - Lista las variables vacías: las llena la persona.
-   - Di a qué host apunta cada conexión a base. Si es local o un túnel, avisa que puede ser QA.
-5. **Tests:** `node "S" probe --dir "<carpeta>"`. Si dice FALTA por una dependencia, dilo: es del paso 3.
-6. **Línea base:** `node "S" baseline --dir "<carpeta>"`.
-   - **Si falta,** ofrece capturarla. Con el sí, `baseline --ws <ws> --write`.
-   - **Commitearla,** con `gates:` en el asunto, es de la persona.
-7. **Grafo:** `node "S" graph --dir "<carpeta>"`. Con graphify instalado, corre lo mismo con `--write`. Sin él, di cómo instalarlo y sigue.
-8. **CLAUDE.md de la carpeta:** `node "S" claude-md --dir "<carpeta>"`. Si falta, con el sí, `--write`.
-9. **Permisos:** `node "S" permissions --dir "<carpeta>"`. Con el sí, `--write`: van a `.claude/settings.local.json`, que no se commitea.
-10. **Cierre:** `node "S" close --dir "<carpeta>"`.
-    - Corre init --check e imprime la lista "pendiente tuyo".
-    - Muéstrala tal cual y suma lo que la persona dijo que no en los pasos de arriba.
+1. **El repo de carpeta:** `node "S" clone <fuente> [destino]`, y si dice "clonaría", lo mismo con `--write`: lo pidió la persona. Sin fuente, o si el destino ya tiene composición, usa esa carpeta. Si sale con 1, di el motivo y termina.
+2. **La etapa:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`. Mientras setup está en curso, las respuestas de la persona no se toman como pedidos de código.
+3. **Los repos:** `node "S" repos --dir "<carpeta>" --write` clona los que faltan y hace fetch de los que existen. Un repo en otra rama no se mueve: va a la ronda.
+4. **El entorno:** `node "S" env --dir "<carpeta>" --write` copia `.env.example` donde no hay `.env`. Anota las variables vacías, que llena la persona, y a qué host y puerto apunta cada conexión a base; si es local o un túnel, avisa que puede ser QA.
+5. **Mirar lo demás, sin escribir:** `deps`, `baseline`, `graph`, `claude-md` y `permissions`, cada uno con `--dir "<carpeta>"` y sin `--write`.
+
+## 2. Una sola ronda de preguntas
+
+Un solo mensaje, con un bloque numerado. Cada punto dice qué se hace y dónde, con `Recomiendo:` y el porqué en una frase:
+- **Cambiar de rama** un repo que está en otra que la que declara la composición (solo sin cambios sin commitear).
+- **Instalar las dependencias** de cada repo, con el comando de su lockfile; tarda.
+- **Capturar la línea base de tests** de un repo que no la tiene, después de instalar; commitearla es de la persona.
+- **Armar el grafo** de cada repo, si graphify está instalado; si no, di dónde está la guía y sigue.
+- **El CLAUDE.md de la carpeta**, si falta, y **los permisos** en `.claude/settings.local.json`, que no se commitea.
+
+Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.` Termina el turno ahí.
+
+## 3. Con la respuesta
+
+Aplica lo aceptado, en este orden y sin volver a preguntar: `repos --switch <ruta> --write`, `deps --write` (o `--repo <ruta>` por cada repo aceptado), `probe` (si dice FALTA por una dependencia, dilo), `baseline --ws <ws> --write`, `graph --write`, `claude-md --write` y `permissions --write`. Lo que la persona dijo que no, anótalo para el cierre.
+
+## 4. El cierre
+
+`node "S" close --dir "<carpeta>"` corre init --check y arma la lista "pendiente tuyo". El detalle de cada paso va al informe: `node "${CLAUDE_PLUGIN_ROOT}/scripts/informe.js" path setup --dir "<carpeta>"` da la ruta; escríbelo ahí con Write. En el chat, una línea con lo que quedó listo y la ruta del informe, y la lista "pendiente tuyo" en pocas líneas: los valores de `.env`, los comandos contra la base, un repo en otra rama, los permisos de la app que pida el issue y lo que la persona dijo que no. Anota `end setup --dir "<carpeta>" --result ok`.
+
+Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Si informe.js dijo `frase: dila`, cierra con "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
 
 ## Con --check
 
-Corre los pasos 1 a 10 sin `--write` y sin preguntar. Si la carpeta todavía no existe, el paso 1 dice qué clonaría, y los demás no se pueden correr: dilo y termina. No modifiques ningún archivo.
-
-## Para un proyecto sin manifiesto
+Corre clone, repos, deps, env, probe, baseline, graph, claude-md, permissions y close sin `--write` y sin preguntar. Si la carpeta todavía no existe, di qué clonaría y termina: lo demás no se puede correr. No modifiques ningún archivo.
 
 setup es para un proyecto ya adoptado, con su repo de carpeta. Si la fuente no trae composición, dilo y sugiere `/arnes:init` para adoptarlo.
-
-El verde del arnés significa que cumple convenciones y compila/testea, nunca que sea correcto en el negocio.

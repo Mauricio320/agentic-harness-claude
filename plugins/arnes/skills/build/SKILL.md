@@ -22,14 +22,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - Anota el fin: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end build --ws <ws> --result ok`, o `--result parcial` si quedó algo sin cubrir.
 4. Worktrees solo si dos devs tocarían los mismos archivos a la vez (docs/PLAN.md §7). En ese caso, pídele a la persona `/arnes:worktree open <slug>`. Un dev en un worktree termina cuando su rama está integrada.
    - **El dev en un worktree** recibe en su prompt la carpeta del worktree y el mapa de puertos de su set (`worktree-ledger.js list`). Para probar la app, la arranca desde el worktree con esos puertos, nunca desde el checkout principal, y con `node --env-file=.env` si open avisó de Prisma.
-5. Reporta a la persona, por workspace y en el orden en que se construyó:
-   - El contrato resultante.
-   - Los archivos tocados.
-   - Las desviaciones del plan.
-   - La cobertura: C1… → `archivo:línea`, y los criterios sin cubrir.
-   - Los specs que faltan.
-   - Si se tocaron `riskPaths`, escribe `REVISIÓN HUMANA OBLIGATORIA` con los archivos.
+5. El reporte (docs/PLAN.md §2), sin nombres de scripts, códigos de salida ni rutas del plugin:
+   - **El detalle va al informe:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/informe.js" path build` da la ruta. Escribe ahí, por workspace y en el orden en que se construyó, el contrato resultante, los archivos tocados, las desviaciones del plan, la cobertura (C1… → `archivo:línea`, y los criterios sin cubrir) y los specs que faltan.
+   - **En el chat:** una línea por workspace con lo que quedó hecho, la ruta del informe, y la lista corta de lo que le toca a la persona: los criterios sin cubrir, lo que afterBuild dejó pendiente y, si se tocaron `riskPaths`, `REVISIÓN HUMANA OBLIGATORIA` con los archivos.
 6. **Después del build, solo en local:** por cada workspace construido, `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" after --ws <ws>`.
    - Si lista comandos, la base del `.env` es la local: cámbiate a la carpeta del workspace con un `cd` aparte y corre cada comando listado, solo y tal como aparece. Dilo en una línea.
    - Si sale con 1, no corras nada: va a "pendiente tuyo", con el host y el puerto que dijo.
-7. Cuando el último dev entrega, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship. El verde del arnés, cuando llegue, significa que compila y testea, nunca que sea correcto en el negocio.
+7. Cuando el último dev entrega y el reporte está escrito, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship.

@@ -10,14 +10,14 @@ Pedido: `$ARGUMENTS`
 
 Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio de la sesión. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. El plan lo aprueba alguien que no conoce el stack: frases cortas, cada término técnico explicado en pocas palabras la primera vez, sin bloques de código. Sin plan aprobado, el guard niega escribir código.
 
-**Con `--trivial`**, y solo si lo escribió la persona: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" trivial --pedido "<el pedido>" --criterio "<un criterio que se pueda comprobar>"`, muestra su salida y sigue con el cambio. Escribe el plan mínimo y lo deja aprobado. Si sale con 1, di el motivo y sigue con el plan completo. Nunca agregues `--trivial` por tu cuenta.
+**Con `--trivial`**, y solo si lo escribió la persona: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" trivial --pedido "<el pedido>" --criterio "<un criterio que se pueda comprobar>"`, di en una línea que quedó un plan mínimo aprobado y sigue con el cambio. Escribe el plan mínimo y lo deja aprobado. Si sale con 1, di el motivo y sigue con el plan completo. Nunca agregues `--trivial` por tu cuenta.
 
 1. Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start plan --detail "<el issue en pocas palabras>"`.
 2. Proyecto: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show` da la raíz y los workspaces. Lee `.claude/harness.json` del workspace que vas a tocar: sus `riskPaths` y su `contract`. Si sale con 2, no hay manifiesto: sigue y dilo en el plan.
-   - **¿La rama va atrás?** `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" behind` hace fetch y dice, en una línea por repo, cuántos commits va atrás de origin. Si dice alguna, repítela tal cual al inicio del mensaje del plan y ofrece `/arnes:sync` antes de construir. Nunca hagas pull por tu cuenta.
+   - **¿La rama va atrás?** `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" behind` hace fetch y dice, en una línea por repo, cuántos commits va atrás de origin. Si dice alguna, dila en una línea al inicio del mensaje del plan, con el número de commits, y ofrece `/arnes:sync` antes de construir. Nunca hagas pull por tu cuenta.
 3. El issue:
    - Número o URL: con `glab issue view <n> --comments` si el remote es GitLab, o `gh issue view <n> --comments` si es GitHub, siempre que el CLI exista. Si no existe o falla, pide el texto a la persona. Nunca lo inventes.
-   - Texto: úsalo tal cual. Es la fuente de los criterios literales.
+   - Texto: úsalo textual. Es la fuente de los criterios literales.
 4. El código, lo mínimo para decidir:
    - Lee el `CLAUDE.md` y las `.claude/rules/*.md` del workspace: el plan sigue sus convenciones.
    - Si el repo tiene `graphify-out/graph.json` y `graphify --help` responde, pregunta al grafo antes de abrir archivos: `graphify query "<pregunta>"`, `graphify explain "<concepto>"`, `graphify path "<A>" "<B>"`. Abre solo las líneas que el grafo ubicó.
@@ -38,10 +38,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 7. La rama: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" check`. Hace fetch y dice en qué rama está cada repo del plan.
    - **Todos en la rama por defecto:** no preguntes nada; la rama del issue la crea el paso 8.
    - **Alguno en otra rama:** no asumas nada. Agrega a `## Preguntas` la pregunta que imprimió, tal cual, con su recomendación (crear la rama nueva desde main actualizado) y su alternativa (construir en la rama actual, si el pedido continúa ese trabajo).
-8. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. Termina el turno con el plan, sin la herramienta de preguntas: la aprobación vale solo si llega en un mensaje de la persona. No edites código ni lances agentes antes de esa respuesta.
+8. Pide confirmación explícita en un solo mensaje (docs/PLAN.md §2): una línea con la ruta del plan y si toca zonas de riesgo, los criterios en una lista corta, y las preguntas en un bloque numerado, cada una con su recomendación y su alternativa, contestable con "sí a todo". Sin nombres de scripts ni salidas de comandos. Termina el turno ahí, sin la herramienta de preguntas: la aprobación vale solo si llega en un mensaje de la persona. No edites código ni lances agentes antes de esa respuesta.
 9. Con la respuesta:
    - **Si aprueba:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" approve`. Si sale con 1, di el motivo y espera. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título.
-   - **La rama, antes de construir:** en la rama por defecto, `issue-branch.js create`. En otra rama, según la respuesta: con el sí a la recomendación, `create --desde-otra`; con la alternativa, `issue-branch.js stay`. Muestra su salida. Si sale con 1, di el motivo y espera: con cambios sin commitear en otra rama, la persona los commitea o los guarda antes, porque git se los llevaría a la rama nueva. La rama queda en la línea `Rama:` del plan; anota además la elección en `## Decisiones`.
+   - **La rama, antes de construir:** en la rama por defecto, `issue-branch.js create`. En otra rama, según la respuesta: con el sí a la recomendación, `create --desde-otra`; con la alternativa, `issue-branch.js stay`. Di en una línea qué rama quedó. Si sale con 1, di el motivo y espera: con cambios sin commitear en otra rama, la persona los commitea o los guarda antes, porque git se los llevaría a la rama nueva. La rama queda en la línea `Rama:` del plan; anota además la elección en `## Decisiones`.
    - Con la rama lista, si aprobó construir, sigue con la skill build.
    - **Si pide cambios:** `timeline.js start plan --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
    - **Si lo descarta:** `timeline.js note plan --result cancelado`.

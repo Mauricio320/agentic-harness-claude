@@ -15,7 +15,7 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
    - **Qué deja:** `.tmp/harness/review/input.md`, con lo que el reviewer no puede sacar sin Bash: el HEAD de base, los tocados (los nuevos sin trackear de código, enteros en el diff), los borrados, las riskPaths tocadas, el contrato, las reglas del repo y el diff numerado con las líneas del archivo.
    - **Qué imprime:** una línea por workspace, la ronda y su modo (`ronda <n> de 3 · completa` o `· acotada`), la ruta del plan o "no hay", y la ruta de `input.md`.
    - **Si dice que no hay nada que revisar:** anota `node "S/lib/timeline.js" note review --result ok --detail "sin tocados"` y termina.
-   - **Si sale con 1:** es el tope de rondas, o nada cambió desde la revisión anterior. Muestra el motivo, anota `note review --result fail --detail "<motivo>"` y termina.
+   - **Si sale con 1:** es el tope de rondas, o nada cambió desde la revisión anterior. Di el motivo en una línea, anota `note review --result fail --detail "<motivo>"` y termina.
 
 2. Anota el inicio con lo que decidió el script, nunca antes: `node "S/lib/timeline.js" start review --detail "ronda <n> <modo>"`.
 
@@ -51,13 +51,9 @@ Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`) no te deten
 
 ## Reporte
 
+Lo que lee la persona (docs/PLAN.md §2), sin nombres de scripts, códigos de salida, hashes ni rutas del plugin:
 - **Riesgo:** si `review.js input` imprimió `REVISIÓN HUMANA OBLIGATORIA` en algún workspace, esa es la primera línea, con las rutas.
-- **Los hallazgos, en el orden del reviewer:**
-  - por archivo, primero los archivos con bloqueantes;
-  - dentro de cada archivo, los bloqueantes antes que las sugerencias;
-  - cada uno con su línea, su regla y cómo arreglarlo.
-  Muestra el reporte del reviewer tal cual, no lo suavices ni lo reescribas.
-- **Criterios:** la sección de cumplimiento de criterios si hubo plan, o la línea que dice que no lo hubo. En una ronda acotada, la de bloqueantes anteriores.
-- **El cierre:** `BLOQUEANTES: <n>` y la ronda. Con bloqueantes, ship no entrega. Se corrige, se verifica y se revisa otra vez, hasta el tope.
-
-Cierra con esta frase, literal: **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.** La revisión tampoco certifica el negocio: busca lo que está en la lista cerrada.
+- **Los bloqueantes, en el chat y textuales:** la persona tiene que verlos. Cópialos del reporte del reviewer en su orden, cada uno con su archivo, su línea, su regla y cómo arreglarlo, sin suavizarlos ni reescribirlos.
+- **Una línea** con cuántos bloqueantes y sugerencias hubo y en qué ronda, y lo que sigue: la corrección, o `Listo para /arnes:ship`.
+- **El detalle va al informe:** `node "S/informe.js" path review` da la ruta. Escribe ahí las sugerencias, el cumplimiento de criterios del plan (o que no hubo plan), en una ronda acotada el estado de los bloqueantes anteriores, y la línea `BLOQUEANTES: <n>` con la ronda. En el chat, una línea con esa ruta y la del reporte del reviewer.
+- **La frase** "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si informe.js dijo `frase: dila`. La revisión tampoco certifica el negocio: busca lo que está en la lista cerrada.

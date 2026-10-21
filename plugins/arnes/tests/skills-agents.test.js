@@ -90,3 +90,29 @@ test('cada script que nombra una skill existe', () => {
   }
   assert.ok(named >= 10, `solo ${named} scripts nombrados: el patrón no está leyendo las skills`);
 });
+
+test('la voz del arnés: ninguna skill pide pegar en el chat la salida completa de un script', () => {
+  // Lo único que va textual al chat son los bloqueantes del reviewer y las preguntas del plan, que la
+  // persona tiene que ver. timeline queda fuera: lo que pide la persona es ver ese registro.
+  let seen = 0;
+  for (const s of skills.filter((x) => x !== 'timeline')) {
+    const lines = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8').split(/\r?\n/);
+    lines.forEach((l, i) => {
+      if (!/tal cual|muestra (la|su) salida/i.test(l)) return;
+      seen++;
+      assert.match(l, /bloqueante|pregunta/i, `${s}/SKILL.md:${i + 1} pide imprimir una salida en el chat: ${l.trim().slice(0, 120)}`);
+    });
+  }
+  assert.ok(seen >= 1, 'el patrón no está leyendo las skills');
+});
+
+test('la voz del arnés: las nueve skills del flujo la siguen, con el detalle en un informe y la frase del verde una vez por corrida', () => {
+  const flow = ['init', 'setup', 'plan', 'build', 'verify', 'review', 'ship', 'worktree', 'sync'];
+  for (const s of flow) {
+    const text = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+    assert.match(text, /docs\/PLAN\.md §2/, `${s} no remite a la voz del arnés`);
+    if (s !== 'plan') assert.match(text, /informe\.js" path [a-z]+/, `${s} no manda el detalle a un informe`);
+    assert.doesNotMatch(text, /Cierra con esta frase, literal/, `${s} repite la frase del verde en cada reporte`);
+    if (/Verde significa/.test(text)) assert.match(text, /frase: dila/, `${s} dice la frase sin preguntarle a informe.js`);
+  }
+});
