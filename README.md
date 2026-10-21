@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.0, sin etiquetar, en la rama `feature/setup`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta. Para probarla, `docs/PROBADORES.md`. Ya existen:
+Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.1, sin etiquetar, en la rama `feature/worktrees`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta, y los worktrees que nacen usables. Para probarla, `docs/PROBADORES.md`. Ya existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
 - las once skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
@@ -50,6 +50,10 @@ Para fijar la versión en un proyecto, en el `.claude/settings.json` de su repo 
 ### El repo de carpeta
 
 Un proyecto de varios repos versiona su composición en un repo chico propio, el repo de carpeta. Lleva la composición `.claude/harness.json`, con el `remote` y la `branch` de cada repo, el `CLAUDE.md` de la carpeta, el `.claude/settings.json` de arriba y un `.gitignore` que ignora las carpetas de los repos, `.tmp/`, `.claude/settings.local.json` y `graphify-out/`. Los repos de verdad se clonan dentro, y git los ignora. Lo arma `/arnes:init` la primera vez. Quien llega después instala los plugins y corre `/arnes:setup <url del repo de carpeta>`: clona todo en su rama, instala dependencias, prepara el `.env` sin inventar valores y cierra con lo que queda pendiente de la persona (`docs/PROBADORES.md` §2).
+
+### Los worktrees
+
+`/arnes:worktree open <slug>` abre un worktree por repo que nace usable: `node_modules` enlazado al del checkout principal (junction en Windows, symlink en el resto) y copias propias de los `.env*`, salvo `.env.example`. Las copias llevan los puertos desplazados, 10 por set abierto, y el front apunta al back del mismo set; open imprime el mapa (`set talleres: api 3003 → 3013, front 3000 → 3010`). La app se levanta desde la carpeta del worktree con esos puertos. `--no-link` instala adentro en vez de enlazar, para un issue que regenera algo en `node_modules`, e integrate y close quitan el enlace antes de borrar el worktree.
 
 El auto-update de un marketplace de terceros viene apagado y se deja así.
 

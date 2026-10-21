@@ -2,6 +2,22 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.1] - sin etiquetar
+
+Ronda corta antes de cerrar la fase de setup: los worktrees que abre el ledger nacen usables. Cierra el punto 8 de `docs/PLAN.md` §7. Rama `feature/worktrees`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods.
+
+### Añadido
+- `worktree-ledger.js open` enlaza `node_modules` del checkout principal en cada workspace del worktree, con junction en Windows y symlink en el resto, y copia los `.env*` de su raíz salvo `.env.example`. Registra en el ledger lo que enlazó y lo que copió.
+- `--no-link`, que en vez de enlazar instala dentro del worktree con el paso deps de `setup.js`, para un issue que regenera algo en `node_modules`.
+- Puertos por set: un desplazamiento de 10 por set abierto en las variables `*PORT` de las copias de `.env`, y el `localhost:<puerto>` de otro workspace del set reescrito al nuevo. open imprime el mapa y `list` lo repite. `--port-offset N` lo elige, y `0` no toca nada.
+- `lib/links.js`, con el enlace que ya usaba ci-gate y un `unlink` que nunca borra en recursivo.
+
+### Cambiado
+- `integrate` y `close` deshacen en orden: quitan los enlaces registrados con `rmdir` o `unlink`, borran las copias de `.env` y recién entonces corren `git worktree remove`. Si algo falla a medias, el registro queda abierto con `undo` y no hay remove. Es por el incidente del 2026-10-19: un `git worktree remove` siguió una junction y borró el `node_modules` de verdad del checkout principal.
+- El guard niega `git worktree remove`, y `worktree-remove.js` un `ExitWorktree` con `remove`, mientras el worktree tenga un enlace del arnés vivo.
+- La skill build le dice al dev en un worktree que arranque la app desde ahí con los puertos del mapa. La skill worktree muestra el mapa y explica `--no-link`.
+- `docs/PLAN.md` §7, `docs/PROBADORES.md` y el README cuentan qué trae un worktree y cómo se levanta la app adentro.
+
 ## [0.6.0] - sin etiquetar
 
 La fase de setup, por el ciclo dos del issue de talleres con la 0.5.3 desde la raíz de academico: el flujo salió como debía, y los tropiezos del compañero fueron todos de preparación (`docs/PLAN.md` §10). Rama `feature/setup`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods.

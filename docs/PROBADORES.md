@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.6.0, desde la rama `feature/setup`. Probada con Claude Code 2.1.306 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.6.1, desde la rama `feature/worktrees`. Probada con Claude Code 2.1.306 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -11,13 +11,13 @@ Hay dos caminos:
 Claude Code clona con `git` sin preguntar credenciales: la de GitLab tiene que estar guardada antes (Git Credential Manager). Después, en cualquier terminal:
 
 ```
-claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#feature/setup"
+claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#feature/worktrees"
 claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.6.0`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.6.1`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -107,7 +107,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **Los carga el modelo cuando corresponde, y también puedes invocarlos:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`.
 - **Del mod:** `/arnes-panel` abre o cierra el panel.
 
-## 7. Limitaciones conocidas de 0.6.0
+## 7. Limitaciones conocidas de 0.6.1
 
 - **REVISIÓN HUMANA OBLIGATORIA.** Si el cambio toca `riskPaths`, el arnés lo marca en el plan, en el reporte del reviewer, en ship y en el cuerpo del MR. No aprueba por nadie: esa aprobación la da una persona en GitLab.
 - **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.** El reviewer tampoco lo certifica: busca lo que está en su lista cerrada.
@@ -116,7 +116,9 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **Errores en tiempo de ejecución.** Lo que solo se ve arrancando la app, como un error de inyección de dependencias, no lo detectan ni tsc ni jest.
 - **Las rondas de review.** La primera revisa todo en opus. Las siguientes revisan solo lo que cambió, en sonnet, y vuelven a revisar todo si el cambio salió de lo revisado. Hay dos rondas de corrección como máximo: en el tope, el arnés se detiene y te lo reporta.
 - **El typecheck tras cada edición** solo corre si el manifiesto declara `commands.typecheckFast`. Si no, espera a verify.
-- **Los worktrees de `/arnes:worktree`** no copian `.env` ni enlazan `node_modules`.
+- **Los worktrees de `/arnes:worktree`** nacen con `node_modules` enlazado al del checkout principal y con sus propias copias de `.env`, con los puertos desplazados (10 el primer set, 20 el segundo): open imprime el mapa, `set talleres: api 3003 → 3013, front 3000 → 3010`.
+  - Para probar la app, arráncala desde la carpeta del worktree; su front ya apunta a su back.
+  - Si el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma`, ábrelo con `--no-link`, que instala adentro. Borra el worktree solo con integrate o close, que quitan el enlace primero.
 - **La medición.** El costo por etapa lo anota `arnes-ui`: sin el mod, la timeline trae solo tiempos. Una etapa que empezó antes de que el mod cargara no lleva costo, y el costo de un agente incluye lo que gastaron los que corrieron al mismo tiempo. La espera de la persona va desde que el turno cerró hasta tu siguiente mensaje: si escribes mientras un agente trabaja en segundo plano, ese rato cuenta como espera.
 - **Avisos de `arnes-ui`.** En algunas terminales los toasts no se ven, como en la de Muxentra dentro de VS Code. Los avisos importantes salen también en el transcript. Falta confirmar en una sesión real la corrección de la línea `Plan:` del panel.
 - **Los mods** solo cargan en sesiones locales, y `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop.
@@ -128,7 +130,7 @@ Abre un issue en https://gitlab.com/preupdv/apps/agentic-harness/-/issues con:
 - **Qué pasó:** qué pediste, qué esperabas y el texto exacto que viste, más la salida de `claude --version` y de `claude plugin list`.
 - **La timeline:** la salida de `/arnes:timeline`, o el archivo `.tmp/harness/timeline.jsonl`.
 - **El lock de sesión:** los archivos de `.tmp/harness/sessions/`.
-- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/0.6.0/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
+- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/0.6.1/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
 - **Si el problema es de plan o de review:** `.tmp/harness/plan.md` y la carpeta `.tmp/harness/review/`.
 
 `.tmp/harness/` está en la raíz del proyecto: el repo, o la carpeta en un proyecto multi-repo. Revisa lo que adjuntas: la timeline y el plan llevan texto del issue. Nunca adjuntes `.env` ni credenciales.
