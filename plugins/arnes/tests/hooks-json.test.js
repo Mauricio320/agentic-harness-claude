@@ -8,8 +8,8 @@ const path = require('path');
 const PLUGIN = path.resolve(__dirname, '..');
 const config = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
 
-test('hooks.json declara los eventos de §6.2 con sus matchers; SubagentStop y WorktreeRemove no', () => {
-  assert.deepEqual(Object.keys(config.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit']);
+test('hooks.json declara los eventos de §6.2 con sus matchers; WorktreeRemove no', () => {
+  assert.deepEqual(Object.keys(config.hooks).sort(), ['PostToolUse', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']);
   assert.deepEqual(config.hooks.PreToolUse.map((g) => g.matcher), ['Bash|PowerShell', 'Edit|Write', 'Read|Glob|Grep', 'ExitWorktree']);
   assert.deepEqual(config.hooks.PostToolUse.map((g) => g.matcher), ['Edit|Write']);
 });
@@ -30,5 +30,6 @@ test('cada hook llama a node con la ruta del script entre comillas, timeout y st
     }
   }
   // session-start.js atiende también SessionEnd: suelta el lock de sesión que escribió al arrancar.
-  assert.deepEqual(scripts.sort(), ['after-edit.js', 'guard.js', 'plan-guard.js', 'prompt-context.js', 'read-guard.js', 'session-start.js', 'session-start.js', 'stop-gate.js', 'worktree-remove.js']);
+  // agents.js atiende SubagentStart y SubagentStop: el registro de los agentes del arnés vivos.
+  assert.deepEqual(scripts.sort(), ['after-edit.js', 'agents.js', 'agents.js', 'guard.js', 'plan-guard.js', 'prompt-context.js', 'read-guard.js', 'session-start.js', 'session-start.js', 'stop-gate.js', 'worktree-remove.js']);
 });

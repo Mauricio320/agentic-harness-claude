@@ -230,3 +230,39 @@ test('un error propio sale con 0 y no bloquea', () => {
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
 });
+
+test('con un build abierto en la timeline o un agente del arnés corriendo, el Stop avisa en una línea y no bloquea', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+  tl.append(root, { event: 'start', stage: 'plan' });
+  tl.append(root, { event: 'start', stage: 'build', ws: 'api' });
+  tl.append(root, { event: 'end', stage: 'build', ws: 'api', result: 'ok' });
+  tl.append(root, { event: 'start', stage: 'build', ws: 'front' });
+  let r = stop(api);
+  assert.equal(r.out.decision, undefined);
+  assert.equal(r.out.systemMessage, 'arnes: hay trabajo en marcha (build de front abierto); el gate se juzga cuando termine, no ahora.');
+  assert.deepEqual(notes(root).filter((n) => n.stage === 'stop-gate'), [], 'no bloquea ni anota pendiente');
+  tl.append(root, { event: 'end', stage: 'build', ws: 'front', result: 'ok' });
+  assert.equal(stop(api).out.decision, 'block', 'sin nada en marcha, bloquea');
+
+  const agent = (event, id, type = 'arnes:dev') => h.hook('agents', { hook_event_name: event, agent_id: id, agent_type: type, cwd: api });
+  agent('SubagentStart', 'ag-1');
+  agent('SubagentStart', 'ag-2', 'general-purpose');
+  r = stop(api);
+  assert.equal(r.out.decision, undefined);
+  assert.match(r.out.systemMessage, /^arnes: hay trabajo en marcha \(arnes:dev corriendo\)/);
+  agent('SubagentStop', 'ag-1');
+  assert.equal(stop(api).out.decision, 'block', 'el agente terminó y el otro no es del arnés');
+});
+
+test('un build abierto de una corrida ya entregada, o uno de hace más de dos horas, no frena el bloqueo', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+  const viejo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  tl.append(root, { event: 'start', stage: 'plan' }, viejo);
+  tl.append(root, { event: 'start', stage: 'build', ws: 'api' }, viejo);
+  assert.equal(stop(api).out.decision, 'block', 'más de dos horas abierto');
+  tl.append(root, { event: 'start', stage: 'build', ws: 'api' });
+  tl.append(root, { event: 'end', stage: 'ship', result: 'ok' });
+  assert.equal(stop(api).out.decision, 'block', 'la corrida ya cerró con ship');
+});
