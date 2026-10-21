@@ -34,9 +34,14 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - `## Preguntas`: solo cerradas (sí o no, o elegir una opción). Cada una lleva `Recomendación:` con su motivo, y `Alternativa:` real, con lo que cuesta o lo que cambia. Nada de preguntas abiertas.
    - `## Fuera de alcance`: lo que el issue no pide y no se hace.
 6. Con el plan escrito, cierra la etapa: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end plan --result ok --detail "plan escrito"`. Desde aquí el tiempo es de la persona, no del plan: el Stop anota que el turno cerró, y su respuesta cierra la espera.
-7. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. Termina el turno con el plan, sin la herramienta de preguntas: la aprobación vale solo si llega en un mensaje de la persona. No edites código ni lances agentes antes de esa respuesta.
-8. Con la respuesta:
-   - **Si aprueba:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" approve`. Si sale con 1, di el motivo y espera. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título. Si aprobó construir, sigue con la skill build.
+7. La rama: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" check`. Hace fetch y dice en qué rama está cada repo del plan.
+   - **Todos en la rama por defecto:** no preguntes nada; la rama del issue la crea el paso 8.
+   - **Alguno en otra rama:** no asumas nada. Agrega a `## Preguntas` la pregunta que imprimió, tal cual, con su recomendación (crear la rama nueva desde main actualizado) y su alternativa (construir en la rama actual, si el pedido continúa ese trabajo).
+8. Muestra el plan completo y pide confirmación explícita: que lo apruebe y responda las preguntas. Termina el turno con el plan, sin la herramienta de preguntas: la aprobación vale solo si llega en un mensaje de la persona. No edites código ni lances agentes antes de esa respuesta.
+9. Con la respuesta:
+   - **Si aprueba:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/plan-state.js" approve`. Si sale con 1, di el motivo y espera. Pasa las preguntas respondidas a `## Decisiones`, con lo elegido, ajusta los criterios y escribe `Aprobado: <fecha> por la persona` bajo el título.
+   - **La rama, antes de construir:** en la rama por defecto, `issue-branch.js create`. En otra rama, según la respuesta: con el sí a la recomendación, `create --desde-otra`; con la alternativa, `issue-branch.js stay`. Muestra su salida. Si sale con 1, di el motivo y espera: con cambios sin commitear en otra rama, la persona los commitea o los guarda antes, porque git se los llevaría a la rama nueva. La rama queda en la línea `Rama:` del plan; anota además la elección en `## Decisiones`.
+   - Con la rama lista, si aprobó construir, sigue con la skill build.
    - **Si pide cambios:** `timeline.js start plan --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
    - **Si lo descarta:** `timeline.js note plan --result cancelado`.
 

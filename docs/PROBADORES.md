@@ -85,7 +85,9 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
 
 ## 5. Qué vas a ver
 
-Pide el trabajo como siempre, sin comandos: "Implementa este issue: …". El modelo escribe el plan en `.tmp/harness/plan.md` y te pide aprobarlo. El plan es obligatorio: hasta que lo apruebes en un mensaje tuyo, el arnés no deja escribir código. Para un cambio mínimo, escribe tú `/arnes:plan --trivial <el pedido>`, que deja un plan de una pantalla aprobado. Con tu aprobación corre solo build, verify y review, sin detenerse entre etapas aunque te haga una pregunta en el camino. verify revisa primero las convenciones del manifiesto (comentarios, `as unknown as`, `console.`, TODO), y el dev las corrige antes de entregar. El commit y el push los pides tú con `/arnes:ship`.
+Pide el trabajo como siempre, sin comandos: "Implementa este issue: …". El modelo escribe el plan en `.tmp/harness/plan.md` y te pide aprobarlo. El plan es obligatorio: hasta que lo apruebes en un mensaje tuyo, el arnés no deja escribir código. Para un cambio mínimo, escribe tú `/arnes:plan --trivial <el pedido>`, que deja un plan de una pantalla aprobado.
+
+¿Y la rama? La rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear. Si ya estás en otra rama, el plan te pregunta si crea una nueva desde main o si construye ahí mismo, porque el pedido continúa ese trabajo. Con tu aprobación corre solo build, verify y review, sin detenerse entre etapas aunque te haga una pregunta en el camino. verify revisa primero las convenciones del manifiesto (comentarios, `as unknown as`, `console.`, TODO), y el dev las corrige antes de entregar. El commit y el push los pides tú con `/arnes:ship`.
 
 Los comandos que tocan una base no los corre la sesión: los scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre, y las escrituras de prisma, typeorm o knex, van en `forbidden`, y el guard los niega. Córrelos tú desde tu terminal, sabiendo contra qué base apunta tu `.env`: un proxy en `127.0.0.1` puede ser QA.
 
