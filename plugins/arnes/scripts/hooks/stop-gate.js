@@ -80,7 +80,7 @@ function inProgress(project, now = Date.now()) {
     if (e.event === 'end') open.delete(e.ws || '');
   }
   const builds = [...open.values()].filter((e) => now - Date.parse(e.at) < OPEN_MAX_MS).map((e) => `build${e.ws ? ` de ${e.ws}` : ''} abierto`);
-  const agents = running(project, now).map((a) => `${a.type} corriendo`);
+  const agents = running(project, now).map((a) => `${String(a.type).replace(/^arnes:/, '')} trabajando`);
   return [...builds, ...agents];
 }
 
@@ -99,8 +99,18 @@ function detailOf(code, wts) {
   return [code.length && `sin verificar: ${describe(code)}`, wts.length && `sin integrar: ${describeWt(wts)}`].filter(Boolean).join('; ');
 }
 
+// Lo mismo, para la persona (principio 7 de docs/PLAN.md §2): qué y dónde, sin rutas, motivos
+// técnicos ni hashes. El detalle queda en la nota de la timeline.
+function plain(items) {
+  return items.map((p) => `${p.ws} (${p.files.length} archivo(s) de código)`).join(', ');
+}
+
+function plainWt(items) {
+  return items.map((w) => `${w.ws}, rama ${w.branch}, ${w.ahead} commit(s)`).join('; ');
+}
+
 function pendingText(code, wts) {
-  return [code.length && `cambios sin verificar en ${describe(code)}`, wts.length && `commits sin integrar en ${describeWt(wts)}`].filter(Boolean).join(', y ');
+  return [code.length && `cambios sin verificar en ${plain(code)}`, wts.length && `commits sin integrar en ${plainWt(wts)}`].filter(Boolean).join(', y ');
 }
 
 // Bandera vigente pero sin revisión de ese contenido: los workspaces del aviso "verificado, falta
@@ -131,14 +141,14 @@ function stopGate(input) {
   // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
   append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
-  if (busy.length) return { systemMessage: `arnes: hay trabajo en marcha (${busy.join(', ')}); el gate se juzga cuando termine, no ahora.` };
+  if (busy.length) return { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` };
   if (pending && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(code, wts)}` });
-    return { systemMessage: `arnes: el turno termina con ${pendingText(code, wts)}. Quedó anotado en la timeline.` };
+    return { systemMessage: `arnes: el turno termina con ${pendingText(code, wts)}; queda como pendiente.` };
   }
   if (pending) return { systemMessage: `arnes: siguen ${pendingText(code, wts)}; este turno no los tocó.` };
   const noReview = unreviewed(project);
-  return noReview.length ? { systemMessage: `arnes: verificado, falta review en ${noReview.join(', ')} (/arnes:review).` } : null;
+  return noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; falta revisarlo antes de entregar.` } : null;
 }
 
 function block(project, code, wts) {
@@ -147,19 +157,19 @@ function block(project, code, wts) {
   const parts = [];
   if (code.length) {
     parts.push(
-      `hay cambios de código sin verificación vigente en ${describe(code)}. Verifica con /arnes:verify, que corre el gate de ` +
-        `cada workspace tocado y escribe la bandera solo si pasa; nunca la escribas a mano.`,
+      `hay cambios de código sin verificar en ${plain(code)}. Verifícalos antes de cerrar el turno: la marca de ` +
+        `verificación la escribe la verificación solo si todo pasa, nunca a mano.`,
     );
   }
   if (wts.length) {
     parts.push(
-      `hay worktrees del issue con commits sin integrar: ${describeWt(wts)}. Pídele a la persona /arnes:worktree integrate <slug>, ` +
-        `que los integra en la rama del issue (git merge --no-ff, nunca squash).`,
+      `hay worktrees del issue con commits sin integrar: ${plainWt(wts)}. Pídele a la persona que escriba ` +
+        `/arnes:worktree integrate <slug>, que los integra en la rama del issue.`,
     );
   }
   return {
     decision: 'block',
-    reason: `arnes: ${parts.join(' Además, ')} Si ahora no corresponde, dile al usuario qué quedó pendiente y termina: este bloqueo ocurre una sola vez por turno.`,
+    reason: `arnes: ${parts.join(' Además, ')} Si ahora no corresponde, dile a la persona qué quedó pendiente y termina: este bloqueo ocurre una sola vez por turno.`,
   };
 }
 

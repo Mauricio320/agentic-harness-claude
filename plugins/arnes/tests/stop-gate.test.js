@@ -26,9 +26,8 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   const r = stop(api);
   assert.equal(r.status, 0);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificación vigente en api \(1 archivo\(s\) de código: src\/a\.ts; sin bandera/);
-  assert.match(r.out.reason, /Verifica con \/arnes:verify, que corre el gate de cada workspace tocado y escribe la bandera solo si pasa; nunca la escribas a mano/);
-  assert.doesNotMatch(r.out.reason, /gate-flag\.js/);
+  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. Verifícalos antes de cerrar el turno: la marca de verificación la escribe la verificación solo si todo pasa, nunca a mano/);
+  assert.doesNotMatch(r.out.reason, /\.js\b|\/arnes:verify|src\/a\.ts/, 'sin scripts, sin la skill que carga el modelo y sin rutas');
   assert.match(r.out.reason, /una sola vez por turno/);
   const list = tl.read(root);
   assert.equal(list.length, 1, 'un turno bloqueado no anota "cerrado"');
@@ -45,7 +44,8 @@ test('lo que escribieron los devs en segundo plano cuenta en el turno que reabri
   say('<task-notification>\n<task-id>dev-1</task-id>\n<status>completed</status>');
   const r = stop(api);
   assert.equal(r.out.decision, 'block', 'el árbol cambió desde el mensaje de la persona, lo haya escrito quien sea');
-  assert.match(r.out.reason, /sin verificación vigente en api \(1 archivo\(s\) de código: src\/taller\.ts/);
+  assert.match(r.out.reason, /sin verificar en api \(1 archivo\(s\) de código\)/);
+  assert.match(tl.read(root).pop().detail, /src\/taller\.ts/, 'el detalle queda en la timeline');
 });
 
 test('un turno que no cambió los tocados desde el prompt solo avisa; uno que los cambió bloquea', () => {
@@ -55,7 +55,7 @@ test('un turno que no cambió los tocados desde el prompt solo avisa; uno que lo
   prompt();
   const quieto = stop(api);
   assert.equal(quieto.out.decision, undefined);
-  assert.match(quieto.out.systemMessage, /siguen cambios sin verificar en api \(1 archivo\(s\) de código: src\/a\.ts; .*este turno no los tocó/);
+  assert.match(quieto.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\.$/);
   assert.deepEqual(notes(root), [], 'sin bloqueo no hay nota');
 
   prompt();
@@ -90,7 +90,7 @@ test('con bandera vigente, sin cambios de código o sin manifiesto: no bloquea',
   h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: root });
   const vigente = stop(api).out;
   assert.equal(vigente.decision, undefined, 'bandera vigente: no bloquea');
-  assert.equal(vigente.systemMessage, 'arnes: verificado, falta review en api (/arnes:review).');
+  assert.equal(vigente.systemMessage, 'arnes: api quedó verificado; falta revisarlo antes de entregar.');
   const sin = h.tmp('stop-sin');
   h.repo(sin, { 'a.ts': 'a\n' });
   fs.appendFileSync(path.join(sin, 'a.ts'), 'b\n');
@@ -134,7 +134,8 @@ test('una bandera en fail no cuenta como verificado', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
   h.run('gate-flag.js', ['write', 'api', '--result', 'fail'], { cwd: root });
-  assert.match(stop(api).out.reason, /terminó en "fail"/);
+  assert.match(stop(api).out.reason, /sin verificar en api/);
+  assert.match(notes(root).pop().detail, /terminó en "fail"/, 'el motivo queda en la timeline');
 });
 
 test('cambios en un repo no adoptable no bloquean', () => {
@@ -175,8 +176,8 @@ test('(b) un worktree del issue con commits de este turno bloquea y dice cómo i
   h.commitAll(wt, 'trabajo del agente');
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /^arnes: hay worktrees del issue con commits sin integrar: api wt\/feature\/x\/tarea \(1 commit\(s\) fuera de feature\/x\)\./);
-  assert.match(r.out.reason, /Pídele a la persona \/arnes:worktree integrate <slug>, que los integra en la rama del issue \(git merge --no-ff, nunca squash\)/);
+  assert.match(r.out.reason, /^arnes: hay worktrees del issue con commits sin integrar: api, rama wt\/feature\/x\/tarea, 1 commit\(s\)\./);
+  assert.match(r.out.reason, /Pídele a la persona que escriba \/arnes:worktree integrate <slug>, que los integra en la rama del issue/);
   assert.match(r.out.reason, /una sola vez por turno/);
   assert.doesNotMatch(r.out.reason, /sin verificación vigente/, 'el checkout principal no tiene código tocado');
   const [note] = notes(root);
@@ -193,7 +194,7 @@ test('(b) commits de un turno anterior solo avisan; de otro issue, integrados o 
   fs.utimesSync(path.join(root, '.tmp', 'harness', 'turn.json'), later, later);
   const quieto = stop(root);
   assert.equal(quieto.out.decision, undefined);
-  assert.match(quieto.out.systemMessage, /^arnes: siguen commits sin integrar en api wt\/feature\/x\/tarea \(1 commit\(s\) fuera de feature\/x\); este turno no los tocó\.$/);
+  assert.match(quieto.out.systemMessage, /^arnes: siguen commits sin integrar en api, rama wt\/feature\/x\/tarea, 1 commit\(s\); este turno no los tocó\.$/);
   assert.equal(stop(wt).out, null, 'una sesión dentro del worktree no juzga (b)');
   h.git(root, 'checkout', '-q', '-b', 'feature/y');
   assert.equal(stop(root).out, null, 'el checkout principal está en otro issue');
@@ -208,7 +209,7 @@ test('(b) con stop_hook_active deja pasar con aviso y anota el pendiente', () =>
   h.commitAll(wt, 'trabajo del agente');
   const r = stop(root, true);
   assert.equal(r.out.decision, undefined);
-  assert.match(r.out.systemMessage, /^arnes: el turno termina con commits sin integrar en api wt\/feature\/x\/tarea/);
+  assert.match(r.out.systemMessage, /^arnes: el turno termina con commits sin integrar en api, rama wt\/feature\/x\/tarea, 1 commit\(s\); queda como pendiente\.$/);
   const [note] = notes(root);
   assert.equal(note.result, 'pendiente');
   assert.match(note.detail, /^turno cerrado sin integrar: api wt\/feature\/x\/tarea/);
@@ -221,7 +222,7 @@ test('(a) y (b) a la vez: un solo bloqueo con los dos pendientes', () => {
   fs.appendFileSync(path.join(root, 'src/a.ts'), 'sin verificar\n');
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificación vigente en api \(1 archivo\(s\) de código: src\/a\.ts; .*Además, hay worktrees del issue con commits sin integrar/);
+  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. .*Además, hay worktrees del issue con commits sin integrar/);
   assert.match(notes(root)[0].detail, /^turno bloqueado sin verificar: api \(1 archivo.*; sin integrar: api wt\/feature\/x\/tarea/);
 });
 
@@ -240,7 +241,7 @@ test('con un build abierto en la timeline o un agente del arnés corriendo, el S
   tl.append(root, { event: 'start', stage: 'build', ws: 'front' });
   let r = stop(api);
   assert.equal(r.out.decision, undefined);
-  assert.equal(r.out.systemMessage, 'arnes: hay trabajo en marcha (build de front abierto); el gate se juzga cuando termine, no ahora.');
+  assert.equal(r.out.systemMessage, 'arnes: todavía hay trabajo en marcha (build de front abierto); la verificación se pide cuando termine.');
   assert.deepEqual(notes(root).filter((n) => n.stage === 'stop-gate'), [], 'no bloquea ni anota pendiente');
   tl.append(root, { event: 'end', stage: 'build', ws: 'front', result: 'ok' });
   assert.equal(stop(api).out.decision, 'block', 'sin nada en marcha, bloquea');
@@ -250,7 +251,7 @@ test('con un build abierto en la timeline o un agente del arnés corriendo, el S
   agent('SubagentStart', 'ag-2', 'general-purpose');
   r = stop(api);
   assert.equal(r.out.decision, undefined);
-  assert.match(r.out.systemMessage, /^arnes: hay trabajo en marcha \(arnes:dev corriendo\)/);
+  assert.match(r.out.systemMessage, /^arnes: todavía hay trabajo en marcha \(dev trabajando\)/);
   agent('SubagentStop', 'ag-1');
   assert.equal(stop(api).out.decision, 'block', 'el agente terminó y el otro no es del arnés');
 });

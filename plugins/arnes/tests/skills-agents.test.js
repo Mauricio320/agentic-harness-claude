@@ -116,3 +116,20 @@ test('la voz del arnés: las nueve skills del flujo la siguen, con el detalle en
     if (/Verde significa/.test(text)) assert.match(text, /frase: dila/, `${s} dice la frase sin preguntarle a informe.js`);
   }
 });
+
+test('la voz del arnés también en los hooks: SessionStart y el Stop no nombran scripts, rutas ni las skills que carga el modelo', () => {
+  // Los textos que la persona o el modelo leen salen de los literales de estos dos hooks. Se permite
+  // el nombre de una skill solo cuando la persona tiene que escribirla.
+  const banned = [/\.js\b/, /\.tmp\//, /node "/, /\$\{SCRIPTS\}/, /\/arnes:(verify|review|build|memory|timeline)\b/, /\/arnes:plan(?! --trivial)/, /\b(gate|bandera|manifiesto)\b/i];
+  let seen = 0;
+  for (const f of ['session-start.js', 'stop-gate.js']) {
+    const code = fs.readFileSync(path.join(PLUGIN, 'scripts', 'hooks', f), 'utf8').split(/\r?\n/).filter((l) => !/^\s*\/\/|require\(/.test(l)).join('\n');
+    for (const m of code.matchAll(/(['`])((?:\\.|(?!\1)[^\\])*?)\1/g)) {
+      const text = m[2];
+      if (text.length < 12 || !/\s/.test(text)) continue;
+      seen++;
+      for (const re of banned) assert.doesNotMatch(text, re, `${f}: "${text.slice(0, 100)}"`);
+    }
+  }
+  assert.ok(seen >= 15, `solo ${seen} textos leídos: el patrón no está leyendo los hooks`);
+});

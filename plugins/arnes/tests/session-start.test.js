@@ -28,14 +28,16 @@ test('con una composición resume cada repo: rama, árbol sucio, stack y no adop
   assert.equal(r.status, 0);
   assert.equal(r.out.hookSpecificOutput.hookEventName, 'SessionStart');
   const t = text(r);
-  assert.match(t, new RegExp(`^arnes · carpeta · carpeta con 3 repo\\(s\\) · raíz ${root.replace(/\\/g, '\\\\')}`));
+  assert.match(t, /^arnes · carpeta · carpeta con 3 repo\(s\)\n/);
+  assert.doesNotMatch(t, /raíz|\.js\b/, 'sin rutas ni nombres de scripts');
   assert.match(t, /- api \(api\) · rama main · 2 archivo\(s\) sin commitear · nestjs\n/);
   assert.match(t, /- front \(front\) · rama feature\/x · limpio · nextjs · sin riskPaths/);
   assert.match(t, /- legacy \(legacy\) · rama main · no adoptable todavía/);
   assert.match(t, /Protocolo del arnés:/);
-  assert.match(t, /verifica con \/arnes:verify/);
-  assert.match(t, /revisa con \/arnes:review/);
-  assert.match(t, /\/arnes:worktree integrate <slug>, que corre la persona/);
+  assert.match(t, /verifícalos/);
+  assert.match(t, /revisa el cambio/);
+  assert.doesNotMatch(t, /\/arnes:(verify|review|build)\b/, 'las skills que carga el modelo no se nombran');
+  assert.match(t, /los integra la persona con \/arnes:worktree integrate <slug>, y entrega con \/arnes:ship/);
   assert.doesNotMatch(t, /gate-flag\.js write/, 'el protocolo no manda a escribir la bandera a mano');
   assert.match(t, /nunca que sea correcto en el negocio/);
   assert.ok(t.split('\n').length <= 40, `${t.split('\n').length} líneas`);
@@ -70,7 +72,7 @@ test('con muchos workspaces nunca pasa de 40 líneas', () => {
 
 test('sin manifiesto dice cómo crearlo y no inventa nada', () => {
   const t = text(start(h.tmp('start-nada')));
-  assert.match(t, /^arnes: no hay \.claude\/harness\.json subiendo desde/);
+  assert.match(t, /^arnes: este proyecto todavía no tiene la configuración del arnés\./);
   assert.match(t, /\/arnes:init/);
   assert.doesNotMatch(t, /Protocolo|rama/);
 });
@@ -79,7 +81,7 @@ test('con un manifiesto inválido lo dice y no inyecta el protocolo', () => {
   const dir = h.tmp('start-mal');
   h.repo(dir, { '.claude/harness.json': '{"version": 1, "name": "x", "workspaces": []}' });
   const t = text(start(dir));
-  assert.match(t, /el manifiesto no valida/);
+  assert.match(t, /la configuración del arnés no es válida/);
   assert.match(t, /necesita al menos 1/);
   assert.doesNotMatch(t, /Protocolo/);
 });
@@ -129,8 +131,8 @@ test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un wor
   assert.ok(!Number.isNaN(Date.parse(lock.at)));
 
   const b = text(as(api, 'sesion-b', process.ppid));
-  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión debe trabajar en su propio worktree \(\/arnes:worktree open <slug>\), no en el mismo árbol:$/m);
-  assert.match(b, new RegExp(`^- ${root.split(path.sep).join('/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} desde \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} \\(pid ${process.pid}\\)$`, 'm'));
+  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: en un repo solo, la persona abre la sesión con claude --worktree <nombre>; en una carpeta multi-repo, escribe \/arnes:worktree open <slug>\.$/m);
+  assert.match(b, new RegExp(`^- una en ${path.basename(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} desde \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$`, 'm'));
   assert.ok(b.split('\n').length <= 40);
 
   const end = as(root, 'sesion-a', process.pid, 'SessionEnd');
@@ -151,7 +153,7 @@ test('un lock de un proceso que ya no existe, o de más de 24 h, se borra sin av
   assert.doesNotMatch(text(as(dir, 'nueva', process.ppid)), /Aviso/);
   for (const s of ['muerta', 'vieja', 'rota']) assert.ok(!fs.existsSync(lockPath(dir, s)), `${s} borrado`);
   h.write(dir, '.tmp/harness/sessions/sin-pid.json', JSON.stringify({ pid: null, cwd: 'otra/carpeta', at }));
-  assert.match(text(as(dir, 'nueva', null)), /^- otra\/carpeta desde \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
+  assert.match(text(as(dir, 'nueva', null)), /^- una en carpeta desde \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
 });
 
 test('un lock con el mismo pid es de esta misma sesión (un /clear cambia el session_id): no avisa', () => {

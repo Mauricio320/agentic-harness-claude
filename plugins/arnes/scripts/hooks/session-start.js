@@ -18,7 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const { run, context } = require('../lib/hook.js');
-const { loadProject, harnessDir, MANIFEST, posix } = require('../lib/manifest.js');
+const { loadProject, harnessDir, posix } = require('../lib/manifest.js');
 const { git } = require('../lib/exec.js');
 const { touched } = require('../touched-files.js');
 const ledger = require('../worktree-ledger.js');
@@ -27,18 +27,18 @@ const MAX_LINES = 40;
 const DECISIONS = 5;
 const WORKTREES = 5;
 const LOCK_MAX_MS = 24 * 60 * 60 * 1000;
-const SCRIPTS = posix(path.resolve(__dirname, '..'));
 
+// Qué pasa, qué sigue y qué le toca a la persona (principio 7 de docs/PLAN.md §2): sin rutas ni
+// nombres de scripts, y con el nombre de una skill solo cuando la persona tiene que escribirla.
 const PROTOCOL = [
   'Protocolo del arnés:',
-  '1. Manda el manifiesto de cada repo: sus comandos, riskPaths y forbidden. No inventes comandos que no estén ahí.',
-  '2. Un pedido que cambia código empieza por /arnes:plan. Sin plan aprobado por la persona, el guard niega escribir código; /arnes:plan --trivial lo escribe solo la persona.',
-  '3. Antes de cerrar un turno con cambios de código, verifica con /arnes:verify: corre el gate de cada workspace tocado y escribe la bandera solo si pasa. Nunca escribas la bandera a mano. Sin bandera vigente, el Stop bloquea una vez.',
-  '4. git commit exige bandera vigente del workspace (mismo HEAD, misma lista de tocados, menos de 30 min); el guard lo deniega sin ella.',
-  '5. Denegado siempre: git reset --hard, push forzado, clean -f, branch -D o borrar un worktree con commits sin integrar, y leer secretos (.env, llaves) con cat, type, Get-Content o head. Con manifiesto, además: forbidden del workspace y git add masivo con .env o logs.',
-  '6. Antes de entregar, revisa con /arnes:review; si tocas riskPaths, escribe REVISIÓN HUMANA OBLIGATORIA en el reporte. Los worktrees del issue con commits se integran con /arnes:worktree integrate <slug>, que corre la persona.',
-  '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Repórtalo así.',
-  `Scripts: node "${SCRIPTS}/<script>.js" --help`,
+  '1. Manda la configuración de cada repo: sus comandos, sus rutas de riesgo y lo prohibido. No inventes comandos que no estén ahí.',
+  '2. Un pedido que cambia código empieza por el plan, que aprueba la persona; sin plan aprobado no se puede escribir código. Para un cambio mínimo, la persona escribe /arnes:plan --trivial.',
+  '3. Antes de cerrar un turno con cambios de código, verifícalos. La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano; sin ella, el cierre del turno se frena una vez.',
+  '4. Un commit exige la verificación vigente de su workspace: el mismo commit de base, los mismos archivos y menos de 30 minutos.',
+  '5. Se niega siempre: git reset --hard, push forzado, clean -f, borrar una rama o un worktree con commits sin integrar, y leer secretos (.env, llaves). Con la configuración, además: lo prohibido del workspace y un git add masivo con .env o logs.',
+  '6. Antes de entregar, revisa el cambio; si toca rutas de riesgo, va REVISIÓN HUMANA OBLIGATORIA. Los worktrees del issue con commits los integra la persona con /arnes:worktree integrate <slug>, y entrega con /arnes:ship.',
+  '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Se dice una vez por corrida.',
 ];
 
 function branchOf(ws) {
@@ -50,7 +50,7 @@ function branchOf(ws) {
 
 function workspaceLine(project, ws) {
   const where = ws.rel || '.';
-  if (!ws.adoptable) return `- ${ws.name} (${where}) · rama ${branchOf(ws)} · no adoptable todavía: sin manifiesto propio, no se verifica`;
+  if (!ws.adoptable) return `- ${ws.name} (${where}) · rama ${branchOf(ws)} · no adoptable todavía: sin configuración propia, no se verifica`;
   const t = touched(ws, 'HEAD', project);
   const dirty = t.error ? 'estado ilegible' : t.files.length ? `${t.files.length} archivo(s) sin commitear` : 'limpio';
   const risk = (ws.riskPaths || []).length ? '' : ' · sin riskPaths';
@@ -96,7 +96,7 @@ function worktreeLines(cwd, now) {
   const pending = ledger.pendingEntries(project, ledger.readLedger(project));
   if (!pending.length) return [];
   const shown = pending.slice(0, WORKTREES).map((p) => `- ${ledger.describe(p, now)}`);
-  if (pending.length > WORKTREES) shown.push(`- … y ${pending.length - WORKTREES} más: node "${SCRIPTS}/worktree-ledger.js" pending`);
+  if (pending.length > WORKTREES) shown.push(`- … y ${pending.length - WORKTREES} más`);
   return [`Worktrees sin integrar (${pending.length}): /arnes:worktree integrate <slug>, o close si no tienen commits propios.`, ...shown];
 }
 
@@ -180,8 +180,8 @@ const stamp = (iso) => {
 function concurrentLines(others) {
   if (!others.length) return [];
   return [
-    `Aviso: hay ${others.length === 1 ? 'otra sesión' : `${others.length} sesiones más`} de Claude activa(s) en este proyecto. Esta sesión debe trabajar en su propio worktree (/arnes:worktree open <slug>), no en el mismo árbol:`,
-    ...others.slice(0, 3).map((o) => `- ${o.cwd} desde ${stamp(o.at)}${o.pid ? ` (pid ${o.pid})` : ''}`),
+    `Aviso: hay ${others.length === 1 ? 'otra sesión' : `${others.length} sesiones más`} de Claude activa(s) en este proyecto. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: en un repo solo, la persona abre la sesión con claude --worktree <nombre>; en una carpeta multi-repo, escribe /arnes:worktree open <slug>.`,
+    ...others.slice(0, 3).map((o) => `- una en ${path.basename(String(o.cwd || '')) || 'esta carpeta'} desde ${stamp(o.at)}`),
   ];
 }
 
@@ -192,16 +192,16 @@ function sessionStart(input, now = new Date()) {
   const project = loadProject(cwd);
   if (!project) {
     return [
-      `arnes: no hay ${posix(MANIFEST)} subiendo desde ${cwd}. Aquí el arnés no verifica ni bloquea nada, salvo git destructivo y la lectura de secretos.`,
-      'Para adoptar el proyecto: /arnes:init, que genera el manifiesto de cada repo y, en una carpeta multi-repo, la composición.',
+      'arnes: este proyecto todavía no tiene la configuración del arnés. Aquí no verifica ni bloquea nada, salvo git destructivo y la lectura de secretos.',
+      'Para adoptarlo, la persona escribe /arnes:init, que prepara la configuración de cada repo y, en una carpeta multi-repo, la de la carpeta.',
     ].join('\n');
   }
   if (project.errors.length) {
-    return [`arnes: el manifiesto no valida, así que el arnés no verifica nada hasta corregirlo:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), 'Corrígelo, o regenéralo con /arnes:init.'].join('\n');
+    return [`arnes: la configuración del arnés no es válida, así que no verifica nada hasta corregirla:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), 'Corrígela, o la persona la rehace con /arnes:init.'].join('\n');
   }
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
   const native = ledger.equipNative(cwd).lines;
-  const head = [`arnes · ${project.name} · ${kind} · raíz ${project.root}`, ...native.map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
+  const head = [`arnes · ${project.name} · ${kind}`, ...native.map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
   const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
