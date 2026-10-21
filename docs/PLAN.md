@@ -457,6 +457,12 @@ Cambio de la ronda de worktrees (2026-10-21, rama `feature/worktrees`), que cier
   - dentro del set, cada `localhost:<puerto>` o `127.0.0.1:<puerto>` que apunta al puerto original de otro workspace del set pasa al nuevo, para que el front del worktree hable con el back del worktree. Un puerto que no es de un workspace del set, como el de la base, no se toca.
 
   Imprime el mapa, `set talleres: api 3003 → 3013, front 3000 → 3010`, lo guarda en cada registro del set (`ports: { offset, map }`) y `list` lo repite. Con `--port-offset N` la persona elige el desplazamiento; con `--port-offset 0` no se toca nada.
+- **Desenlazar antes de borrar.** El 2026-10-19, en otro proyecto, un `git worktree remove` siguió la junction de `node_modules` de un worktree y borró el `node_modules` de verdad del checkout principal. Por eso la regla: todo lo que se enlaza se desenlaza antes de borrar, y un enlace se quita sin seguirlo. `integrate` y `close` deshacen en orden:
+  1. quitan los enlaces registrados, con `rmdir` sobre la junction o `unlink` sobre el symlink (`lib/links.js` `unlink`), nunca con un borrado recursivo. Una carpeta de verdad donde el registro esperaba un enlace no se toca;
+  2. borran las copias de `.env` que creó open, y la carpeta copiada si un enlace había caído a copia;
+  3. recién entonces corren `git worktree remove`.
+
+  Cada paso se anota en el registro. Si algo falla a medias, el registro sigue abierto con `undo`, que dice qué quedó (`left`, `links`, `copies`), y no se intenta el remove. Un `integrate` que ya hizo el merge guarda `merge` antes de borrar, para que el siguiente lo conserve. El test del incidente crea un `node_modules` real con un archivo adentro, abre un worktree, integra y comprueba que el archivo sigue en el principal. Además, el guard niega un `git worktree remove` a mano, y `worktree-remove.js` un `ExitWorktree` con `remove`, mientras el worktree tenga un enlace del arnés vivo (`liveLinks`), y mandan a `integrate` o `close`. La foto del base de ci-gate usa el mismo `unlink`.
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
 

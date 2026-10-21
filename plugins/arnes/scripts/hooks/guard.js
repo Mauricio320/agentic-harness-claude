@@ -32,7 +32,7 @@ const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git, lines } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { checkFlag } = require('../gate-flag.js');
-const { targetOf } = require('../worktree-ledger.js');
+const { targetOf, liveLinks } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
 const { secretPath } = require('./read-guard.js');
 const { touchesDatabase } = require('../lib/database.js');
@@ -110,6 +110,8 @@ function judgeWorktreeRemove(dir, rest) {
   if (!target) return null;
   const wt = toPath(dir, target);
   if (!fs.existsSync(wt)) return null;
+  const links = liveLinks(wt);
+  if (links.length) return `git worktree remove ${target}: tiene enlaces del arnés (${links.join(', ')}) que el remove seguiría y borraría lo que hay detrás. Ciérralo con /arnes:worktree integrate o close, que los quita primero.`;
   const head = git(wt, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (head.status !== 0) return null;
   const t = targetsOf(wt, head.stdout.trim());

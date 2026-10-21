@@ -286,3 +286,57 @@ test('puertos: cada set suma su desplazamiento en las copias de .env y el front 
   assert.match(list.stdout, /^set talleres: api 3003 → 3013, front 3000 → 3010$/m, 'list repite el mapa');
   assert.match(list.stdout, /^set pagos: api 3003 → 3023, front 3000 → 3020$/m);
 });
+
+// El incidente del 2026-10-19: git worktree remove siguió la junction de node_modules y borró el
+// node_modules de verdad del checkout principal.
+test('integrate desenlaza antes de borrar: el node_modules de verdad del principal sobrevive', () => {
+  const dir = equipped();
+  assert.equal(ledger(dir, 'open', 'login').status, 0);
+  const wt = wtDir(dir, 'api', 'login');
+  h.write(wt, 'src/login.ts', 'login\n');
+  h.git(wt, 'add', 'src/login.ts');
+  h.git(wt, 'commit', '-q', '-m', 'login');
+  const r = ledger(dir, 'integrate', 'login');
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'index.js')), 'el archivo sigue en el principal');
+  assert.ok(!fs.existsSync(wt), 'el worktree se borró');
+  for (const f of ['.env', '.env.local']) assert.ok(fs.existsSync(path.join(dir, f)), `${f} del principal sigue`);
+  const [e] = entries(dir);
+  assert.deepEqual([e.status, e.links, e.copies], ['integrado', [], []]);
+  assert.equal(e.undo, undefined);
+});
+
+test('close también desenlaza; si deshacer falla a medias, el registro dice qué quedó y no hay remove', () => {
+  const dir = equipped();
+  assert.equal(ledger(dir, 'open', 'uno').status, 0);
+  assert.equal(ledger(dir, 'close', 'uno').status, 0);
+  assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'index.js')));
+
+  assert.equal(ledger(dir, 'open', 'dos').status, 0);
+  const wt = wtDir(dir, 'api', 'dos');
+  const { unlink } = require('../scripts/lib/links.js');
+  assert.equal(unlink(path.join(wt, 'node_modules')), null);
+  h.write(wt, 'node_modules/propio/x.js', 'de verdad\n');
+  const r = ledger(dir, 'close', 'dos');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /no es un enlace; no se borra.*No corrí git worktree remove/);
+  assert.ok(fs.existsSync(path.join(wt, 'node_modules', 'propio', 'x.js')), 'una carpeta de verdad no se borra en recursivo');
+  assert.ok(fs.existsSync(path.join(wt, '.env')), 'sin enlaces quitados no se tocan las copias');
+  const e = entries(dir).find((x) => x.branch.endsWith('/dos'));
+  assert.equal(e.status, 'abierto');
+  assert.equal(e.undo.links.length, 1);
+  assert.match(e.undo.left[0], /no es un enlace/);
+  assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'index.js')));
+});
+
+test('git worktree remove a mano y ExitWorktree se niegan con un enlace del arnés vivo', () => {
+  const dir = equipped();
+  assert.equal(ledger(dir, 'open', 'login').status, 0);
+  const wt = wtDir(dir, 'api', 'login');
+  const g = h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: `git worktree remove ${wt.split(path.sep).join('/')}` }, cwd: dir });
+  assert.equal(g.out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(g.out.hookSpecificOutput.permissionDecisionReason, /enlaces del arnés .*node_modules.*integrate o close/);
+  const x = h.hook('worktree-remove', { hook_event_name: 'PreToolUse', tool_name: 'ExitWorktree', tool_input: { action: 'remove' }, cwd: wt });
+  assert.equal(x.out.hookSpecificOutput.permissionDecision, 'deny');
+  assert.ok(fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'index.js')));
+});

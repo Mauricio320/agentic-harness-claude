@@ -41,17 +41,18 @@ const exists = (p) => {
 function unlink(p) {
   if (!exists(p)) return null;
   if (!isLink(p)) return `${p} no es un enlace; no se borra`;
-  try {
-    fs.unlinkSync(p);
-    return null;
-  } catch {
+  // rmdir sobre la junction de Windows, unlink sobre el symlink; el otro, si el primero no pudo.
+  const tries = process.platform === 'win32' ? [fs.rmdirSync, fs.unlinkSync] : [fs.unlinkSync, fs.rmdirSync];
+  let last = null;
+  for (const t of tries) {
     try {
-      fs.rmdirSync(p);
+      t(p);
       return null;
     } catch (e) {
-      return `no se pudo quitar el enlace ${p}: ${e.message}`;
+      last = e;
     }
   }
+  return `no se pudo quitar el enlace ${p}: ${last.message}`;
 }
 
 module.exports = { link, unlink, isLink };

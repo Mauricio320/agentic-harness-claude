@@ -18,7 +18,7 @@ const { run, deny } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
-const { linkedWorktree, targetOf } = require('../worktree-ledger.js');
+const { linkedWorktree, targetOf, liveLinks } = require('../worktree-ledger.js');
 
 // Destino de integración del worktree en dir: el registrado en el ledger, o la rama por defecto.
 function targetsOf(dir, branch) {
@@ -33,6 +33,8 @@ function targetsOf(dir, branch) {
 
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
+  const links = liveLinks(git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir);
+  if (links.length) return `este worktree tiene enlaces del arnés (${links.join(', ')}) que borrarlo seguiría. Ciérralo con /arnes:worktree integrate o close, que los quita primero, o sal con action "keep".`;
   const name = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
   const { branch, refs } = targetsOf(dir, name);
   if (!refs.length) return null;

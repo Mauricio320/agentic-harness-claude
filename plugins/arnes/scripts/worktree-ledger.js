@@ -122,6 +122,15 @@ function targetOf(dir, { branch, wtPath } = {}) {
   return e ? e.target : null;
 }
 
+// Los enlaces que open registró en el worktree de wtPath y siguen en disco: un git worktree remove o
+// un ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan).
+function liveLinks(wtPath) {
+  const project = projectFor(wtPath);
+  if (!project) return [];
+  const e = readLedger(project).find((x) => x.status === 'abierto' && norm(x.path) === norm(wtPath));
+  return e ? (e.links || []).filter(isLink) : [];
+}
+
 const date = (iso) => String(iso).slice(0, 10);
 
 // Una línea por registro abierto; con más de STALE_DAYS sin commits nuevos lleva el aviso.
@@ -316,12 +325,46 @@ function dirtyIn(dir, own = []) {
 
 const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDirs || [])];
 
-// Borra el worktree y su rama. La rama ya no tiene commits fuera del destino: -d basta. Antes quita
-// los enlaces que open registró, sin seguirlos: git worktree remove borraría lo que hay detrás.
-function removeWorktree(ws, e) {
-  const left = (e.links || []).map(unlink).filter(Boolean);
-  if (left.length) refuse(`${e.ws}: ${left.join('; ')}; no corro git worktree remove`);
-  e.links = [];
+// Deshace lo que open dejó, en orden y anotando cada paso en el registro: primero los enlaces, sin
+// seguirlos (rmdir o unlink, nunca un borrado recursivo: git worktree remove borraría lo que hay
+// detrás, como el 2026-10-19); después las copias de .env y la carpeta copiada si un enlace cayó a
+// copia. Si algo falla, el registro queda abierto con `undo` diciendo qué quedó, y no hay remove.
+function undo(project, entries, e) {
+  const left = [];
+  e.links = (e.links || []).filter((l) => {
+    const err = unlink(l);
+    if (err) left.push(err);
+    return Boolean(err);
+  });
+  writeLedger(project, entries);
+  if (!left.length) {
+    for (const p of [...(e.copies || []), ...(e.copiedDirs || [])]) {
+      if (isLink(p)) left.push(`${p} es un enlace donde había una copia; no se borra`);
+      else {
+        try {
+          fs.rmSync(p, { recursive: (e.copiedDirs || []).includes(p), force: true });
+        } catch (x) {
+          left.push(`no se pudo borrar ${p}: ${x.message}`);
+        }
+      }
+    }
+    e.copies = (e.copies || []).filter(present);
+    e.copiedDirs = (e.copiedDirs || []).filter(present);
+  }
+  if (!left.length) {
+    delete e.undo;
+    writeLedger(project, entries);
+    return;
+  }
+  e.undo = { at: new Date().toISOString(), left, links: e.links, copies: e.copies, copiedDirs: e.copiedDirs };
+  writeLedger(project, entries);
+  refuse(`${e.ws}: no se pudo deshacer lo que abrió el worktree (${left.join('; ')}). No corrí git worktree remove; el registro sigue abierto y dice qué quedó en undo`);
+}
+
+// Borra el worktree y su rama, después de deshacer lo que open dejó. La rama ya no tiene commits
+// fuera del destino: -d basta.
+function removeWorktree(project, entries, ws, e) {
+  undo(project, entries, e);
   if (fs.existsSync(e.path)) {
     fs.rmSync(path.join(e.path, '.tmp', 'harness'), { recursive: true, force: true });
     ok(git(ws.gitRoot, ['worktree', 'remove', e.path]), `git worktree remove ${e.path}`);
@@ -359,8 +402,11 @@ function integrate(project, slug, { ws: names } = {}, now = new Date()) {
         );
       }
       merge = git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim();
+      e.merge = merge;
+      writeLedger(project, entries);
     }
-    removeWorktree(ws, e);
+    removeWorktree(project, entries, ws, e);
+    merge = merge || e.merge || null;
     Object.assign(e, { status: 'integrado', closedAt: now.toISOString(), merge });
     writeLedger(project, entries);
     out.push(`integrado ${e.ws}: ${e.branch} → ${e.target}${merge ? ` con el merge ${merge} (${ahead.length} commit(s))` : ', sin commits propios'}; worktree y rama borrados`);
@@ -381,7 +427,7 @@ function close(project, slug, { ws: names } = {}, now = new Date()) {
   return set.map((e) => {
     const ws = wsOf(project, e);
     const gone = !refExists(ws.gitRoot, e.branch) && !fs.existsSync(e.path);
-    removeWorktree(ws, e);
+    removeWorktree(project, entries, ws, e);
     Object.assign(e, { status: 'cerrado', closedAt: now.toISOString() });
     writeLedger(project, entries);
     return `cerrado ${e.ws}: ${e.branch}, ${gone ? 'el worktree y la rama ya no existían' : 'sin commits propios; worktree y rama borrados'}`;
@@ -399,6 +445,7 @@ module.exports = {
   projectFor,
   pendingEntries,
   targetOf,
+  liveLinks,
   describe,
   open,
   integrate,
