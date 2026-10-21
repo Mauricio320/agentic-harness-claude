@@ -34,7 +34,7 @@ Pasos:
    - Opcionales: `sharedPaths` (código compartido que obliga a correr la suite completa), `codeGlobs`, `commands.typecheckFast` y `memory`.
    - Nombres de workspace más cortos si la persona los prefiere (por ejemplo `api`, `front`).
    Propón valores solo si los ves en el código o en el `CLAUDE.md` del repo, y di de dónde salen. Nunca inventes comandos: si no hay lint o tests, el campo queda ausente.
-4. Con el visto bueno, corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js" --write` (con `--force` solo si la persona aceptó pisar un existente). Aplica con Edit las correcciones que dictó.
+4. Con el visto bueno, corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js" --write`: escribe cada manifiesto que falta y no toca los que existen. `--force <ruta>` pisa uno existente, solo si la persona lo pidió para ese archivo. Aplica con Edit las correcciones que dictó.
 5. Valida cada archivo escrito con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" validate <archivo>`. Valida además el proyecto resuelto con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`. Si algo no valida, corrígelo antes de seguir.
 6. Recuerda dónde se versiona cada archivo:
    - El manifiesto de un repo se commitea en ese repo, cuando su equipo lo adopte. Tú no commiteas.

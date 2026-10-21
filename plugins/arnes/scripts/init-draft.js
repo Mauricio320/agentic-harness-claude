@@ -13,16 +13,18 @@
 // Un repo sin typecheck ni test detectables, como uno solo con composer.json, no lleva manifiesto
 // propio: entra en la composición como no adoptable todavía.
 //
-// Uso: node init-draft.js [--write] [--force]
-//   sin --write  imprime los borradores en stdout, cada uno precedido por "# <ruta>"
-//   --write      los escribe en <repo>/.claude/harness.json y <carpeta>/.claude/harness.json, y en
-//                una carpeta agrega al .gitignore las líneas que le falten
-//   --force      permite pisar un manifiesto existente
+// Uso: node init-draft.js [--write] [--force <ruta>]...
+//   sin --write  imprime los borradores de los manifiestos que faltan en stdout, cada uno precedido
+//                por "# <ruta>"; de los que ya existen dice en stderr que no se tocan
+//   --write      escribe cada manifiesto que no existe, en <repo>/.claude/harness.json y
+//                <carpeta>/.claude/harness.json, deja en paz los que existen, y en una carpeta
+//                agrega al .gitignore las líneas que le falten
+//   --force <ruta>  pisa ese manifiesto existente, a propósito; uno por archivo, relativo al cwd
 // Lo que no se infiere (riskPaths, contract, sharedPaths, integration, memory) va a stderr. De un
 // repo sin manifiesto dice en qué rama está y qué ramas remotas sí lo traen; si alguna lo trae, la
-// persona está en la rama equivocada, y --write se niega a escribir sin --force.
+// persona está en la rama equivocada, y --write se niega a escribir sin --force de ese manifiesto.
 // Exit: 0 borradores válidos (escritos con --write) · 1 algún borrador no valida y no se escribe
-//       nada · 2 uso inválido, nada que detectar, o ya existe un manifiesto y falta --force
+//       nada · 2 uso inválido, nada que detectar, o un manifiesto en otra rama sin --force
 
 'use strict';
 
@@ -192,7 +194,8 @@ function detectRepo(dir) {
   return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] } };
 }
 
-// → { drafts: [{ file, data }], notes: [string], elsewhere: [repos cuyo manifiesto está en otra rama],
+// → { drafts: [{ file, data }], notes: [string], elsewhere: [{ name, file } de los repos cuyo manifiesto
+//     está en otra rama],
 //     ignores: [líneas que le faltan al .gitignore de la carpeta] }
 function draft(root) {
   const nested = nestedRepos(root);
@@ -204,7 +207,7 @@ function draft(root) {
     if (fs.existsSync(path.join(dir, MANIFEST))) return;
     const w = manifestElsewhere(dir);
     notes.push(`sin manifiesto ${missingManifest(name, w)}`);
-    if (w.remotes.length) elsewhere.push(name);
+    if (w.remotes.length) elsewhere.push({ name, file: path.join(dir, MANIFEST) });
   };
   if (!nested.length) {
     if (!isRepoRoot(root)) return { error: `nada que detectar: ${root} no es un repo ni contiene repos anidados` };
@@ -226,11 +229,11 @@ function draft(root) {
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos } });
-    notes.push('pendiente     carpeta: contract por repo (globs que provee o consume) e integration (branchPrefix, sameBranchAcrossWorkspaces)');
+    if (!fs.existsSync(path.join(root, MANIFEST))) notes.push('pendiente     carpeta: contract por repo (globs que provee o consume) e integration (branchPrefix, sameBranchAcrossWorkspaces)');
     ignores = missingIgnores(root, nested);
     if (ignores.length) notes.push(`gitignore     carpeta: le faltan ${ignores.join(' ')}`);
   }
-  for (const d of drafts) {
+  for (const d of drafts.filter((x) => !fs.existsSync(x.file))) {
     for (const ws of d.data.workspaces || []) {
       notes.push(`pendiente     ${ws.name}: riskPaths (exigen revisión humana); opcionales: sharedPaths, codeGlobs, commands.typecheckFast, memory`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);
@@ -245,7 +248,7 @@ module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitig
 function main() {
   let args;
   try {
-    args = parseArgs({ options: { write: { type: 'boolean' }, force: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ options: { write: { type: 'boolean' }, force: { type: 'string', multiple: true }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`init-draft: ${e.message}`);
   }
@@ -254,6 +257,10 @@ function main() {
   const r = draft(root);
   if (r.error) die(`init-draft: ${r.error}`);
 
+  const forced = new Set((args.values.force || []).map((f) => path.resolve(root, f)));
+  const unknown = [...forced].filter((f) => !r.drafts.some((d) => d.file === f));
+  if (unknown.length) die(`init-draft: --force ${unknown.map((f) => posix(path.relative(root, f))).join(', ')}: no es un manifiesto que init genere aquí`);
+  const kept = (d) => fs.existsSync(d.file) && !forced.has(d.file);
   let invalid = false;
   for (const d of r.drafts) {
     const errs = validate(d.data);
@@ -262,18 +269,18 @@ function main() {
       invalid = true;
       process.stderr.write(`inválido      ${rel}:\n  ${errs.join('\n  ')}\n`);
     }
-    if (!args.values.write) process.stdout.write(`# ${rel}\n${JSON.stringify(d.data, null, 2)}\n\n`);
+    if (kept(d)) process.stderr.write(`existe        ${rel}: no se toca (--force ${rel} lo pisa)\n`);
+    else if (!args.values.write) process.stdout.write(`# ${rel}\n${JSON.stringify(d.data, null, 2)}\n\n`);
   }
   for (const n of r.notes) process.stderr.write(`${n}\n`);
   if (invalid) process.exit(1);
   if (!args.values.write) process.exit(0);
-  if (r.elsewhere.length && !args.values.force) {
-    die(`no escribo los manifiestos: ${r.elsewhere.join(', ')} lo trae(n) en otra rama. Haz git fetch, cámbiate a esa rama y vuelve a correr init; --force escribe igual`);
+  const blocked = r.elsewhere.filter((e) => !forced.has(e.file)).map((e) => e.name);
+  if (blocked.length) {
+    die(`no escribo los manifiestos: ${blocked.join(', ')} lo trae(n) en otra rama. Haz git fetch, cámbiate a esa rama y vuelve a correr init; --force <ruta> escribe igual`);
   }
 
-  const existing = r.drafts.filter((d) => fs.existsSync(d.file));
-  if (existing.length && !args.values.force) die(`ya existe: ${existing.map((d) => d.file).join(', ')}; usa --force para pisarlo`);
-  for (const d of r.drafts) {
+  for (const d of r.drafts.filter((x) => !kept(x))) {
     fs.mkdirSync(path.dirname(d.file), { recursive: true });
     fs.writeFileSync(d.file, JSON.stringify(d.data, null, 2) + '\n');
     console.log(`escrito       ${d.file}`);

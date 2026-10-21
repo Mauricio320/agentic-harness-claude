@@ -108,7 +108,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.match(r.stderr, /pendiente\s+api: riskPaths/);
 });
 
-test('--write escribe los tres, no pisa sin --force, y el resultado resuelve como carpeta', () => {
+test('--write escribe los tres, deja los existentes, y el resultado resuelve como carpeta', () => {
   const root = folder();
   h.write(root, '.gitignore', 'api/\n/.tmp');
   assert.equal(h.run('init-draft.js', ['--write'], { cwd: root }).status, 0);
@@ -118,9 +118,9 @@ test('--write escribe los tres, no pisa sin --force, y el resultado resuelve com
   }
   assert.ok(!fs.existsSync(path.join(root, 'academicoBitbuckett', '.claude', 'harness.json')), 'el PHP no lleva manifiesto');
   const again = h.run('init-draft.js', ['--write'], { cwd: root });
-  assert.equal(again.status, 2);
-  assert.match(again.stderr, /ya existe/);
-  assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: root }).status, 0);
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /escrito/, 'lo que existe no se reescribe');
+  assert.match(again.stderr, /existe\s+api\/\.claude\/harness\.json: no se toca/);
 
   const p = m.loadProject(path.join(root, 'api', 'src'));
   assert.deepEqual(p.errors, []);
@@ -181,7 +181,8 @@ test('un repo sin manifiesto dice su rama, y si una rama remota lo trae, --write
   assert.equal(w.status, 2);
   assert.match(w.stderr, /no escribo los manifiestos: .* lo trae\(n\) en otra rama\. Haz git fetch, cámbiate a esa rama/);
   assert.ok(!fs.existsSync(path.join(dir, '.claude', 'harness.json')));
-  assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: dir }).status, 0);
+  assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: dir }).status, 2, '--force va con la ruta de un manifiesto');
+  assert.equal(h.run('init-draft.js', ['--write', '--force', '.claude/harness.json'], { cwd: dir }).status, 0);
   const solo = h.tmp('init-sin-remota');
   h.repo(solo, { 'package.json': pkg({ typescript: '5' }), 'tsconfig.json': '{}' });
   assert.match(h.run('init-draft.js', [], { cwd: solo }).stderr, /en main, sin \.claude\/harness\.json\n/);
@@ -201,4 +202,26 @@ test('cloneUrl quita usuario y token de un remote https y deja el ssh', () => {
   assert.equal(cloneUrl('https://oauth2:glpat-xyz@gitlab.com/g/api.git\n'), 'https://gitlab.com/g/api.git');
   assert.equal(cloneUrl('git@gitlab.com:g/api.git'), 'git@gitlab.com:g/api.git');
   assert.equal(cloneUrl('/srv/repos/api.git'), '/srv/repos/api.git');
+});
+
+test('con los repos ya adoptados, --write escribe solo la composición y no toca sus manifiestos; --force pisa uno, archivo por archivo', () => {
+  const root = folder();
+  const own = h.repoManifest('api', h.workspace({ name: 'api', riskPaths: ['src/auth/**'] }));
+  h.write(root, 'api/.claude/harness.json', own);
+  h.write(root, 'client/.claude/harness.json', h.repoManifest('client'));
+  const dry = h.run('init-draft.js', [], { cwd: root });
+  assert.deepEqual(Object.keys(parseDrafts(dry.stdout)), ['.claude/harness.json'], 'solo el borrador de lo que falta');
+  assert.doesNotMatch(dry.stderr, /pendiente\s+api: riskPaths/, 'de un manifiesto existente no hay pendientes');
+  const r = h.run('init-draft.js', ['--write'], { cwd: root });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.match(/escrito/g).length, 1);
+  assert.match(r.stdout, new RegExp(`escrito\\s+${path.join(root, '.claude', 'harness.json').replace(/[\\.]/g, '\\$&')}\\n`));
+  assert.equal(fs.readFileSync(path.join(root, 'api', '.claude', 'harness.json'), 'utf8'), own);
+  assert.ok(fs.existsSync(path.join(root, '.claude', 'harness.json')));
+  const forced = h.run('init-draft.js', ['--write', '--force', 'client/.claude/harness.json'], { cwd: root });
+  assert.equal(forced.status, 0, forced.stderr);
+  assert.match(forced.stdout, /escrito\s+.*client[\\/]\.claude[\\/]harness\.json/);
+  assert.equal(forced.stdout.match(/escrito/g).length, 1, 'solo el que se nombró');
+  assert.equal(fs.readFileSync(path.join(root, 'api', '.claude', 'harness.json'), 'utf8'), own);
+  assert.equal(h.run('init-draft.js', ['--write', '--force', 'otro.json'], { cwd: root }).status, 2);
 });
