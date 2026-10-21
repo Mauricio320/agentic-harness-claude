@@ -22,7 +22,9 @@ function repo(test = 'jest {specs} --runTestsByPath --verbose', files = {}) {
   return dir;
 }
 
-const adopt = (dir, args, bin = BIN) => h.run('adopt.js', args, { cwd: dir, env: h.withPath(bin) });
+// Sin marketplace instalado: la configuración de Claude Code de los tests es una carpeta vacía.
+const NO_CONFIG = h.tmp('config-vacia');
+const adopt = (dir, args, bin = BIN, env = {}) => h.run('adopt.js', args, { cwd: dir, env: h.withPath(bin, { CLAUDE_CONFIG_DIR: NO_CONFIG, ...env }) });
 
 test('probe: el comando de test sobre un spec se lee; si no, dice el flag que falta', () => {
   let r = adopt(repo(), ['probe']);
@@ -175,7 +177,7 @@ test('folder-settings: el settings.json del repo de carpeta fija el marketplace 
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
   h.write(root, '.claude/settings.json', JSON.stringify({ model: 'opus', enabledPlugins: { 'otro@x': true } }));
   const url = 'https://gitlab.com/g/agentic-harness.git';
-  assert.equal(adopt(root, ['folder-settings']).status, 2, 'sin --marketplace ni --ref');
+  assert.equal(adopt(root, ['folder-settings']).status, 2, 'sin --marketplace y sin marketplace instalado');
   assert.equal(adopt(root, ['folder-settings', '--marketplace', 'https://oauth2:tok@gitlab.com/g/a.git', '--ref', 'v0.6.0']).status, 2, 'nunca una url con token');
   let r = adopt(root, ['folder-settings', '--marketplace', url, '--ref', 'v0.6.0']);
   assert.equal(r.status, 1);
@@ -197,4 +199,17 @@ test('folder-settings sin --ref fija el marketplace a la rama probadores', () =>
   assert.equal(r.status, 0, r.stderr);
   const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
   assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'probadores' });
+});
+
+test('folder-settings sin --marketplace toma la url y el ref del marketplace instalado, sin credenciales', () => {
+  const root = h.tmp('adopt-instalado');
+  h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
+  const config = h.tmp('config');
+  h.write(config, 'plugins/known_marketplaces.json', JSON.stringify({ 'agentic-harness': { source: { source: 'git', url: 'https://oauth2:tok@gitlab.com/g/agentic-harness.git', ref: 'v0.6.4' } } }));
+  const r = adopt(root, ['folder-settings', '--write'], BIN, { CLAUDE_CONFIG_DIR: config });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /marketplace del plugin instalado: https:\/\/gitlab\.com\/g\/agentic-harness\.git en v0\.6\.4/);
+  const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'v0.6.4' });
 });

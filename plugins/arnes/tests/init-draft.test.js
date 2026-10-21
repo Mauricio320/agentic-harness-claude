@@ -225,3 +225,40 @@ test('con los repos ya adoptados, --write escribe solo la composición y no toca
   assert.equal(fs.readFileSync(path.join(root, 'api', '.claude', 'harness.json'), 'utf8'), own);
   assert.equal(h.run('init-draft.js', ['--write', '--force', 'otro.json'], { cwd: root }).status, 2);
 });
+
+test('la rama de cada repo en la composición: la por defecto desde cero, o donde vive el manifiesto; nunca la de la persona', () => {
+  const { compositionBranch } = require('../scripts/init-draft.js');
+  const dir = h.tmp('init-rama-comp');
+  const main = h.repo(dir, { 'package.json': pkg({ typescript: '5', jest: '30' }), 'tsconfig.json': '{}' });
+  h.git(dir, 'update-ref', 'refs/remotes/origin/main', main);
+  h.git(dir, 'switch', '-q', '-c', 'feature/talleres');
+  h.write(dir, 'src/a.ts', 'a\n');
+  h.git(dir, 'update-ref', 'refs/remotes/origin/feature/talleres', h.commitAll(dir, 'sin manifiesto'));
+  assert.equal(compositionBranch(dir), 'main', 'se escribe desde cero: la por defecto, no feature/talleres');
+
+  h.git(dir, 'switch', '-q', '-c', 'fix/adopcion-arnes', 'main');
+  h.write(dir, '.claude/harness.json', h.repoManifest('api'));
+  h.git(dir, 'update-ref', 'refs/remotes/origin/fix/adopcion-arnes', h.commitAll(dir, 'adopta el arnés'));
+  h.git(dir, 'switch', '-q', '-c', 'feature/inscripciones');
+  h.write(dir, 'src/b.ts', 'b\n');
+  h.git(dir, 'update-ref', 'refs/remotes/origin/feature/inscripciones', h.commitAll(dir, 'trabajo'));
+  assert.equal(compositionBranch(dir), 'fix/adopcion-arnes', 'donde vive el manifiesto, aunque la persona esté en feature/inscripciones');
+
+  h.git(dir, 'update-ref', 'refs/remotes/origin/main', h.git(dir, 'rev-parse', 'fix/adopcion-arnes'));
+  assert.equal(compositionBranch(dir), 'main', 'con el manifiesto ya en la por defecto, la por defecto');
+});
+
+test('la composición trae integration y el contract de cada repo según su stack, y --gitignore escribe solo el .gitignore', () => {
+  const root = h.tmp('init-comp');
+  h.repo(path.join(root, 'api'), { 'package.json': pkg({ '@nestjs/core': '11', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/t/dto/crear.dto.ts': 'x', 'src/t/t.controller.ts': 'x' });
+  h.repo(path.join(root, 'front'), { 'package.json': pkg({ next: '16', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/api/talleres.ts': 'x' });
+  const comp = parseDrafts(h.run('init-draft.js', [], { cwd: root }).stdout)['.claude/harness.json'];
+  assert.deepEqual(comp.integration, { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true });
+  assert.deepEqual(comp.repos.map((r) => [r.path, r.contract]), [['api', { provides: ['src/**/dto/**', 'src/**/*.controller.ts'] }], ['front', { consumes: ['src/**/api/**'] }]]);
+  const r = h.run('init-draft.js', ['--gitignore'], { cwd: root });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '/api/\n/front/\n/.tmp/\n/.claude/settings.local.json\n/graphify-out/\n');
+  assert.ok(!fs.existsSync(path.join(root, '.claude', 'harness.json')), '--gitignore no escribe manifiestos');
+  assert.match(h.run('init-draft.js', ['--gitignore'], { cwd: root }).stdout, /ya tiene todo/);
+  assert.equal(h.run('init-draft.js', ['--gitignore', '--write'], { cwd: root }).status, 2);
+});

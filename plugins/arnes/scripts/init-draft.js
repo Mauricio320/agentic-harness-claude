@@ -2,8 +2,10 @@
 // Borradores de manifiesto para arnes:init (docs/PLAN.md §5), detectados desde el cwd:
 //   - cwd con repos git anidados (un nivel; vale aunque el cwd sea a su vez un repo-workspace):
 //     un manifiesto por repo adoptable y la composición de la carpeta, con el remote (git remote
-//     get-url origin) y la rama actual de cada repo, y el .gitignore del repo de carpeta: las
-//     carpetas de los repos anidados, .tmp, settings.local.json y graphify-out
+//     get-url origin) de cada repo, su rama (compositionBranch: donde vive su manifiesto, o la por
+//     defecto; nunca la rama en que está la persona), el contract según su stack y la integración
+//     con feature/, y el .gitignore del repo de carpeta: las carpetas de los repos anidados, .tmp,
+//     settings.local.json y graphify-out
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
 // lint (eslint con configuración), test (jest, vitest o karma), build, specPattern (formatos que
@@ -13,14 +15,16 @@
 // Un repo sin typecheck ni test detectables, como uno solo con composer.json, no lleva manifiesto
 // propio: entra en la composición como no adoptable todavía.
 //
-// Uso: node init-draft.js [--write] [--force <ruta>]...
+// Uso: node init-draft.js [--write] [--force <ruta>]... | --gitignore
 //   sin --write  imprime los borradores de los manifiestos que faltan en stdout, cada uno precedido
 //                por "# <ruta>"; de los que ya existen dice en stderr que no se tocan
 //   --write      escribe cada manifiesto que no existe, en <repo>/.claude/harness.json y
 //                <carpeta>/.claude/harness.json, deja en paz los que existen, y en una carpeta
 //                agrega al .gitignore las líneas que le falten
 //   --force <ruta>  pisa ese manifiesto existente, a propósito; uno por archivo, relativo al cwd
-// Lo que no se infiere (riskPaths, contract, sharedPaths, integration, memory) va a stderr. De un
+//   --gitignore  solo agrega al .gitignore de la carpeta las líneas que le falten; init lo escribe
+//                sin preguntar
+// Lo que no se infiere (riskPaths, sharedPaths, memory) va a stderr. De un
 // repo sin manifiesto dice en qué rama está y qué ramas remotas sí lo traen; si alguna lo trae, la
 // persona está en la rama equivocada, y --write se niega a escribir sin --force de ese manifiesto.
 // Exit: 0 borradores válidos (escritos con --write) · 1 algún borrador no valida y no se escribe
@@ -35,6 +39,7 @@ const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
 const { databaseForbidden } = require('./lib/database.js');
+const { matchAny } = require('./lib/glob.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
@@ -96,6 +101,41 @@ function currentBranch(dir) {
   const b = r.status === 0 ? r.stdout.trim() : '';
   return b && b !== 'HEAD' ? b : undefined;
 }
+
+// La rama que la composición declara para un repo, la que setup le deja a quien llega: donde vive su
+// manifiesto, nunca la rama en que esté parada la persona que corre init. Sin manifiesto (se escribe
+// desde cero), o si la rama por defecto ya lo trae, la por defecto. Si solo lo traen otras ramas de
+// origin, la más cercana a la por defecto, que es la de adopción; la actual, solo si es la única.
+function compositionBranch(dir) {
+  const local = ['main', 'master'].find((b) => git(dir, ['show-ref', '--verify', '--quiet', `refs/heads/${b}`]).status === 0);
+  const def = defaultBranch(dir) || local;
+  if (!fs.existsSync(path.join(dir, MANIFEST))) return def;
+  const names = manifestElsewhere(dir).remotes.filter((r) => r.startsWith('origin/')).map((r) => r.slice('origin/'.length));
+  if (!names.length || names.includes(def)) return def;
+  const current = currentBranch(dir);
+  const pool = names.filter((n) => n !== current).length ? names.filter((n) => n !== current) : names;
+  const ahead = (n) => (def ? Number(git(dir, ['rev-list', '--count', `origin/${def}..origin/${n}`]).stdout.trim()) || 0 : 0);
+  return pool.map((n) => [n, ahead(n)]).sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))[0][0];
+}
+
+// El contract que se propone a un repo según su stack (§5.2): provides o consumes, con los globs que
+// tienen al menos un archivo trackeado. null si no hay evidencia.
+const CONTRACT = {
+  provides: { stacks: ['nestjs', 'nestjs-prisma'], globs: ['src/**/dto/**', 'src/**/*.controller.ts'] },
+  consumes: { stacks: ['nextjs', 'react', 'angular', 'vue'], globs: ['src/**/types/**', 'src/**/api/**'] },
+};
+function contractFor(dir, stack) {
+  const files = lines(git(dir, ['ls-files']).stdout);
+  for (const [side, c] of Object.entries(CONTRACT)) {
+    if (!c.stacks.includes(stack)) continue;
+    const globs = c.globs.filter((g) => files.some((f) => matchAny([g], f)));
+    return globs.length ? { [side]: globs } : null;
+  }
+  return null;
+}
+
+// La integración que se propone a una carpeta: la misma rama del issue en todos los repos, con feature/.
+const INTEGRATION = { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true };
 
 // Las líneas del .gitignore del repo de carpeta (docs/PLAN.md §8): los repos de verdad se clonan
 // dentro y git los ignora.
@@ -222,14 +262,15 @@ function draft(root) {
       const r = detectRepo(dir);
       where(dir, rel);
       const remote = git(dir, ['remote', 'get-url', 'origin']);
-      const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: currentBranch(dir) };
+      const contract = r.adoptable ? contractFor(dir, r.manifest.workspaces[0].stack) || undefined : undefined;
+      const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: compositionBranch(dir), contract };
       for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
       repos.push(entry);
       if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
-    drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos } });
-    if (!fs.existsSync(path.join(root, MANIFEST))) notes.push('pendiente     carpeta: contract por repo (globs que provee o consume) e integration (branchPrefix, sameBranchAcrossWorkspaces)');
+    drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
+    if (!fs.existsSync(path.join(root, MANIFEST))) notes.push('propuesto     carpeta: integration con feature/ y la misma rama en todos los repos, y el contract de cada repo según su stack');
     ignores = missingIgnores(root, nested);
     if (ignores.length) notes.push(`gitignore     carpeta: le faltan ${ignores.join(' ')}`);
   }
@@ -243,19 +284,33 @@ function draft(root) {
   return { drafts, notes, elsewhere, ignores };
 }
 
-module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines };
+module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines, contractFor, compositionBranch };
+
+function writeIgnores(root, ignores) {
+  if (!ignores.length) return;
+  const file = path.join(root, '.gitignore');
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${ignores.join('\n')}\n`);
+  console.log(`gitignore     ${file}: ${ignores.join(' ')}`);
+}
 
 function main() {
   let args;
   try {
-    args = parseArgs({ options: { write: { type: 'boolean' }, force: { type: 'string', multiple: true }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ options: { write: { type: 'boolean' }, gitignore: { type: 'boolean' }, force: { type: 'string', multiple: true }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`init-draft: ${e.message}`);
   }
   if (args.values.help) help(__filename);
+  if (args.values.gitignore && (args.values.write || args.values.force)) die('init-draft: --gitignore va solo');
   const root = process.cwd();
   const r = draft(root);
   if (r.error) die(`init-draft: ${r.error}`);
+  if (args.values.gitignore) {
+    if (!r.ignores.length) console.log('gitignore     ya tiene todo lo que hace falta');
+    writeIgnores(root, r.ignores);
+    return;
+  }
 
   const forced = new Set((args.values.force || []).map((f) => path.resolve(root, f)));
   const unknown = [...forced].filter((f) => !r.drafts.some((d) => d.file === f));
@@ -285,12 +340,7 @@ function main() {
     fs.writeFileSync(d.file, JSON.stringify(d.data, null, 2) + '\n');
     console.log(`escrito       ${d.file}`);
   }
-  if (r.ignores.length) {
-    const file = path.join(root, '.gitignore');
-    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-    fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${r.ignores.join('\n')}\n`);
-    console.log(`gitignore     ${file}: ${r.ignores.join(' ')}`);
-  }
+  writeIgnores(root, r.ignores);
 }
 
 if (require.main === module) main();

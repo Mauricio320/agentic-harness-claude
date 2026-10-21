@@ -9,56 +9,51 @@ disable-model-invocation: true
 
 Argumentos: `$ARGUMENTS`
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node`, con la ruta entre comillas, desde el directorio donde la persona abrió la sesión. No uses bash ni jq: el mismo comando tiene que servir en PowerShell, Git Bash y CI.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`; abajo, `S`. Córrelos con `node "S/<script>"`, la ruta entre comillas, desde el directorio de la sesión, cada comando solo. Quien lee no conoce el arnés: no le nombres scripts, flags ni códigos de salida. Dile qué vas a escribir, en qué archivo y para qué, en frases cortas.
 
 ## Con --check
 
-1. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/adoption-check.js"`.
-2. Muestra la salida tal cual y después un resumen de una línea por FALTA, con lo que hay que hacer para cerrarla.
-3. MANUAL es configuración del host git que no se puede verificar desde aquí. NO ADOPTABLE es un repo sin manifiesto propio y no bloquea. Ninguna de las dos es una falta.
-4. No modifiques ningún archivo. Termina ahí.
+Corre `node "S/adoption-check.js"`. Di en una línea cuántas comprobaciones pasan y, por cada FALTA, qué hay que hacer para cerrarla. MANUAL (configuración del host git) y NO ADOPTABLE (un repo sin manifiesto propio, como uno PHP) no son faltas. No modifiques nada.
 
-## Sin argumentos: generar los manifiestos
+## Sin argumentos
 
-Hay dos niveles (docs/PLAN.md §5):
-- `<repo>/.claude/harness.json`: un manifiesto por repo con sus comandos. Es el que lee el CI de ese repo.
-- `<carpeta>/.claude/harness.json`: si la carpeta contiene repos anidados, una composición que los lista y agrega solo lo que existe entre repos (`integration`, `contract`).
+### 1. Mirar, sin escribir ni preguntar
 
-Pasos:
+- `node "S/init-draft.js"`: los manifiestos que faltan, con lo que detectó de cada repo (comandos, specs, lo prohibido, el contract y la rama de cada repo en la composición). De los que ya existen dice que no se tocan.
+- **Si dice que una rama remota trae el manifiesto que falta**, detente: di "<repo> está en <rama>, que no trae la configuración del arnés; <rama remota> sí la trae. Cámbiate a esa rama y vuelve a correr /arnes:init." No propongas nada desde cero.
+- Si algún manifiesto ya existe: `node "S/adopt.js" complete`, lo que le falta a cada uno.
+- `node "S/adopt.js" probe`, `hooks`, `permissions`, `claude-md`, `folder-settings` (solo en una carpeta multi-repo) y `baseline <ws>` por workspace: qué haría cada paso, sin hacerlo.
 
-1. Si ya existe algún `.claude/harness.json` en la carpeta o en sus repos, léelo antes de seguir. No lo pises sin que la persona lo pida: para completarlo, ve a "Completar un manifiesto existente" abajo.
-2. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js"`. Imprime los borradores en stdout, y en stderr lo no adoptable, lo pendiente y la rama de cada repo sin manifiesto. Si sale con 2, explica el motivo y detente. Si dice que una rama remota sí trae el manifiesto, detente: la persona está en la rama equivocada. Pídele `git fetch`, cambiarse a esa rama y volver a correr init; no propongas manifiestos desde cero.
-3. Muestra cada borrador con su ruta y pregunta, en un solo mensaje, por lo que el script no puede inferir:
-   - `riskPaths` de cada workspace: rutas cuyo cambio exige revisión humana (migraciones, auth, permisos, pagos).
-   - En la composición: `contract` de cada repo (globs que provee o consume) e `integration` (`branchPrefix`, `sameBranchAcrossWorkspaces`).
-   - Opcionales: `sharedPaths` (código compartido que obliga a correr la suite completa), `codeGlobs`, `commands.typecheckFast` y `memory`.
-   - Nombres de workspace más cortos si la persona los prefiere (por ejemplo `api`, `front`).
-   Propón valores solo si los ves en el código o en el `CLAUDE.md` del repo, y di de dónde salen. Nunca inventes comandos: si no hay lint o tests, el campo queda ausente.
-4. Con el visto bueno, corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js" --write`: escribe cada manifiesto que falta y no toca los que existen. `--force <ruta>` pisa uno existente, solo si la persona lo pidió para ese archivo. Aplica con Edit las correcciones que dictó.
-5. Valida cada archivo escrito con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" validate <archivo>`. Valida además el proyecto resuelto con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`. Si algo no valida, corrígelo antes de seguir.
-6. Recuerda dónde se versiona cada archivo:
-   - El manifiesto de un repo se commitea en ese repo, cuando su equipo lo adopte. Tú no commiteas.
-   - La composición va en el repo de carpeta: un repo chico propio de la carpeta que versiona la composición, su `CLAUDE.md`, `.claude/settings.json` y un `.gitignore` con los repos anidados, que `--write` ya escribió. Si la carpeta no es un repo, propón a la persona `git init` y que ella lo suba; con eso, otra persona la prepara con `/arnes:setup <url>`.
-   - El `.claude/settings.json` de la carpeta: `adopt.js folder-settings --marketplace <url del arnés sin credenciales>` lo muestra, fijado a la rama `probadores` (`--ref <tag>` para un tag); con el sí, `--write`.
-7. Sigue con lo determinista de la adopción, y después ofrece `/arnes:init --check` para ver qué falta del mínimo.
+### 2. Lo que se escribe sin preguntar
 
-## Completar un manifiesto existente
+- `node "S/init-draft.js" --gitignore`: agrega al `.gitignore` de la carpeta las carpetas de los repos, `.tmp/`, `.claude/settings.local.json` y `graphify-out/`. Dilo en una línea con lo que agregó.
+- No preguntes lo que puedes saber solo: los nombres de cada workspace (los del repo), la rama de cada repo en la composición (la calcula el script), la dirección y la rama del marketplace (salen del plugin instalado), ni el contract y la integración que el borrador ya propone.
 
-Si los manifiestos ya existen, no los regeneres. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/adopt.js" complete` y muestra su salida tal cual: una línea `falta` por campo que el borrador traería y el manifiesto no (`conventions`, entradas de `forbidden`, `contract` de la composición).
-1. Pregunta en un solo mensaje, campo por campo, cuáles agregar. Di de dónde sale cada uno: `conventions` son las cuatro del borrador, `forbidden` lo que toca una base o corre `--fix`, y `contract` los globs de su stack que tienen archivos.
-2. Con el sí, `adopt.js complete --only <campo> --write`, un `--only` por campo aceptado. Agrega solo eso y no toca lo que ya está.
-3. Valida con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`.
+### 3. Una sola ronda de preguntas
 
-## Después de los manifiestos: lo determinista
+Un solo mensaje, con un bloque numerado. Cada punto dice qué se escribe y dónde, con `Recomiendo:` y el porqué en una frase. Entra todo lo que el paso 1 encontró, también lo que falta a un manifiesto existente:
+- **La configuración de cada repo nuevo** (`<repo>/.claude/harness.json`): sus comandos, y las rutas que exigen revisión humana (`riskPaths`). Propón las que ves en el código, como migraciones, autenticación o permisos, y di de dónde salen.
+- **La composición de la carpeta**: los repos, la rama de cada uno, qué provee y qué consume cada uno, y la misma rama del issue en todos con `feature/`.
+- **Lo que le falta a una configuración existente**, un punto por campo: las convenciones (comentarios, `any`, `console.`, TODO), los comandos que tocan una base o reescriben archivos, que se le prohíben al modelo, y el contract.
+- **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace y **la línea base de tests** de cada repo con el árbol limpio.
+- **Un flag que le falta al comando de test** si probe lo dice.
 
-Corre cada paso con `node "${CLAUDE_PLUGIN_ROOT}/scripts/adopt.js" <paso>` y muestra su salida tal cual. Los que escriben (`--write`, `--remove`) solo con un sí de la persona, pedido en un mensaje que los liste todos. init no instala dependencias ni commitea.
-1. **Tests legibles:** `probe` corre el test del manifiesto sobre un spec. Si dice FALTA con un flag (`--verbose`, `--reporters=default`), propón agregarlo a `commands.test`.
-2. **Hooks del arnés anterior:** `hooks` los lista; con el sí, `hooks --remove`.
-3. **Permisos:** `permissions` muestra los que faltan; con el sí, `permissions --write` los agrega a `.claude/settings.local.json`, que no se commitea.
-4. **CLAUDE.md de la carpeta:** en una carpeta multi-repo, `claude-md` muestra el borrador; con el sí, `claude-md --write`, y la persona lo completa.
-5. **Línea base:** por workspace, `baseline <ws>` dice si el árbol está limpio; con el sí, `baseline <ws> --write` escribe `tests/baseline.json` y agrega a `tests/known-failures.txt`, con la fecha de hoy, los rojos que ya había. Commitearlos, con `gates:` en el asunto, es de la persona.
-6. Si un comando no corre porque falta una dependencia, dilo con el comando: instalarla es de la persona.
+Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.` Termina el turno ahí.
 
-Un repo con solo `composer.json` (PHP) o sin typecheck ni test detectables no lleva manifiesto propio. Entra en la composición como no adoptable todavía, y eso no es un error.
+### 4. Con la respuesta
 
-El verde del arnés significa que cumple convenciones y compila/testea, nunca que sea correcto en el negocio. Dilo así si la persona pregunta qué garantiza.
+Aplica lo aceptado, sin volver a preguntar:
+- `node "S/init-draft.js" --write` escribe los manifiestos que faltan y no toca los existentes. Pisar uno existente es `--force <ruta>`, solo si la persona lo pidió para ese archivo. Las correcciones que dictó, con Edit.
+- `node "S/adopt.js" complete --only <campo> --write` por cada campo aceptado; `hooks --remove`; `permissions --write`; `claude-md --write`; `folder-settings --write`; `baseline <ws> --write`.
+- Valida con `node "S/lib/manifest.js" show`. Si no valida, corrígelo antes de seguir.
+- Si un paso no corre porque falta una dependencia, dilo con el comando: instalarla es de la persona. init no instala ni commitea.
+
+### 5. El cierre
+
+Una línea con lo que quedó escrito y una lista corta de lo que le toca a la persona:
+- commitear la configuración de cada repo en ese repo, y la línea base con `gates:` al inicio del asunto;
+- si la carpeta no es un repo, `git init` y subirla: con eso otra persona la prepara con `/arnes:setup <url>`.
+
+Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Nunca sugieras invocar plan, build, verify ni review a mano.
+
+Un repo con solo `composer.json` (PHP), o sin typecheck ni test detectables, entra en la composición sin manifiesto propio, y eso no es un error.
