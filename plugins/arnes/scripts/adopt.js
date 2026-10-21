@@ -20,7 +20,8 @@
 //                           lo que le falta a un manifiesto existente, campo por campo, contra lo que
 //                           init-draft propondría: conventions de cada workspace si no tiene, las
 //                           entradas de forbidden que faltan (scripts con --fix o --write y lo que toca
-//                           una base) y, en la composición, el contract de cada repo que no lo declara,
+//                           una base), afterBuild si hay scripts de sync y, en la composición, el
+//                           contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
 //   folder-settings [--marketplace <url>] [--ref <tag o rama>] [--write]
@@ -50,7 +51,7 @@ const { validate } = require('./lib/manifest.js');
 const tb = require('./test-baseline.js');
 const { ownScript } = require('./adoption-check.js');
 
-const FIELDS = ['conventions', 'forbidden', 'contract'];
+const FIELDS = ['conventions', 'forbidden', 'afterBuild', 'contract'];
 const MARKETPLACE = 'agentic-harness';
 // La rama de nombre fijo donde se publica cada versión para los probadores: publicar es un push ahí.
 const PROBADORES = 'probadores';
@@ -237,6 +238,9 @@ function gaps(project) {
     const at = (data) => data.workspaces.find((w) => w.name === ws.name);
     if (!ws.conventions && want.conventions) {
       out.push({ file: ws.manifest, where: ws.name, field: 'conventions', value: want.conventions, apply: (data) => void (at(data).conventions = want.conventions) });
+    }
+    if (!ws.afterBuild && want.afterBuild) {
+      out.push({ file: ws.manifest, where: ws.name, field: 'afterBuild', value: want.afterBuild, apply: (data) => void (at(data).afterBuild = want.afterBuild) });
     }
     const miss = missingFromForbidden(want.forbidden || [], ws.forbidden || []);
     if (miss.length) out.push({ file: ws.manifest, where: ws.name, field: 'forbidden', value: miss, apply: (data) => void (at(data).forbidden = [...(at(data).forbidden || []), ...miss]) });

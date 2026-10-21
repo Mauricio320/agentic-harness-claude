@@ -37,6 +37,7 @@ Un solo mensaje, con un bloque numerado. Cada punto dice qué se escribe y dónd
 - **La configuración de cada repo nuevo** (`<repo>/.claude/harness.json`): sus comandos, y las rutas que exigen revisión humana (`riskPaths`). Propón las que ves en el código, como migraciones, autenticación o permisos, y di de dónde salen.
 - **La composición de la carpeta**: los repos, la rama de cada uno, qué provee y qué consume cada uno, y la misma rama del issue en todos con `feature/`.
 - **Lo que le falta a una configuración existente**, un punto por campo: las convenciones (comentarios, `any`, `console.`, TODO), los comandos que tocan una base o reescriben archivos, que se le prohíben al modelo, y el contract.
+- **La sincronización después del build** (`afterBuild`), si el repo tiene scripts de sync: el build y la sincronización corren solos al cerrar cada build, solo si el `.env` apunta a la base local. Muestra el patrón de base local y pide confirmarlo.
 - **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace y **la línea base de tests** de cada repo con el árbol limpio.
 - **Un flag que le falta al comando de test** si probe lo dice.
 

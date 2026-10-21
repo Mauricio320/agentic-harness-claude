@@ -150,7 +150,8 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · conventions: 4 convención\(es\): sin-comentarios, sin-any, sin-console, sin-todo$/m);
   assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · forbidden: \["prisma migrate dev",.*"prisma db execute"\]$/m);
-  assert.doesNotMatch(r.stdout, /npm run acl:sync/, 'lo que ya está no se propone');
+  assert.doesNotMatch(r.stdout, /forbidden: .*npm run acl:sync/, 'lo que ya está no se propone');
+  assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · afterBuild: \{"commands":\["npm run build","npm run acl:sync"\],"onlyIfLocalDb":\{"env":"DATABASE_URL",/m, 'con un script de sync, el bloque afterBuild');
   assert.match(r.stdout, /^falta  \.claude\/harness\.json · api · contract: \{"provides":\["src\/\*\*\/dto\/\*\*","src\/\*\*\/\*\.controller\.ts"\]\}$/m);
   assert.match(r.stdout, /^falta  \.claude\/harness\.json · front · contract: \{"consumes":\["src\/\*\*\/types\/\*\*"\]\}$/m);
   assert.doesNotMatch(r.stdout, /front · conventions/, 'un workspace con conventions propias no recibe las del borrador');

@@ -37,7 +37,7 @@ const { parseArgs } = require('util');
 const { spawnSync } = require('child_process');
 const { MANIFEST, validate, requireProject, posix } = require('./lib/manifest.js');
 const { git, sh, quote, firstLine, lines, help, die } = require('./lib/exec.js');
-const { touchesDatabase } = require('./lib/database.js');
+const { touchesDatabase, parseEnv, DB_URL } = require('./lib/database.js');
 const tb = require('./test-baseline.js');
 const adopt = require('./adopt.js');
 
@@ -46,7 +46,6 @@ const LOCKS = [
   { file: 'package-lock.json', cmd: 'npm ci', marker: '.package-lock.json' },
   { file: 'yarn.lock', cmd: 'yarn install --frozen-lockfile', marker: '.yarn-integrity' },
 ];
-const DB_URL = /^(postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|sqlserver|mssql):\/\//i;
 const DB_NAME = /(database|postgres|mysql|mariadb|mongo|redis|(^|_)db(_|$)|(^|_)pg(_|$))/i;
 const GRAPHIFY = 'https://github.com/Graphify-Labs/graphify';
 
@@ -247,20 +246,6 @@ function deps(dir, only, write) {
     if (installIn(target, forbidden, write, say)) pending++;
   }
   return pending ? 1 : 0;
-}
-
-// Las variables de un .env: [{ key, value }], sin comentarios ni export.
-function parseEnv(text) {
-  const out = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const m = raw.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.*)$/);
-    if (!m) continue;
-    let v = m[2].trim();
-    if (/^(['"]).*\1$/.test(v)) v = v.slice(1, -1);
-    else v = v.replace(/\s+#.*$/, '');
-    out.push({ key: m[1], value: v });
-  }
-  return out;
 }
 
 // A qué host apunta cada variable que parece una conexión a base: [{ key, host }]. Solo el host y el

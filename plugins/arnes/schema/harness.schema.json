@@ -67,7 +67,25 @@
         "sharedPaths": { "$ref": "#/$defs/globs" },
         "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
         "conventions": { "description": "Convenciones que se comprueban sin criterio (conventions.js), antes del lint y del reviewer.", "type": "array", "items": { "$ref": "#/$defs/convention" } },
-        "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" }
+        "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" },
+        "afterBuild": {
+          "description": "Comandos que la skill build corre al cerrar, desde la carpeta del workspace (por ejemplo, el build y la sincronización de permisos). Con onlyIfLocalDb, solo si el valor de env en el .env del workspace coincide con pattern; es la única forma en que el guard deja pasar un comando de forbidden.",
+          "type": "object",
+          "required": ["commands"],
+          "additionalProperties": false,
+          "properties": {
+            "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } },
+            "onlyIfLocalDb": {
+              "type": "object",
+              "required": ["env", "pattern"],
+              "additionalProperties": false,
+              "properties": {
+                "env": { "description": "Variable del .env del workspace con la conexión a la base, como DATABASE_URL.", "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+                "pattern": { "description": "Expresión regular que el valor tiene que cumplir para ser la base local, como @(localhost|127\\.0\\.0\\.1):3306/.", "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
       }
     },
     "commands": {

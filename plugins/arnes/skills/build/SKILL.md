@@ -29,4 +29,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - La cobertura: C1… → `archivo:línea`, y los criterios sin cubrir.
    - Los specs que faltan.
    - Si se tocaron `riskPaths`, escribe `REVISIÓN HUMANA OBLIGATORIA` con los archivos.
-6. Cuando el último dev entrega, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship. El verde del arnés, cuando llegue, significa que compila y testea, nunca que sea correcto en el negocio.
+6. **Después del build, solo en local:** por cada workspace construido, `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" after --ws <ws>`.
+   - Si lista comandos, la base del `.env` es la local: cámbiate a la carpeta del workspace con un `cd` aparte y corre cada comando listado, solo y tal como aparece. Dilo en una línea.
+   - Si sale con 1, no corras nada: va a "pendiente tuyo", con el host y el puerto que dijo.
+7. Cuando el último dev entrega, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship. El verde del arnés, cuando llegue, significa que compila y testea, nunca que sea correcto en el negocio.

@@ -1,7 +1,12 @@
 'use strict';
 // Comandos que tocan una base (docs/PLAN.md §8). Los corre la persona desde su terminal, sabiendo
 // contra qué base apunta el .env: un proxy en 127.0.0.1 puede ser QA. init-draft los propone en
-// forbidden, adoption-check comprueba que estén, y el guard los niega con su propio motivo.
+// forbidden, adoption-check comprueba que estén, y el guard los niega con su propio motivo. La única
+// excepción es afterBuild con onlyIfLocalDb: build los corre, y el guard los deja pasar, solo cuando
+// la base del .env del workspace es la local del patrón (localDb).
+
+const fs = require('fs');
+const path = require('path');
 
 // Un script del package.json toca una base si su nombre lo dice.
 const SCRIPT_NAME = /(sync|migrate|migrar|push|deploy|seed|reset)/i;
@@ -49,4 +54,70 @@ function missingFromForbidden(expected, forbidden = []) {
   });
 }
 
-module.exports = { SCRIPT_NAME, TOOLS, touchesDatabase, databaseForbidden, missingFromForbidden };
+// Las variables de un .env: [{ key, value }], sin comentarios ni export.
+function parseEnv(text) {
+  const out = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const m = raw.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    let v = m[2].trim();
+    if (/^(['"]).*\1$/.test(v)) v = v.slice(1, -1);
+    else v = v.replace(/\s+#.*$/, '');
+    out.push({ key: m[1], value: v });
+  }
+  return out;
+}
+
+const DB_URL = /^(postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|sqlserver|mssql):\/\//i;
+const DEFAULT_PORT = { mysql: 3306, mariadb: 3306, postgres: 5432, postgresql: 5432, sqlserver: 1433, mssql: 1433 };
+
+// El host y el puerto de una conexión, sin usuario, contraseña ni base; null si no se leen.
+function hostOf(value) {
+  try {
+    const u = new URL(value);
+    if (u.hostname) return u.port ? `${u.hostname}:${u.port}` : u.hostname;
+  } catch {
+    /* una contraseña con caracteres raros rompe URL: se lee a mano */
+  }
+  const m = String(value).match(/@([^/:@?]+)(?::(\d+))?(?:[/?]|$)/);
+  return m ? (m[2] ? `${m[1]}:${m[2]}` : m[1]) : null;
+}
+
+// La condición onlyIfLocalDb de afterBuild (docs/PLAN.md §8): el valor de `env` en el .env del
+// workspace coincide con `pattern`. Nunca devuelve el valor, solo el host y el puerto que vio.
+// → { ok, host?, why? }
+function localDb(ws) {
+  const cond = ws.afterBuild && ws.afterBuild.onlyIfLocalDb;
+  if (!cond) return { ok: false, why: 'afterBuild no declara onlyIfLocalDb' };
+  const file = path.join(ws.dir, '.env');
+  if (!fs.existsSync(file)) return { ok: false, why: `no hay .env en ${ws.dir}` };
+  const v = parseEnv(fs.readFileSync(file, 'utf8')).find((x) => x.key === cond.env);
+  if (!v || !v.value) return { ok: false, why: `${cond.env} no tiene valor en el .env` };
+  let re;
+  try {
+    re = new RegExp(cond.pattern);
+  } catch {
+    return { ok: false, why: `el pattern de onlyIfLocalDb no es una expresión válida` };
+  }
+  const host = hostOf(v.value);
+  if (re.test(v.value)) return { ok: true, host };
+  return { ok: false, host, why: `${cond.env} apunta a ${host || 'un host que no se lee'}, que no es la base local del patrón` };
+}
+
+// Lo que init-draft propone para un repo con scripts de sync (docs/PLAN.md §8): el build y los sync,
+// solo con la base del .env local. La variable sale de la primera conexión de .env.example (o
+// DATABASE_URL), y el puerto del patrón, de su url o del puerto por defecto de su motor.
+function afterBuildDraft(pkg, pm, example) {
+  const syncs = Object.keys((pkg && pkg.scripts) || {}).filter((k) => /sync/i.test(k));
+  if (!syncs.length) return null;
+  const vars = example ? parseEnv(example) : [];
+  const conn = vars.find((x) => DB_URL.test(x.value));
+  const scheme = conn ? conn.value.match(DB_URL)[1].toLowerCase() : null;
+  const port = (conn && (hostOf(conn.value) || '').split(':')[1]) || DEFAULT_PORT[scheme];
+  return {
+    commands: [...(pkg.scripts.build ? [`${pm} run build`] : []), ...syncs.map((k) => `${pm} run ${k}`)],
+    onlyIfLocalDb: { env: conn ? conn.key : 'DATABASE_URL', pattern: `@(localhost|127\\.0\\.0\\.1):${port || '\\d+'}/` },
+  };
+}
+
+module.exports = { SCRIPT_NAME, TOOLS, DB_URL, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };

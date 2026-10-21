@@ -12,8 +12,14 @@
 //          - el texto de las reglas de .claude/rules que aplican a los archivos previstos del plan
 //            (o a los de --files, y a sus specs), con la misma función que review.js input;
 //          - el plan, sin las líneas que nombran solo a otro workspace.
-// Exit: 0 escrita (con aviso en stderr si falta el contrato de un consumidor) · 2 uso inválido, sin
-//       manifiesto o workspace desconocido
+//   after --ws <ws>
+//          los comandos de afterBuild del workspace, que la skill build corre al cerrarlo, uno por
+//          uno desde su carpeta. Con onlyIfLocalDb, solo si el valor de esa variable en el .env del
+//          workspace cumple el patrón; si no, no lista nada y lo deja como pendiente de la persona, con
+//          el host y el puerto que vio
+// Exit: 0 escrita, o after con algo que correr o nada declarado (con aviso en stderr si falta el
+//       contrato de un consumidor) · 1 after con la base del .env que no es la local · 2 uso inválido,
+//       sin manifiesto o workspace desconocido
 
 'use strict';
 
@@ -23,6 +29,7 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { help, die } = require('./lib/exec.js');
 const { rulesBlock } = require('./review.js');
+const { localDb } = require('./lib/database.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,5}\b/g;
 
@@ -135,7 +142,29 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   return 0;
 }
 
-module.exports = { planFor, planned, specOf };
+// Lo que build corre al cerrar un workspace (docs/PLAN.md §8): los comandos de afterBuild, desde su
+// carpeta. Con onlyIfLocalDb, solo si la base del .env es la local del patrón; si no, nada corre y
+// queda como pendiente de la persona, con el host y el puerto que se vio, nunca el valor.
+function after(project, wsName) {
+  const [ws] = selectWorkspaces(project, [wsName]);
+  const ab = ws.afterBuild;
+  if (!ab) {
+    console.log(`${ws.name}: no declara afterBuild; nada que correr después del build`);
+    return 0;
+  }
+  if (ab.onlyIfLocalDb) {
+    const db = localDb(ws);
+    if (!db.ok) {
+      console.log(`${ws.name}: pendiente tuyo: ${db.why}. No corro ${ab.commands.map((c) => `\`${c}\``).join(', ')}; córrelos tú desde tu terminal si esa es la base que quieres.`);
+      return 1;
+    }
+    console.log(`${ws.name}: la base del .env es local (${db.host || ab.onlyIfLocalDb.env}); corre después del build, desde ${ws.dir}, uno por uno:`);
+  } else console.log(`${ws.name}: corre después del build, desde ${ws.dir}, uno por uno:`);
+  for (const c of ab.commands) console.log(`  ${c}`);
+  return 0;
+}
+
+module.exports = { planFor, planned, specOf, after };
 
 function main() {
   let args;
@@ -151,7 +180,12 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  if (mode !== 'input' || !o.ws || (o.para && !['dev', 'test-writer'].includes(o.para))) die('uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...]');
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws>';
+  if (mode === 'after') {
+    if (!o.ws || o.para || o.contrato || files.length) die(usage);
+    process.exit(after(requireProject(), o.ws));
+  }
+  if (mode !== 'input' || !o.ws || (o.para && !['dev', 'test-writer'].includes(o.para))) die(usage);
   if (o.para === 'test-writer' && !files.length) die('build: --para test-writer necesita --files con los archivos para spec');
   if (o.para !== 'test-writer' && files.length) die('build: --files solo va con --para test-writer');
   process.exit(input(requireProject(), o.ws, { para: o.para, contrato: o.contrato, files }));

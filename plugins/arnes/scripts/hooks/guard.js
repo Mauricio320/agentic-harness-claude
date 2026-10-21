@@ -15,7 +15,8 @@
 // El destino de una rama es el registrado en .tmp/harness/worktrees.json si es de un worktree
 // abierto del registro; si no, la rama por defecto del workspace.
 // Deniega solo con manifiesto:
-//   los comandos de `forbidden` del workspace (o de todos, si no se sabe cuál); los que tocan una
+//   los comandos de `forbidden` del workspace (o de todos, si no se sabe cuál), salvo uno de su
+//   afterBuild con la condición onlyIfLocalDb cumplida (lib/database.js localDb); los que tocan una
 //   base (lib/database.js) con su propio motivo: los corre la persona desde su terminal ·
 //   git commit sin bandera vigente (gate-flag.js) para ese workspace, o sin workspace claro ·
 //   git add masivo (., -A, --all, :/, *) con .env o *.log sin trackear en su alcance
@@ -35,7 +36,7 @@ const { checkFlag } = require('../gate-flag.js');
 const { targetOf, liveLinks } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
 const { secretPath } = require('./read-guard.js');
-const { touchesDatabase } = require('../lib/database.js');
+const { touchesDatabase, localDb } = require('../lib/database.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
@@ -215,6 +216,19 @@ function variants(cmd) {
   return out;
 }
 
+// Un comando de afterBuild del workspace, tal cual, con su condición de base local cumplida: lo único
+// de forbidden que pasa, porque build lo corre solo contra la base local del .env (docs/PLAN.md §8).
+function fromAfterBuild(cmd, ws) {
+  const ab = ws && ws.afterBuild;
+  if (!ab || !ab.onlyIfLocalDb) return false;
+  const toks = [cmd.exe, ...cmd.args];
+  const same = (c) => {
+    const want = tokenize(c);
+    return want.length === toks.length && want.every((w, i) => (i === 0 ? toks[i].toLowerCase() === w.toLowerCase() : toks[i] === w));
+  };
+  return (ab.commands || []).some(same) && localDb(ws).ok;
+}
+
 function judgeForbidden(cmd, dir) {
   const { project, ws } = workspaceAt(dir);
   if (!project) return null;
@@ -222,6 +236,7 @@ function judgeForbidden(cmd, dir) {
   for (const f of list) {
     const want = tokenize(f);
     if (variants(cmd).some((v) => want.every((w, i) => (i === 0 ? v[i] && v[i].toLowerCase() === w.toLowerCase() : v[i] === w)))) {
+      if (fromAfterBuild(cmd, ws)) return null;
       const where = `"${f}" está en forbidden de ${ws ? ws.name : project.name}`;
       if (touchesDatabase(f)) return `${where}: toca una base: lo corre la persona desde su terminal, sabiendo contra qué base apunta el .env.`;
       return `${where}: reescribe archivos en masa o es destructivo. Usa el comando equivalente sin efectos (por ejemplo, el lint del manifiesto sobre los archivos tocados).`;
