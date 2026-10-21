@@ -67,7 +67,8 @@ test('input deja al reviewer lo que no saca sin Bash: HEAD, tocados, borrados, r
     /tests\.md · paths \*\*\/\*\.spec\.ts · aplica a src\/b\.spec\.ts/,
     /dto\.md · paths src\/\*\*\/dto\/\*\* · no aplica a lo tocado/,
     /- src\/a\.ts · modificado/,
-    /- src\/b\.spec\.ts · nuevo sin trackear: léelo entero/,
+    /- src\/b\.spec\.ts · nuevo sin trackear: va entero en el diff/,
+    /diff --git a\/src\/b\.spec\.ts b\/src\/b\.spec\.ts\nnew file \(sin trackear\)\n--- \/dev\/null\n\+\+\+ b\/src\/b\.spec\.ts\n@@ -0,0 \+1,1 @@\n {4}1 \+nuevo/,
     /Borrados:\n- src\/viejo\.ts/,
     / {6}-const a = 1;\n {4}1 \+const a = 2;/,
     /Plan: no hay/,
@@ -254,4 +255,17 @@ test('ronda de corrección completa si tocó archivos fuera del diff anterior; s
   h.write(dir, 'src/d.ts', 'otro\n');
   assert.match(review(dir, ['input']).stdout, /ronda 1 de 3 · completa\n/);
   assert.equal(h.git(dir, 'status', '--porcelain', '--', 'src'), '?? src/d.ts', 'el árbol revisado no toca el índice');
+});
+
+test('input: un nuevo sin trackear que pasa del tope queda fuera con su nota, y uno que no es código se lee aparte', () => {
+  const dir = changed();
+  h.write(dir, 'src/grande.ts', Array.from({ length: 401 }, (_, i) => `const x${i} = ${i};`).join('\n') + '\n');
+  h.write(dir, 'notas.md', 'no es código\n');
+  assert.equal(review(dir, ['input']).status, 0);
+  const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.match(md, /- src\/grande\.ts · nuevo sin trackear: léelo entero, no sale en el diff/);
+  assert.match(md, /- notas\.md · nuevo sin trackear: léelo entero, no sale en el diff/);
+  assert.match(md, /Quedaron fuera del diff por pasar de 400 líneas o no poder leerse: src\/grande\.ts\. Léelos enteros\./);
+  assert.doesNotMatch(md, /const x400/);
+  assert.doesNotMatch(md, /\+no es código/);
 });

@@ -5,7 +5,9 @@
 //   input  por cada workspace adoptable con tocados respecto de HEAD: el HEAD de base, los tocados
 //          (los nuevos, para leerlos enteros) y los borrados, las riskPaths tocadas con REVISIÓN
 //          HUMANA OBLIGATORIA, el contrato, las reglas de .claude/rules del repo con sus paths: y si
-//          aplican a lo tocado, el CLAUDE.md y el diff contra HEAD (hasta 400 líneas por archivo).
+//          aplican a lo tocado, el CLAUDE.md y el diff contra HEAD (hasta 400 líneas por archivo), con
+//          los nuevos sin trackear que caen en codeGlobs enteros dentro del mismo bloque, numerados
+//          igual; uno que pasa de 400 líneas queda fuera y la nota lo nombra para que se lea entero.
 //          Del proyecto, el plan si existe .tmp/harness/plan.md. Guarda en input.json la huella de
 //          los tocados de cada workspace, la misma de gate-flag, y el árbol revisado: un árbol de
 //          git escrito con un índice temporal, que no toca el índice, las ramas ni el disco.
@@ -131,6 +133,31 @@ function cappedDiff(ws, refs = ['HEAD']) {
   };
 }
 
+// Los archivos nuevos sin trackear que caen en codeGlobs, enteros y con el formato del diff (un hunk
+// @@ -0,0 +1,N @@ numerado con la misma función), para que el reviewer no tenga que abrirlos. Uno
+// que pasa del tope de líneas del diff queda fuera, en `out`, para que lo lea entero.
+function untrackedDiff(ws, files) {
+  const blocks = [];
+  const out = [];
+  for (const f of files) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(ws.dir, f), 'utf8');
+    } catch {
+      out.push(f);
+      continue;
+    }
+    const ls = text.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+    if (ls.length > MAX_DIFF_LINES) {
+      out.push(f);
+      continue;
+    }
+    const head = [`diff --git a/${f} b/${f}`, 'new file (sin trackear)', '--- /dev/null', `+++ b/${f}`, `@@ -0,0 +1,${ls.length} @@`];
+    blocks.push(numbered([...head, ...ls.map((l) => `+${l}`)].join('\n')));
+  }
+  return { text: blocks.join('\n'), out };
+}
+
 function riskOf(ws, files) {
   return files.filter((f) => matchAny(ws.riskPaths, f));
 }
@@ -149,7 +176,10 @@ function section(project, ws, files, corr) {
   const contract = ws.contract ? [ws.contract.provides && `provee ${ws.contract.provides.join(', ')}`, ws.contract.consumes && `consume ${ws.contract.consumes.join(', ')}`].filter(Boolean).join(' · ') : '';
   const claude = [...new Set([ws.repo, ws.dir].map((d) => path.join(d, 'CLAUDE.md')))].filter((f) => fs.existsSync(f));
   const rl = rules(ws, files);
-  const tag = (f) => (untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado');
+  const extra = corr ? { text: '', out: [] } : untrackedDiff(ws, files.filter((f) => untracked.has(f) && matchAny(ws.codeGlobs, f)));
+  const inDiff = (f) => !corr && untracked.has(f) && matchAny(ws.codeGlobs, f) && !extra.out.includes(f);
+  const tag = (f) => (inDiff(f) ? 'nuevo sin trackear: va entero en el diff' : untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado');
+  const body = [diff.text, extra.text].filter(Boolean).join('\n');
   const out = [
     `## Workspace ${ws.name}`,
     `Carpeta: ${ws.dir}`,
@@ -165,8 +195,9 @@ function section(project, ws, files, corr) {
     ...(corr ? [`Cambió desde la ronda ${corr.from} (${corr.files.length}):`, ...corr.files.map((f) => `- ${f}`)] : []),
     corr ? `### Diff desde lo revisado en la ronda ${corr.from}` : '### Diff contra HEAD',
     '````diff',
-    diff.text || (corr ? '(nada cambió en este workspace desde esa ronda)' : '(sin diff de archivos trackeados)'),
+    body || (corr ? '(nada cambió en este workspace desde esa ronda)' : '(sin diff de archivos trackeados)'),
     '````',
+    ...(extra.out.length ? [`Quedaron fuera del diff por pasar de ${MAX_DIFF_LINES} líneas o no poder leerse: ${extra.out.join(', ')}. Léelos enteros.`] : []),
     '',
   ];
   return { text: out.join('\n'), risk, head };

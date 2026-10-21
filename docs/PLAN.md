@@ -340,6 +340,9 @@ Cambio antes del piloto (2026-10-20): las rondas acotadas de review (§6.3) van 
 
 Cambio de la segunda ronda antes del piloto (2026-10-20): una ronda acotada también puede venir después de una revisión sin bloqueantes, cuando se aplicaron sus sugerencias, y va igual en sonnet. El reviewer cita el número de línea del archivo que trae el diff numerado de `review.js`, no la posición dentro del diff (§6.3).
 
+Cambio de la ronda de menos turnos (2026-10-21, rama `feature/menos-turnos`): cada vuelta que un agente gasta en abrir un archivo que un script ya tenía es tiempo y costo sin determinismo extra. Lo que un script puede juntar, lo junta antes, y el agente lee su entrada. Las medidas de antes y después están en §10.
+- **Los nuevos sin trackear, en el diff.** `review.js input` mete en el bloque del diff el contenido completo de los archivos nuevos sin trackear que caen en `codeGlobs`, como un hunk `@@ -0,0 +1,N @@` numerado con la misma función que el diff, y bajo el mismo tope de 400 líneas por archivo. El que pasa del tope queda fuera, y una nota lo nombra para que el reviewer lo lea. La etiqueta `léelo entero, no sale en el diff` queda solo para esos y para los nuevos que no son código.
+
 ### 6.5 Mod `arnes-mod` (fase 5, dos piezas, nada más)
 1. `prompt.compose`: sección `arnes:protocol` (≤ 25 líneas) en el system prompt, `scope: session`.
 2. Al cerrar un turno con diff y sin revisión (`classic.Stop` + ledger): `$.agent.spawn({ subagentType: 'arnes:reviewer' })` y el resultado se adjunta al turno. El modelo no decide si se revisa.

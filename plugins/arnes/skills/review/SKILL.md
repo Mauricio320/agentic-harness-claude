@@ -12,7 +12,7 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
 ## Pasos
 
 1. Prepara la entrada: `node "S/review.js" input`.
-   - **Qué deja:** `.tmp/harness/review/input.md`, con lo que el reviewer no puede sacar sin Bash: el HEAD de base, los tocados (los nuevos para leerlos enteros), los borrados, las riskPaths tocadas, el contrato, las reglas del repo y el diff numerado con las líneas del archivo.
+   - **Qué deja:** `.tmp/harness/review/input.md`, con lo que el reviewer no puede sacar sin Bash: el HEAD de base, los tocados (los nuevos sin trackear de código, enteros en el diff), los borrados, las riskPaths tocadas, el contrato, las reglas del repo y el diff numerado con las líneas del archivo.
    - **Qué imprime:** una línea por workspace, la ronda y su modo (`ronda <n> de 3 · completa` o `· acotada`), la ruta del plan o "no hay", y la ruta de `input.md`.
    - **Si dice que no hay nada que revisar:** anota `node "S/lib/timeline.js" note review --result ok --detail "sin tocados"` y termina.
    - **Si sale con 1:** es el tope de rondas, o nada cambió desde la revisión anterior. Muestra el motivo, anota `note review --result fail --detail "<motivo>"` y termina.

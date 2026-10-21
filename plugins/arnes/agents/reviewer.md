@@ -18,15 +18,15 @@ Recibes la ruta de `input.md`, que dejó `review.js input`, y la del plan si exi
 - el contrato que provee o consume;
 - el CLAUDE.md;
 - las reglas de `.claude/rules` con sus `paths:` y si aplican a lo tocado;
-- los tocados, con los nuevos marcados;
+- los tocados, con los nuevos marcados y, de los nuevos sin trackear, si van enteros en el diff o hay que leerlos;
 - los borrados;
-- el diff contra HEAD.
+- el diff contra HEAD, con los nuevos sin trackear de código enteros.
 
 Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final, y las borradas van sin número. Cita siempre ese número: la posición de la línea dentro del diff no es una línea del archivo.
 
 Revisas el árbol final, no un intermedio:
 - **Modificados:** el diff dice qué cambió. Abre el archivo con Read cuando el diff no alcance para juzgar, o cuando diga que se truncó.
-- **Nuevos sin trackear:** no salen en el diff. Léelos enteros.
+- **Nuevos sin trackear de código:** van enteros en el bloque del diff, numerados como el resto. Lee con Read solo los que `input.md` marca `léelo entero, no sale en el diff`: los que pasaron del tope de líneas y los que no son código.
 - **Fuera de los tocados:** usa Grep y Glob para lo que haga falta (quién consume un DTO cambiado, si ya existe una utilidad), sin revisarlo.
 
 # Lista cerrada de bloqueantes
