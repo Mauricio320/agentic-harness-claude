@@ -482,6 +482,10 @@ Cambio de la tercera ronda antes del piloto (2026-10-20): **los comandos que toc
 - El guard niega esos comandos con su propio motivo: `toca una base: lo corre la persona desde su terminal, sabiendo contra qué base apunta el .env`.
 - `adoption-check` da FALTA en la comprobación 3 si alguno no está en `forbidden`.
 
+Cambio de la fase de setup (2026-10-21): **completar un manifiesto existente.** init proponía `conventions`, las entradas de `forbidden` que tocan una base y `contract` solo al escribir un manifiesto nuevo; a los dos de academico hubo que agregárselos a mano. Ahora `adopt.js complete` compara cada manifiesto existente con lo que propondría `init-draft` y muestra, campo por campo, lo que falta: `conventions` de un workspace que no las tiene, las entradas de `forbidden` que faltan (con la misma regla de cobertura que `adoption-check`) y, en la composición, el `contract` de un repo que no lo declara, con los globs de su stack que tienen archivos trackeados (`src/**/dto/**` y `src/**/*.controller.ts` para provides en NestJS, `src/**/types/**` y `src/**/api/**` para consumes en un front). La skill init pregunta por cada campo, y `complete --only <campo> --write` agrega solo eso, sin tocar lo que ya está y validando antes de escribir. Un workspace con `conventions` propias no recibe las del borrador.
+
+Del mismo cambio: `.gitlab-ci.yml` fija el CLI en 2.1.305, el mínimo de `arnes-mod`, y suma el job `plugin-test` con `claude plugin test` de `arnes-ui` y `arnes-mod`. Todavía no hay runners; el archivo queda listo para cuando los haya.
+
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
 ## 9. Versionado y compatibilidad

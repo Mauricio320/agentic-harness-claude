@@ -16,6 +16,13 @@
 //                           plugin en esta máquina
 //   claude-md [--write]     en una carpeta multi-repo sin CLAUDE.md, el borrador de composición: los
 //                           repos, sus comandos y su contrato, y el flujo; --write lo crea, nunca pisa
+//   complete [--only campo]... [--write]
+//                           lo que le falta a un manifiesto existente, campo por campo, contra lo que
+//                           init-draft propondría: conventions de cada workspace si no tiene, las
+//                           entradas de forbidden que faltan (scripts con --fix o --write y lo que toca
+//                           una base) y, en la composición, el contract de cada repo que no lo declara,
+//                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
+//                           sin tocar lo que ya está; --only limita a esos campos
 // Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuya salida de tests no se lee, una base
 //       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write ·
 //       2 uso inválido o sin manifiesto
@@ -27,11 +34,20 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
-const { git, help, die } = require('./lib/exec.js');
+const { git, lines, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
+const { detectRepo } = require('./init-draft.js');
+const { missingFromForbidden } = require('./lib/database.js');
+const { validate } = require('./lib/manifest.js');
 const tb = require('./test-baseline.js');
 const { ownScript } = require('./adoption-check.js');
 
+const FIELDS = ['conventions', 'forbidden', 'contract'];
+// Los globs de contrato que se proponen por stack, solo si alguno de sus archivos existe (§5.2).
+const CONTRACT = {
+  provides: { stacks: ['nestjs', 'nestjs-prisma'], globs: ['src/**/dto/**', 'src/**/*.controller.ts'] },
+  consumes: { stacks: ['nextjs', 'react', 'angular', 'vue'], globs: ['src/**/types/**', 'src/**/api/**'] },
+};
 const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'merge-base'].map((c) => `Bash(git ${c} *)`);
 const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
 
@@ -204,14 +220,73 @@ function claudeMd(project, write) {
   return 0;
 }
 
-module.exports = { recommended, compositionDraft };
+// El contract que se propone a un workspace: provides o consumes según su stack, con los globs que
+// tienen al menos un archivo trackeado. null si no hay evidencia.
+function contractFor(ws, stack) {
+  const files = lines(git(ws.dir, ['ls-files']).stdout);
+  for (const [side, c] of Object.entries(CONTRACT)) {
+    if (!c.stacks.includes(stack)) continue;
+    const globs = c.globs.filter((g) => files.some((f) => matchAny([g], f)));
+    return globs.length ? { [side]: globs } : null;
+  }
+  return null;
+}
+
+// → [{ file, where, field, value, apply(data) }]: lo que falta, sin lo que el manifiesto ya trae.
+function gaps(project) {
+  const out = [];
+  for (const ws of project.workspaces.filter((w) => w.adoptable && w.path === '.')) {
+    const d = detectRepo(ws.repo);
+    if (!d.adoptable) continue;
+    const want = d.manifest.workspaces[0];
+    const at = (data) => data.workspaces.find((w) => w.name === ws.name);
+    if (!ws.conventions && want.conventions) {
+      out.push({ file: ws.manifest, where: ws.name, field: 'conventions', value: want.conventions, apply: (data) => void (at(data).conventions = want.conventions) });
+    }
+    const miss = missingFromForbidden(want.forbidden || [], ws.forbidden || []);
+    if (miss.length) out.push({ file: ws.manifest, where: ws.name, field: 'forbidden', value: miss, apply: (data) => void (at(data).forbidden = [...(at(data).forbidden || []), ...miss]) });
+  }
+  if (project.kind !== 'folder') return out;
+  const comp = readJson(project.file);
+  for (const entry of comp.repos) {
+    const repoDir = path.resolve(project.root, entry.path);
+    const wss = project.workspaces.filter((w) => w.adoptable && path.relative(w.repo, repoDir) === '');
+    if (entry.contract || !wss.length || wss.some((w) => w.contract)) continue;
+    const ws = wss[0];
+    const c = contractFor(ws, ws.stack || (detectRepo(ws.repo).manifest || { workspaces: [{}] }).workspaces[0].stack);
+    if (c) out.push({ file: project.file, where: entry.path, field: 'contract', value: c, apply: (data) => void (data.repos.find((r) => r.path === entry.path).contract = c) });
+  }
+  return out;
+}
+
+const shown = (g) => (g.field === 'conventions' ? `${g.value.length} convención(es): ${g.value.map((c) => c.id).join(', ')}` : JSON.stringify(g.value));
+
+function complete(project, only, write) {
+  const list = gaps(project).filter((g) => !only || only.includes(g.field));
+  if (!list.length) {
+    console.log(`los manifiestos ya traen ${only ? only.join(', ') : FIELDS.join(', ')}: nada que completar`);
+    return 0;
+  }
+  for (const g of list) console.log(`${write ? 'agregado' : 'falta'}  ${posix(path.relative(project.root, g.file))} · ${g.where} · ${g.field}: ${shown(g)}`);
+  if (!write) return 1;
+  for (const file of [...new Set(list.map((g) => g.file))]) {
+    const data = readJson(file);
+    for (const g of list.filter((x) => x.file === file)) g.apply(data);
+    const errs = validate(data);
+    if (errs.length) die(`adopt: ${file} no valida después de completarlo; no se escribió:\n  ${errs.join('\n  ')}`, 1);
+    writeJson(file, data);
+  }
+  return 0;
+}
+
+module.exports = { recommended, compositionDraft, gaps };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string', multiple: true }, write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`adopt: ${e.message}`);
@@ -219,11 +294,12 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
-  const run = { probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write), 'claude-md': () => claudeMd(project, o.write) };
+  const run = { probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write), 'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write) };
   process.exit(run[mode]());
 }
 

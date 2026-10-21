@@ -123,3 +123,48 @@ test('usos inválidos → 2', () => {
   }
   assert.equal(adopt(h.tmp('sin'), ['probe']).status, 2, 'sin manifiesto');
 });
+
+test('complete: muestra campo por campo lo que le falta a un manifiesto existente y agrega solo eso', () => {
+  const root = h.tmp('adopt-complete');
+  const pkg = (deps, scripts = {}) => JSON.stringify({ scripts, devDependencies: { typescript: '5', jest: '30', ...deps } });
+  const api = path.join(root, 'api');
+  h.repo(api, {
+    'package.json': pkg({ '@nestjs/core': '11', prisma: '6' }, { 'acl:sync': 'node sync.js', build: 'nest build' }),
+    'tsconfig.json': '{}',
+    'src/talleres/dto/crear.dto.ts': 'x\n',
+    'src/talleres/talleres.controller.ts': 'x\n',
+    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', riskPaths: ['src/auth/**'], forbidden: ['npm run acl:sync'] })),
+  });
+  const front = path.join(root, 'front');
+  h.repo(front, {
+    'package.json': pkg({ next: '16', react: '19' }),
+    'tsconfig.json': '{}',
+    'src/types/taller.ts': 'x\n',
+    '.claude/harness.json': h.repoManifest('front', h.workspace({ name: 'front', conventions: [{ id: 'propia', pattern: 'x', message: 'm' }] })),
+  });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }, { path: 'front' }], integration: { branchPrefix: 'feature/' } }));
+
+  let r = adopt(root, ['complete']);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · conventions: 4 convención\(es\): sin-comentarios, sin-any, sin-console, sin-todo$/m);
+  assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · forbidden: \["prisma migrate dev",.*"prisma db execute"\]$/m);
+  assert.doesNotMatch(r.stdout, /npm run acl:sync/, 'lo que ya está no se propone');
+  assert.match(r.stdout, /^falta  \.claude\/harness\.json · api · contract: \{"provides":\["src\/\*\*\/dto\/\*\*","src\/\*\*\/\*\.controller\.ts"\]\}$/m);
+  assert.match(r.stdout, /^falta  \.claude\/harness\.json · front · contract: \{"consumes":\["src\/\*\*\/types\/\*\*"\]\}$/m);
+  assert.doesNotMatch(r.stdout, /front · conventions/, 'un workspace con conventions propias no recibe las del borrador');
+
+  r = adopt(root, ['complete', '--only', 'forbidden', '--write']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const ws = JSON.parse(fs.readFileSync(path.join(api, '.claude/harness.json'), 'utf8')).workspaces[0];
+  assert.deepEqual(ws.forbidden.slice(0, 2), ['npm run acl:sync', 'prisma migrate dev']);
+  assert.deepEqual(ws.riskPaths, ['src/auth/**']);
+  assert.equal(ws.conventions, undefined, '--only limita a ese campo');
+
+  r = adopt(root, ['complete', '--write']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const comp = JSON.parse(fs.readFileSync(path.join(root, '.claude/harness.json'), 'utf8'));
+  assert.deepEqual(comp.repos[1], { path: 'front', contract: { consumes: ['src/**/types/**'] } });
+  assert.deepEqual(comp.integration, { branchPrefix: 'feature/' });
+  assert.match(adopt(root, ['complete']).stdout, /nada que completar/);
+  assert.equal(adopt(root, ['complete', '--only', 'otro']).status, 2);
+});

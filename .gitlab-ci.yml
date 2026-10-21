@@ -1,7 +1,7 @@
 # Valida el marketplace y los tres plugins contra la versión fijada del CLI.
 # Al subir CLAUDE_CODE_VERSION, actualizar también la matriz del README.
 variables:
-  CLAUDE_CODE_VERSION: "2.1.303"
+  CLAUDE_CODE_VERSION: "2.1.305"
 
 stages:
   - validate
@@ -24,3 +24,14 @@ test:
   image: node:24
   script:
     - node --test "plugins/arnes/tests/*.test.js"
+
+# Tests de los mods con el motor de prueba del CLI fijado.
+plugin-test:
+  stage: validate
+  image: node:24
+  before_script:
+    - npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    - claude --version
+  script:
+    - claude plugin test plugins/arnes-ui
+    - claude plugin test plugins/arnes-mod

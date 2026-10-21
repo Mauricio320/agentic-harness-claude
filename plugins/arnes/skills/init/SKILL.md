@@ -26,7 +26,7 @@ Hay dos niveles (docs/PLAN.md §5):
 
 Pasos:
 
-1. Si ya existe algún `.claude/harness.json` en la carpeta o en sus repos, léelo antes de seguir. No lo pises sin que la persona lo pida.
+1. Si ya existe algún `.claude/harness.json` en la carpeta o en sus repos, léelo antes de seguir. No lo pises sin que la persona lo pida: para completarlo, ve a "Completar un manifiesto existente" abajo.
 2. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/init-draft.js"`. Imprime los borradores en stdout, y en stderr lo no adoptable, lo pendiente y la rama de cada repo sin manifiesto. Si sale con 2, explica el motivo y detente. Si dice que una rama remota sí trae el manifiesto, detente: la persona está en la rama equivocada. Pídele `git fetch`, cambiarse a esa rama y volver a correr init; no propongas manifiestos desde cero.
 3. Muestra cada borrador con su ruta y pregunta, en un solo mensaje, por lo que el script no puede inferir:
    - `riskPaths` de cada workspace: rutas cuyo cambio exige revisión humana (migraciones, auth, permisos, pagos).
@@ -40,6 +40,13 @@ Pasos:
    - El manifiesto de un repo se commitea en ese repo, cuando su equipo lo adopte. Tú no commiteas.
    - La composición va en el repo-workspace de la carpeta. Si la carpeta no es un repo, o si su repo es otro (como el del arnés en academico), va a su `.gitignore`.
 7. Sigue con lo determinista de la adopción, y después ofrece `/arnes:init --check` para ver qué falta del mínimo.
+
+## Completar un manifiesto existente
+
+Si los manifiestos ya existen, no los regeneres. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/adopt.js" complete` y muestra su salida tal cual: una línea `falta` por campo que el borrador traería y el manifiesto no (`conventions`, entradas de `forbidden`, `contract` de la composición).
+1. Pregunta en un solo mensaje, campo por campo, cuáles agregar. Di de dónde sale cada uno: `conventions` son las cuatro del borrador, `forbidden` lo que toca una base o corre `--fix`, y `contract` los globs de su stack que tienen archivos.
+2. Con el sí, `adopt.js complete --only <campo> --write`, un `--only` por campo aceptado. Agrega solo eso y no toca lo que ya está.
+3. Valida con `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/manifest.js" show`.
 
 ## Después de los manifiestos: lo determinista
 
