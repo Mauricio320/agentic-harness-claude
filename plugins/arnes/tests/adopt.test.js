@@ -188,3 +188,13 @@ test('folder-settings: el settings.json del repo de carpeta fija el marketplace 
   assert.equal(r.status, 0);
   assert.match(r.stdout, /ya está fijado a .*v0\.6\.0.*; no lo cambio/);
 });
+
+test('folder-settings sin --ref fija el marketplace a la rama probadores', () => {
+  const root = h.tmp('adopt-probadores');
+  h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
+  const r = adopt(root, ['folder-settings', '--marketplace', 'https://gitlab.com/g/agentic-harness.git', '--write']);
+  assert.equal(r.status, 0, r.stderr);
+  const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'probadores' });
+});

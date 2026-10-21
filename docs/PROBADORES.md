@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.6.1, desde la rama `feature/worktrees`. Probada con Claude Code 2.1.306 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.6.2, desde la rama `probadores`: cada versión se publica con un push sobre esa rama, que tiene nombre fijo. Probada con Claude Code 2.1.306 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -11,13 +11,13 @@ Hay dos caminos:
 Claude Code clona con `git` sin preguntar credenciales: la de GitLab tiene que estar guardada antes (Git Credential Manager). Después, en cualquier terminal:
 
 ```
-claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#feature/worktrees"
+claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#probadores"
 claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.6.1`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.6.2`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -40,7 +40,7 @@ Va paso por paso, diciendo cada uno, y te pregunta antes de lo que cambia algo t
 
 `/arnes:setup --check <url>` solo te dice qué haría, sin tocar nada. Nunca corre un comando de `forbidden` ni escribe credenciales.
 
-Para recibir una versión nueva de la rama: `claude plugin marketplace update agentic-harness` y después `claude plugin update arnes@agentic-harness` (y lo mismo con `arnes-ui`). Solo llega si subió `version` en `plugin.json`. Para quitarlo todo: `claude plugin marketplace remove agentic-harness`.
+Para recibir una versión nueva no reinstalas nada: cada versión se publica con un push sobre `probadores`, y tú corres `claude plugin marketplace update agentic-harness` y después `claude plugin update arnes@agentic-harness`, `claude plugin update arnes-ui@agentic-harness` y `claude plugin update arnes-mod@agentic-harness`. Solo llega si subió `version` en `plugin.json`. Un repo de carpeta que escribió `/arnes:init` ya apunta a `probadores`. Para quitarlo todo: `claude plugin marketplace remove agentic-harness`.
 
 Trabaja en la terminal y con opus como modelo de la sesión principal (`/model opus`): con él, las skills del arnés se cargan solas con más fiabilidad, y el plan, que es obligatorio, sale sin que lo pidas. Los devs y los test-writers van en sonnet igual, porque así los define el arnés. El mod `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop. En los dos sirve la terminal integrada.
 
@@ -107,7 +107,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **Los carga el modelo cuando corresponde, y también puedes invocarlos:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`.
 - **Del mod:** `/arnes-panel` abre o cierra el panel.
 
-## 7. Limitaciones conocidas de 0.6.1
+## 7. Limitaciones conocidas de 0.6.2
 
 - **REVISIÓN HUMANA OBLIGATORIA.** Si el cambio toca `riskPaths`, el arnés lo marca en el plan, en el reporte del reviewer, en ship y en el cuerpo del MR. No aprueba por nadie: esa aprobación la da una persona en GitLab.
 - **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.** El reviewer tampoco lo certifica: busca lo que está en su lista cerrada.
@@ -130,7 +130,7 @@ Abre un issue en https://gitlab.com/preupdv/apps/agentic-harness/-/issues con:
 - **Qué pasó:** qué pediste, qué esperabas y el texto exacto que viste, más la salida de `claude --version` y de `claude plugin list`.
 - **La timeline:** la salida de `/arnes:timeline`, o el archivo `.tmp/harness/timeline.jsonl`.
 - **El lock de sesión:** los archivos de `.tmp/harness/sessions/`.
-- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/0.6.1/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
+- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/0.6.2/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
 - **Si el problema es de plan o de review:** `.tmp/harness/plan.md` y la carpeta `.tmp/harness/review/`.
 
 `.tmp/harness/` está en la raíz del proyecto: el repo, o la carpeta en un proyecto multi-repo. Revisa lo que adjuntas: la timeline y el plan llevan texto del issue. Nunca adjuntes `.env` ni credenciales.
