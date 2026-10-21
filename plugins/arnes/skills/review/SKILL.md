@@ -40,7 +40,7 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
 
 Con bloqueantes, se corrigen (los de specs con test-writer, los de código con dev), se corre verify entero, porque la bandera exige el contenido actual, y se vuelve a esta skill. Lo mismo si se aplican las sugerencias de una revisión sin bloqueantes. `review.js input` decide la ronda:
 - **Ronda 1, completa:** el árbol entero, con el reviewer en opus.
-- **Rondas 2 y 3, acotadas:** solo el diff desde lo revisado en la ronda anterior, con su reporte como entrada, y el reviewer en sonnet. Si el cambio tocó archivos fuera de lo ya revisado, la ronda es completa y va en opus.
+- **Rondas 2 y 3, acotadas:** todo el diff desde lo revisado en la ronda anterior, con los archivos nuevos (como los specs que escribió test-writer), su reporte como entrada, y el reviewer en sonnet. Si el cambio toca riskPaths, o su diff es más grande que el que se revisó, la ronda es completa y va en opus.
 - **Tope: dos rondas de corrección.** Si mark dice `tope`, no corrijas más: reporta a la persona los bloqueantes que siguen y espera su decisión. `review.js input --completa` vuelve a la ronda 1; córrelo solo si la persona lo pide.
 
 ## Al terminar

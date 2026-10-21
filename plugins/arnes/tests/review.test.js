@@ -208,7 +208,7 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
   assert.match(review(dir, ['input', '--completa']).stdout, /ronda 1 de 3 · completa\n/);
 });
 
-test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda acotada; salir de lo revisado vuelve a la 1', () => {
+test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda acotada; un cambio más grande que lo revisado vuelve a la 1', () => {
   const dir = changed();
   review(dir, ['input']);
   report(dir, 0, '- sugerencia [línea 1] · usa una constante\n');
@@ -227,12 +227,12 @@ test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda a
   report(dir, 0);
   review(dir, ['mark', '--blockers', '0']);
 
-  h.write(dir, 'src/nuevo.ts', 'otra cosa\n');
+  h.write(dir, 'src/nuevo.ts', Array.from({ length: 30 }, (_, i) => `const n${i} = ${i};`).join('\n') + '\n');
   r = review(dir, ['input']);
-  assert.match(r.stdout, /ronda 1 de 3 · completa: el cambio tocó archivos fuera de lo revisado en la ronda 2: src\/nuevo\.ts/);
+  assert.match(r.stdout, /ronda 1 de 3 · completa: el cambio desde la ronda 2 cambió 30 línea\(s\), más que las \d+ del diff que se revisó/);
 });
 
-test('ronda de corrección completa si tocó archivos fuera del diff anterior; sin cambios se niega; con otro HEAD vuelve a la 1', () => {
+test('la ronda de corrección acotada cubre los archivos nuevos; escala a completa solo por riskPaths o por tamaño; con otro HEAD vuelve a la 1', () => {
   const dir = changed();
   review(dir, ['input']);
   report(dir, 1);
@@ -241,14 +241,24 @@ test('ronda de corrección completa si tocó archivos fuera del diff anterior; s
   assert.equal(r.status, 1);
   assert.match(r.stderr, /nada cambió desde la ronda 1, que terminó con 1 bloqueante/);
 
-  h.write(dir, 'src/c.ts', 'nuevo\n');
+  h.write(dir, 'src/c.spec.ts', 'el spec que escribió test-writer\n');
   r = review(dir, ['input']);
-  assert.match(r.stdout, /ronda 2 de 3 · completa: la corrección tocó archivos fuera del diff anterior: src\/c\.ts/);
-  const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
-  assert.match(md, /Ronda 2 de 3, completa porque la corrección tocó archivos fuera del diff anterior/);
-  assert.match(md, /### Diff contra HEAD/);
+  assert.match(r.stdout, /ronda 2 de 3 · acotada: el diff de la corrección contra los 1 bloqueante\(s\) de la ronda 1/, 'un archivo nuevo fuera de lo revisado ya no la vuelve completa');
+  let md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.match(md, /- src\/c\.spec\.ts · cambió desde la ronda 1: va en el diff/);
+  assert.match(md, /- src\/a\.ts · sin cambios desde la ronda 1/);
+  assert.match(md, /### Diff desde lo revisado en la ronda 1\n````diff\ndiff --git a\/src\/c\.spec\.ts b\/src\/c\.spec\.ts\nnew file mode[\s\S]*\+el spec que escribió test-writer/, 'el nuevo va entero en el diff de la corrección');
   report(dir, 1);
   review(dir, ['mark', '--blockers', '1']);
+
+  fs.appendFileSync(path.join(dir, 'prisma/migrations/001/migration.sql'), 'ALTER TABLE y;\n');
+  r = review(dir, ['input']);
+  assert.match(r.stdout, /ronda 3 de 3 · completa: el cambio desde la ronda 2 tocó riskPaths: prisma\/migrations\/001\/migration\.sql/);
+  md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.match(md, /Ronda 3 de 3, completa porque el cambio desde la ronda 2 tocó riskPaths/);
+  assert.match(md, /### Diff contra HEAD/);
+  report(dir, 0);
+  review(dir, ['mark', '--blockers', '0']);
 
   h.write(dir, '.gitignore', '.tmp/\n');
   h.commitAll(dir);

@@ -13,11 +13,12 @@
 //          los tocados de cada workspace, la misma de gate-flag, y el árbol revisado: un árbol de
 //          git escrito con un índice temporal, que no toca el índice, las ramas ni el disco.
 //          Rondas (docs/PLAN.md §6.3): la 1 es completa. Si el HEAD no cambió desde la revisión
-//          anterior, la que sigue va acotada: el diff desde el árbol revisado y el reporte anterior,
-//          en vez del diff contra HEAD. Vale tras una ronda con bloqueantes (la corrección) y tras una
-//          sin bloqueantes (las sugerencias aplicadas). Si el cambio tocó archivos fuera de los
-//          tocados de la ronda anterior, es completa: la ronda siguiente tras bloqueantes, o la 1
-//          tras una limpia. Tope: tras la ronda 3 con bloqueantes se niega. --completa revisa todo y
+//          anterior, la que sigue va acotada: todo el diff desde el árbol revisado, archivos nuevos
+//          incluidos, y el reporte anterior, en vez del diff contra HEAD. Vale tras una ronda con
+//          bloqueantes (la corrección) y tras una sin bloqueantes (las sugerencias aplicadas). Si el
+//          cambio toca riskPaths, o su diff es más grande que el diff que se revisó, es completa: la
+//          ronda siguiente tras bloqueantes, o la 1 tras una limpia. Tope: tras la ronda 3 con
+//          bloqueantes se niega. --completa revisa todo y
 //          vuelve a la ronda 1. Los diffs llevan el número de línea del archivo (numbered).
 //   mark   escribe .tmp/harness/review.json con los bloqueantes, la ronda y la huella de input.json;
 //          se niega si el árbol cambió desde input, porque lo revisado ya no es lo que hay. Exige el
@@ -210,7 +211,10 @@ function section(project, ws, files, corr) {
   const rl = rulesBlock(ws, files);
   const extra = corr ? { text: '', out: [] } : untrackedDiff(ws, files.filter((f) => untracked.has(f) && matchAny(ws.codeGlobs, f)));
   const inDiff = (f) => !corr && untracked.has(f) && matchAny(ws.codeGlobs, f) && !extra.out.includes(f);
-  const tag = (f) => (inDiff(f) ? 'nuevo sin trackear: va entero en el diff' : untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado');
+  const tag = (f) =>
+    corr
+      ? corr.files.includes(f) ? `cambió desde la ronda ${corr.from}: va en el diff` : `sin cambios desde la ronda ${corr.from}`
+      : inDiff(f) ? 'nuevo sin trackear: va entero en el diff' : untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado';
   const body = [diff.text, extra.text].filter(Boolean).join('\n');
   const out = [
     `## Workspace ${ws.name}`,
@@ -283,12 +287,25 @@ function roundOf(project, now, full) {
       ? `nada cambió desde la ronda ${prev.round}, que terminó sin bloqueantes: esa revisión sigue valiendo (review.js input --completa revisa de nuevo).`
       : `nada cambió desde la ronda ${prev.round}, que terminó con ${prev.blockers} bloqueante(s): corrige antes de revisar.` };
   }
-  const outside = names.flatMap((n) => changed[n].filter((f) => !before(n).files.includes(f)).map((f) => (names.length > 1 ? `${n}/${f}` : f)));
-  const list = `${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}`;
-  if (outside.length && clean) return { ...first, reason: `el cambio tocó archivos fuera de lo revisado en la ronda ${prev.round}: ${list}` };
-  if (outside.length) return { round, mode: 'completa', reason: `la corrección tocó archivos fuera del diff anterior: ${list}` };
+  // La acotada revisa todo el diff desde la marca anterior, archivos nuevos incluidos (los specs que
+  // escribe test-writer para corregir). Escala a completa solo si el cambio toca riskPaths o si su
+  // diff es más grande que el diff que se revisó.
+  const escalate = (reason) => (clean ? { ...first, reason } : { round, mode: 'completa', reason });
+  const label = (n, f) => (names.length > 1 ? `${n}/${f}` : f);
+  const risky = names.flatMap((n) => riskOf(now[n].ws, changed[n]).map((f) => label(n, f)));
+  if (risky.length) return escalate(`el cambio desde la ronda ${prev.round} tocó riskPaths: ${risky.slice(0, 5).join(', ')}${risky.length > 5 ? ', …' : ''}`);
+  const size = (n, a, b) => sizeOf(now[n].ws, a, b);
+  const corr = names.reduce((t, n) => t + size(n, before(n).tree, now[n].tree), 0);
+  const orig = names.reduce((t, n) => t + size(n, before(n).head, before(n).tree), 0);
+  if (corr > orig) return escalate(`el cambio desde la ronda ${prev.round} cambió ${corr} línea(s), más que las ${orig} del diff que se revisó`);
   if (!fs.existsSync(roundReport(project, prev.round))) return { round, mode: 'completa', reason: `falta el reporte de la ronda ${prev.round}` };
   return { round, mode: 'acotada', from: prev.round, blockers: prev.blockers, changed };
+}
+
+// Las líneas agregadas y borradas entre dos árboles (o un commit y un árbol), del workspace.
+function sizeOf(ws, a, b) {
+  const r = git(ws.dir, ['diff', '--numstat', '--relative', a, b, '--']);
+  return lines(r.stdout).reduce((t, l) => t + l.split('\t').slice(0, 2).reduce((s, x) => s + (Number(x) || 0), 0), 0);
 }
 
 // El input entero bajo MAX_INPUT_CHARS: se corta en un fin de línea y la nota dice qué secciones
