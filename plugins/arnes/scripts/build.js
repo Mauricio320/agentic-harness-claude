@@ -20,6 +20,10 @@
 //          uno desde su carpeta. Con onlyIfLocalDb, solo si el valor de esa variable en el .env del
 //          workspace cumple el patrón; si no, no lista nada y lo deja como pendiente de la persona, con
 //          el host y el puerto que vio
+//   deps --ws <ws> [--write]
+//          en un worktree con node_modules enlazado al del principal, quita el enlace sin seguirlo e
+//          instala las dependencias adentro, para un issue que regenera algo en node_modules
+//          (regeneratesNodeModules); input lo avisa cuando el plan toca esas rutas
 // Exit: 0 escrita, o after con algo que correr o nada declarado (con aviso en stderr si falta el
 //       contrato de un consumidor) · 1 after con la base del .env que no es la local · 2 uso inválido,
 //       sin manifiesto o workspace desconocido
@@ -33,8 +37,10 @@ const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/m
 const { help, die } = require('./lib/exec.js');
 const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
 const { localDb } = require('./lib/database.js');
+const { isLink, unlink } = require('./lib/links.js');
+const { matchAny } = require('./lib/glob.js');
 
-const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,5}\b/g;
+const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const mentions = (line, name) => new RegExp(`(^|[^\\w-])${escape(name)}([^\\w-]|$)`).test(line);
@@ -169,6 +175,8 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   const file = path.join(dir, `${ws.name}${tests ? '-test-writer' : ''}-input.md`);
   fs.writeFileSync(file, out.join('\n'));
   if (consumes && !contract) process.stderr.write(`aviso: ${ws.name} consume un contrato y no hay ${posix(contractFile)}\n`);
+  const regen = regenerates(ws, targets);
+  if (regen.length) console.log(`aviso: ${ws.name} tiene las dependencias enlazadas del checkout principal, y el plan toca ${regen.join(', ')}, que las regenera: regenerarlas aquí pisaría las del principal. Propón instalarlas adentro antes de construir (build.js deps --ws ${ws.name} --write)`);
   console.log(`${ws.name}: ${targets.length} archivo(s), ${rl.lines.filter((l) => l.startsWith('#### ')).length} regla(s) que aplican${rl.omitted.length ? `, ${rl.omitted.length} omitida(s) por el tope` : ''}`);
   console.log(`entrada: ${file}`);
   return 0;
@@ -196,14 +204,40 @@ function after(project, wsName) {
   return 0;
 }
 
-module.exports = { planFor, planned, specOf, after };
+// Los archivos previstos que regeneran algo dentro de node_modules (regeneratesNodeModules), cuando
+// el node_modules del workspace es un enlace: en un worktree, regenerarlo pisaría el del principal.
+function regenerates(ws, files) {
+  if (!(ws.regeneratesNodeModules || []).length || !isLink(path.join(ws.dir, 'node_modules'))) return [];
+  return files.filter((f) => matchAny(ws.regeneratesNodeModules, f));
+}
+
+// Dependencias propias en un worktree con node_modules enlazado: quita el enlace sin seguirlo y corre
+// la instalación del paso deps de setup.js adentro. Sin --write, dice lo que haría.
+function deps(project, wsName, write) {
+  const [ws] = selectWorkspaces(project, [wsName]);
+  const nm = path.join(ws.dir, 'node_modules');
+  const say = (m) => console.log(`${ws.name}: ${m}`);
+  if (!write) {
+    say(isLink(nm) ? 'quitaría el enlace de node_modules al checkout principal e instalaría las dependencias aquí (--write)' : 'node_modules no es un enlace; instalaría las dependencias aquí si faltan (--write)');
+    return 0;
+  }
+  const why = unlink(nm);
+  if (why) {
+    say(why);
+    return 1;
+  }
+  const { installIn } = require('./setup.js');
+  return installIn(ws.dir, ws.forbidden || [], true, say) ? 1 : 0;
+}
+
+module.exports = { planFor, planned, specOf, after, regenerates };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`build: ${e.message}`);
@@ -212,7 +246,11 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws>';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write]';
+  if (mode === 'deps') {
+    if (!o.ws || o.para || o.contrato || files.length) die(usage);
+    process.exit(deps(requireProject(), o.ws, o.write));
+  }
   if (mode === 'after') {
     if (!o.ws || o.para || o.contrato || files.length) die(usage);
     process.exit(after(requireProject(), o.ws));

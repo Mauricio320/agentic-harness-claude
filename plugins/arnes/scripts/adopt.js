@@ -24,6 +24,10 @@
 //                           contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
+//   worktreeinclude [--write]
+//                           el .worktreeinclude de cada repo con .env o .env.local: Claude Code copia
+//                           esos archivos ignorados a cada worktree nativo que crea (claude --worktree,
+//                           el escritorio). --write agrega las líneas que falten; se commitea en el repo
 //   folder-settings [--marketplace <url>] [--ref <tag o rama>] [--write]
 //                           el .claude/settings.json del repo de carpeta: extraKnownMarketplaces con el
 //                           marketplace del arnés fijado a ese tag o rama y enabledPlugins con los tres
@@ -278,6 +282,42 @@ function complete(project, only, write) {
   return 0;
 }
 
+// Las líneas de .worktreeinclude que le faltan a cada repo: .env y .env.local de cada workspace que
+// tiene alguno de los dos, relativos a la raíz del repo. → [{ file, add: [líneas] }]
+function worktreeIncludes(project) {
+  const byRepo = new Map();
+  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+    const prefix = posix(path.relative(ws.repo, ws.dir));
+    const want = ['.env', '.env.local'].filter(() => ['.env', '.env.local'].some((f) => fs.existsSync(path.join(ws.dir, f)))).map((f) => (prefix ? `${prefix}/${f}` : f));
+    byRepo.set(ws.repo, [...(byRepo.get(ws.repo) || []), ...want]);
+  }
+  const out = [];
+  for (const [repo, want] of byRepo) {
+    if (!want.length) continue;
+    const file = path.join(repo, '.worktreeinclude');
+    const have = new Set(fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split(/\r?\n/).map((l) => l.trim()) : []);
+    const add = [...new Set(want)].filter((l) => !have.has(l));
+    if (add.length) out.push({ file, add });
+  }
+  return out;
+}
+
+function worktreeInclude(project, write) {
+  const list = worktreeIncludes(project);
+  if (!list.length) {
+    console.log('cada repo con .env ya tiene su .worktreeinclude (o no hay .env que copiar)');
+    return 0;
+  }
+  for (const { file, add } of list) {
+    console.log(`${write ? 'agregado' : 'falta'}  ${file}: ${add.join(' ')}`);
+    if (!write) continue;
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}${add.join('\n')}\n`);
+  }
+  if (write) console.log('commitea cada .worktreeinclude en su repo: es lo que Claude Code lee al crear un worktree');
+  return write ? 0 : 1;
+}
+
 // El marketplace con que está instalado este plugin, de known_marketplaces.json en la configuración de
 // Claude Code: subiendo desde la carpeta del plugin (<config>/plugins/cache/agentic-harness/…), o en
 // CLAUDE_CONFIG_DIR, o en ~/.claude. → { url, ref, file } sin credenciales en la url, o null.
@@ -333,7 +373,7 @@ function folderSettings(project, marketplace, ref, write) {
   return 0;
 }
 
-module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd };
+module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes };
 
 function main() {
   let args;
@@ -351,15 +391,15 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'folder-settings'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode)) || (o.remove && mode !== 'hooks') || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
   const run = {
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
-    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
+    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   process.exit(run[mode]());
 }

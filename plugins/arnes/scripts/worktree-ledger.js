@@ -38,7 +38,7 @@ const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
 const { DB_VAR } = require('./lib/database.js');
-const { nativeWorktree } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeWorktrees } = require('./lib/worktree-nativo.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -294,6 +294,14 @@ function pickOffset(entries, slug) {
 // se toca nada. Anota { offset, map } en cada registro del set. → la línea del mapa
 function movePorts(project, set, slug, offset) {
   const files = set.flatMap((e) => inWorktree(project, e).flatMap(({ ws, dir }) => (e.copies || []).filter((c) => norm(path.dirname(c)) === norm(dir)).map((file) => ({ ws: ws.name, file }))));
+  const map = shiftPorts(files, offset);
+  for (const e of set) e.ports = { offset, map: offset ? map : [] };
+  if (!offset) return `set ${slug}: --port-offset 0, los puertos quedan como en el principal`;
+  return portsText(slug, set[0].ports);
+}
+
+// Desplaza los puertos de las copias de .env, [{ ws, file }], como dice movePorts. → el mapa
+function shiftPorts(files, offset) {
   const own = new Map();
   for (const f of files) {
     for (const l of fs.readFileSync(f.file, 'utf8').split(/\r?\n/)) {
@@ -302,8 +310,7 @@ function movePorts(project, set, slug, offset) {
     }
   }
   const map = [...own].flatMap(([ws, ports]) => ports.map((from) => ({ ws, from, to: from + offset })));
-  for (const e of set) e.ports = { offset, map: offset ? map : [] };
-  if (!offset) return `set ${slug}: --port-offset 0, los puertos quedan como en el principal`;
+  if (!offset) return map;
   for (const f of files) {
     const others = new Set([...own].filter(([ws]) => ws !== f.ws).flatMap(([, p]) => p));
     const text = fs.readFileSync(f.file, 'utf8');
@@ -317,7 +324,75 @@ function movePorts(project, set, slug, offset) {
       .join('');
     if (next !== text) fs.writeFileSync(f.file, next);
   }
-  return portsText(slug, set[0].ports);
+  return map;
+}
+
+// ---------- worktrees nativos de Claude Code (§7) ----------
+
+const NATIVE_PORTS = 'puertos.json';
+
+// Los desplazamientos que ya usan los sets abiertos del registro del principal y los otros worktrees
+// nativos del repo, para que la app de cada uno corra al lado de las demás.
+function usedOffsets(w) {
+  const used = new Set();
+  const main = loadProject(w.main);
+  if (main && !main.errors.length) for (const e of readLedger(main)) if (e.status === 'abierto' && e.ports) used.add(e.ports.offset);
+  for (const o of nativeWorktrees(w.main)) {
+    if (norm(o.path) === norm(w.path)) continue;
+    try {
+      used.add(JSON.parse(fs.readFileSync(path.join(o.path, '.tmp', 'harness', NATIVE_PORTS), 'utf8')).offset);
+    } catch {
+      /* sin puertos propios */
+    }
+  }
+  return used;
+}
+
+// Lo que SessionStart hace en un worktree nativo de un workspace adoptable: enlaza el node_modules
+// del checkout principal donde falta, con el mismo helper que open, y desplaza una sola vez los
+// puertos de los .env que copió .worktreeinclude, con un desplazamiento que no use otro set ni otro
+// worktree nativo; lo anota en <worktree>/.tmp/harness/puertos.json y después solo repite el mapa.
+// Sin .env no toca puertos. → { lines, links } con lo que pasó, en palabras, y lo enlazado
+function equipNative(dir) {
+  const w = nativeWorktree(dir);
+  if (!w) return { lines: [], links: [] };
+  const project = loadProject(w.path);
+  if (!project || project.errors.length) return { lines: [], links: [] };
+  const wss = project.workspaces.filter((ws) => ws.adoptable && (norm(ws.dir) === norm(w.path) || norm(ws.dir).startsWith(norm(w.path) + path.sep)));
+  const lines = [];
+  const links = [];
+  for (const ws of wss) {
+    const dst = path.join(ws.dir, 'node_modules');
+    const src = path.join(w.main, path.relative(w.path, ws.dir), 'node_modules');
+    if (present(dst)) continue;
+    if (!fs.existsSync(src)) {
+      lines.push(`${ws.name}: ni este worktree ni el checkout principal tienen las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
+      continue;
+    }
+    if (link(src, dst) === 'copy') lines.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);
+    else {
+      links.push(posix(dst));
+      lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
+    }
+    if (fs.existsSync(path.join(src, '.prisma', 'client'))) lines.push(`${ws.name}: Prisma carga el .env del checkout principal desde las dependencias enlazadas; la app de este worktree se arranca con node --env-file=.env <entrada>`);
+  }
+  const state = path.join(harnessDir(project), NATIVE_PORTS);
+  let ports = null;
+  try {
+    ports = JSON.parse(fs.readFileSync(state, 'utf8'));
+  } catch {
+    const files = wss.flatMap((ws) => envFiles(ws.dir).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
+    if (files.length) {
+      const used = usedOffsets(w);
+      let offset = 10;
+      while (used.has(offset)) offset += 10;
+      ports = { offset, map: shiftPorts(files, offset), at: new Date().toISOString() };
+      fs.mkdirSync(path.dirname(state), { recursive: true });
+      fs.writeFileSync(state, JSON.stringify(ports, null, 2) + '\n');
+    }
+  }
+  if (ports && ports.map.length) lines.push(`puertos de este worktree: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}; la app se arranca desde aquí con ellos`);
+  return { lines, links };
 }
 
 const portsText = (slug, ports) =>
@@ -461,6 +536,7 @@ module.exports = {
   readLedger,
   writeLedger,
   projectFor,
+  equipNative,
   pendingEntries,
   targetOf,
   liveLinks,

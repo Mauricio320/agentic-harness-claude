@@ -230,6 +230,7 @@ function detectRepo(dir) {
     specPattern: specPatterns(dir),
     conventions: CONVENTIONS,
     forbidden: forbidden.length ? forbidden : undefined,
+    regeneratesNodeModules: deps.prisma || deps['@prisma/client'] ? ['prisma/schema.prisma'] : undefined,
     afterBuild: afterBuildDraft(pkg, pm, has('.env.example') ? fs.readFileSync(path.join(dir, '.env.example'), 'utf8') : '') || undefined,
   };
   for (const k of Object.keys(ws)) if (ws[k] === undefined) delete ws[k];

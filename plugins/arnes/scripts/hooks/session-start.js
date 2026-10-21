@@ -5,6 +5,9 @@
 // composición, uno por repo), los worktrees sin integrar del registro (con aviso a los de más de 7
 // días sin commits nuevos), las últimas cinco decisiones de docs/decisions de los repos si existen,
 // y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada.
+// En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
+// (worktree-ledger.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
+// los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa.
 // Sesión concurrente: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
 // pid (CLAUDE_PID, el proceso de Claude Code) y fecha, y lo borra en SessionEnd. Un lock cuyo pid ya
 // no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha.
@@ -186,7 +189,8 @@ function sessionStart(input, now = new Date()) {
     return [`arnes: el manifiesto no valida, así que el arnés no verifica nada hasta corregirlo:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), 'Corrígelo, o regenéralo con /arnes:init.'].join('\n');
   }
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
-  const head = [`arnes · ${project.name} · ${kind} · raíz ${project.root}`, ...concurrentLines(lockSession(project, input, cwd, now))];
+  const native = ledger.equipNative(cwd).lines;
+  const head = [`arnes · ${project.name} · ${kind} · raíz ${project.root}`, ...native.map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
   const tailLines = [...worktreeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;

@@ -292,6 +292,12 @@ function main() {
     else say('ok', `${ws.name}: ${rel} con ${Object.keys(b.data.specs).length} spec(s) y ${b.data.skipped.length} salto(s) declarado(s)`);
   }
 
+  console.log('\nInformativo (no bloquea)');
+  const { worktreeIncludes } = require('./adopt.js');
+  const wi = worktreeIncludes(project);
+  if (wi.length) for (const { file, add } of wi) say('INFO', `${file}: le falta ${add.join(' ')}; sin eso, un worktree nativo nace sin .env (adopt.js worktreeinclude)`);
+  else say('INFO', 'los .env de cada repo llegan a los worktrees nativos (.worktreeinclude)');
+
   finish();
 }
 
