@@ -619,6 +619,32 @@ Medidas del ciclo dos:
 
 Convenciones corridas después sobre los commits: cero hallazgos en 19 archivos del back y uno en el front, un `as unknown as` en un test.
 
+Ronda de worktrees (2026-10-21, rama `feature/worktrees`, versión 0.6.1): los worktrees del ledger nacen usables, con `node_modules` enlazado, `.env` copiados y puertos por set, y se desenlazan antes de borrar (§7).
+
+Ronda de menos turnos (2026-10-21, rama `feature/menos-turnos`, versión 0.6.2): menos vueltas por agente, sin perder determinismo (§6.4, §6.5, §9). La medición fue con el mismo issue de talleres de la fase 3, sobre dos clones de api-academico en `.tmp`, desde `fix/adopcion-arnes`: ya trae el manifiesto y la línea base, y no el CRUD. Cada corrida usó `claude -p` con los tres plugins por `--plugin-dir` y opus en la sesión principal: antes, un worktree del arnés en `feature/worktrees` (0.6.1); después, uno en la 0.6.2. Fueron dos turnos, el pedido y la aprobación, y no hizo falta el "sigue". Los turnos y el tiempo de cada agente salen de sus transcripts. Un turno es una respuesta del modelo, y las herramientas son las llamadas que hizo.
+
+| Agente | Antes (0.6.1) | Después (0.6.2) |
+|---|---|---|
+| dev | 15 turnos · 33 herramientas (0 Read) · 7m58s | 18 turnos · 47 herramientas (15 Read) · 7m25s |
+| test-writer | 8 turnos · 11 herramientas · 2m00s | 11 turnos · 28 herramientas (14 Read) · 2m33s |
+| reviewer, ronda 1 | 11 turnos · 25 herramientas (17 Read, 7 Grep) · 1m36s, 2 bloqueantes | 9 turnos · 13 herramientas (3 Read, 9 Grep, 1 Write) · 1m46s, 0 bloqueantes |
+| test-writer, corrección | 8 turnos · 23 herramientas · 6m55s | no hubo |
+| reviewer, ronda 2 | 10 turnos · 25 herramientas (18 Read) · 1m24s, completa, 0 bloqueantes | no hubo |
+
+| Etapa | Antes | Después |
+|---|---|---|
+| plan | 1m21s · $0.40 | 2m38s · $0.43 |
+| build | 8m43s · $0.83 | 7m40s · $0.64 |
+| verify | 3m16s + 35s · $0.59 | 6m30s · $0.61 |
+| review | 2m25s + 1m52s · $1.47 | 2m11s · $0.95 |
+| sesión (los dos turnos) | 27m39s · $5.00 | 21m10s · $3.90 |
+
+Lectura:
+- **El reviewer** es donde se ve el cambio, porque es lo único medido en igualdad de condiciones. Bajó de 17 y 18 Read por ronda a 3, y de 25 herramientas a 13: los nuevos sin trackear y las reglas ya venían en su input. Escribió su propio reporte con un Write, y el guard no negó nada.
+- **El dev y el test-writer** no bajaron. Hicieron más vueltas, casi todas Read de módulos vecinos, que su prompt les sigue pidiendo. El dev de antes no leyó ningún archivo porque el orquestador le pegó en el prompt extractos del código. Con una corrida por lado, eso es variación del orquestador y del modelo, no del arnés.
+- **La sesión** fue seis minutos y $1.10 más barata. Casi toda la diferencia es que después no hubo bloqueantes, y con eso no hubo corrección ni ronda 2: no hay que leerlo como efecto de esta ronda.
+- **Lo que falta medir:** varias corridas por lado, para separar la variación del modelo, y una corrida con una ronda de corrección en la 0.6.2.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
