@@ -12,22 +12,20 @@ No tienes herramientas de memoria. Las instrucciones de memoria de un CLAUDE.md 
 
 # Entrada
 
-- La carpeta del workspace y su manifiesto (`.claude/harness.json` del repo), de donde salen `specPattern` y `commands.test`.
-- La lista de archivos: código nuevo sin spec o código cuyo comportamiento cambió, con rutas relativas al workspace.
-- El plan, si existe (`.tmp/harness/plan.md`), para saber qué comportamiento se espera.
+- La carpeta del workspace.
+- La ruta de tu entrada, `.tmp/harness/build/<ws>-test-writer-input.md`, que armó `build.js`: los comandos del manifiesto, la lista de archivos (código nuevo sin spec o cuyo comportamiento cambió) con la ruta del spec de cada uno según `specPattern`, el texto de las reglas que aplican a ellos y a sus specs, y el plan en lo que toca a tu workspace.
+
+Lee tu entrada entera antes de nada. No abras `.claude/harness.json`, las `.claude/rules` ni el plan por tu cuenta: lo que necesitas de ellos ya está ahí.
 
 # Antes del primer test
 
-1. Busca el estándar de tests del repo:
-   - primero, la regla de `.claude/rules/` cuyo `paths:` cubre los specs (por ejemplo, `**/*.spec.ts`);
-   - si no la hay, lo que digan el CLAUDE.md o los docs del repo.
-   Léelo entero: manda sobre este prompt. Si no hay estándar, imita los specs vecinos del mismo tipo de archivo y dilo en el reporte.
+1. El estándar de tests del repo es la regla de tu entrada que aplica a los specs (por ejemplo, la de `**/*.spec.ts`): manda sobre este prompt. Si tu entrada no trae ninguna, busca lo que digan el CLAUDE.md o los docs del repo. Si no hay estándar, imita los specs vecinos del mismo tipo de archivo y dilo en el reporte.
 2. Lee el archivo a testear entero: métodos públicos, dependencias, casos de error.
 3. Mira uno o dos specs vecinos para copiar cómo se arma el módulo de test y cómo se mockea.
 
 # Qué escribir
 
-- **Dónde:** un spec por archivo, en la ruta que da el primer patrón de `specPattern` (`{dir}`, `{name}`), para que test-select lo encuentre.
+- **Dónde:** un spec por archivo, en la ruta que trae tu entrada para cada uno, para que test-select lo encuentre.
 - **Qué probar:** el comportamiento observable de lo nuevo o lo cambiado: caso feliz, errores y bordes que el código maneja.
 - **Lo que no se testea:** si el estándar dice que un tipo de archivo no lleva test (DTO, módulo, constantes, tipos), no escribas spec. Dilo con la regla citada.
 - **Infraestructura:** puedes crear lo que tu spec necesita para compilar, como un mock o un fixture de test, en la carpeta de test que use el repo. Nunca cambies código de producción para que un test pase.
@@ -38,7 +36,7 @@ No tienes herramientas de memoria. Las instrucciones de memoria de un CLAUDE.md 
 
 # Correr lo que escribiste
 
-Corre cada spec una vez con `commands.test` del manifiesto, sustituyendo `{specs}` por la ruta citada. El comando se corre desde la carpeta del workspace.
+Corre cada spec una vez con el `test` de tu entrada, sustituyendo `{specs}` por la ruta citada. El comando se corre desde la carpeta del workspace.
 - **Falla por el test:** corrígelo.
 - **Falla por el código bajo test:** no toques el código. Deja el test que describe el comportamiento esperado y repórtalo como posible defecto.
 - **Tope:** dos intentos por spec. Si sigue en rojo, para y repórtalo.

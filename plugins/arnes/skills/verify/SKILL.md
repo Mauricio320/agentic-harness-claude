@@ -18,7 +18,8 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 3. Por cada workspace adoptable de la lista, en el orden en que salieron:
 
    a. **Código nuevo sin spec:** corre `node "S/test-select.js" --ws <ws> --missing`.
-      - Si lista archivos, lanza una sola vez el agente `arnes:test-writer`. Pásale la carpeta del workspace, la lista tal cual y la ruta de `.tmp/harness/plan.md` si existe. No le pidas nada más.
+      - Si lista archivos, arma su entrada: `node "S/build.js" input --ws <ws> --para test-writer --files <archivo>...`, con la lista tal cual. Deja `.tmp/harness/build/<ws>-test-writer-input.md` con los comandos, la ruta del spec de cada archivo, el texto de las reglas que aplican a ellos y a sus specs, y el plan en lo que toca a ese workspace.
+      - Lanza una sola vez el agente `arnes:test-writer`. Pásale la carpeta del workspace y la ruta de esa entrada. No le pidas nada más.
       - Al volver, corre `--missing` otra vez. Lo que siga en la lista va al reporte con la razón que dio test-writer. No bloquea.
 
    b. **El gate:** corre `node "S/ci-gate.js" --ws <ws> --base HEAD`. Es lo mismo que corre el CI, sobre los cambios sin commitear:

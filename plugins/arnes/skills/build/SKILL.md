@@ -14,12 +14,9 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 2. Arma la lista de workspaces de `## Workspaces y orden`. El orden es back y después front: primero el que provee el contrato (`contract.provides`, o el que expone la API), después el que lo consume. Si dos workspaces no dependen uno del otro y tocan archivos disjuntos, pueden ir en paralelo en el mismo árbol.
 3. Por cada workspace, en ese orden:
    - Anota el inicio: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start build --ws <ws>`.
-   - Lanza un agente `arnes:dev`, uno por workspace, nunca uno para dos. Su prompt lleva, en este orden:
-     - El nombre del workspace y su carpeta absoluta.
-     - Si su manifiesto declara `conventions`, el comando de convenciones para correr antes de entregar: `node "${CLAUDE_PLUGIN_ROOT}/scripts/conventions.js" --ws <ws> <sus archivos>`, desde la carpeta de la sesión.
-     - El plan entero, pegado tal cual.
-     - Los criterios que le tocan a ese workspace.
-     - Si consume un contrato, la sección `## Contrato resultante` que devolvió el dev del back, copiada textual entre las líneas `--- contrato del back ---` y `--- fin del contrato ---`. No la resumas ni la reescribas: el front se escribe contra ese texto.
+   - Si consume un contrato, guarda con Write la sección `## Contrato resultante` que devolvió el dev del back, textual, en `.tmp/harness/build/contrato.md`. No la resumas ni la reescribas: el front se escribe contra ese texto.
+   - Arma su entrada: `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" input --ws <ws>`. Deja `.tmp/harness/build/<ws>-input.md` con los comandos, las riskPaths, los forbidden, el comando de convenciones, el contrato si consume uno, el texto de las reglas que aplican a los archivos previstos y el plan en lo que toca a ese workspace.
+   - Lanza un agente `arnes:dev`, uno por workspace, nunca uno para dos. Su prompt lleva solo el nombre del workspace, su carpeta absoluta, la ruta de su entrada y los criterios que le tocan. No le pegues el plan entero.
    - Cuando vuelve, comprueba que el reporte trae sus seis secciones y que cada criterio asignado aparece en `## Cobertura de criterios`, con `archivo:línea` o con `sin cubrir` y el motivo.
    - Abre dos o tres de las líneas citadas para comprobar que dicen lo que el dev afirma. Si un criterio falta, o una desviación contradice una decisión del plan, relanza el dev con la corrección concreta, una vez. Si sigue igual, repórtalo; no lo arregles tú en silencio.
    - Anota el fin: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end build --ws <ws> --result ok`, o `--result parcial` si quedó algo sin cubrir.
