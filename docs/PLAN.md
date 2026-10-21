@@ -204,7 +204,7 @@ Desde la tercera ronda antes del piloto, el workspace admite `conventions`: las 
 
 Campos opcionales que los hooks consumen: `codeGlobs` (qué cuenta como "cambio de código" para el gate del `Stop`; por defecto `**/*.{ts,tsx,js,jsx,php,sql}` y nunca `*.md`), `sharedPaths` (rutas cuyo cambio obliga a suite completa), `commands.typecheckFast` (variante incremental para el hook de después de editar; si no existe, ese hook solo lintea el archivo y el typecheck completo corre en `verify`).
 
-`arnes:init` (con `scripts/init-draft.js`) genera los dos niveles. Primero, el manifiesto de cada repo detectado, a partir de `package.json`, los tsconfigs, la configuración de eslint y los formatos de spec que aparecen en `git ls-files`. Un repo que solo tiene `composer.json` se declara sin manifiesto propio. Después, si la carpeta no es un repo y contiene repos anidados, la composición. Todo se valida contra `schema/harness.schema.json`, y el humano completa lo que no se infiere (`riskPaths`, `contract`, `sharedPaths`, `integration`, `memory`). `arnes:init --check` corre `adoption-check.js`. En academico la carpeta es a la vez el repo del arnés, así que su composición queda en `.gitignore`.
+`arnes:init` (con `scripts/init-draft.js`) genera los dos niveles. Primero, el manifiesto de cada repo detectado, a partir de `package.json`, los tsconfigs, la configuración de eslint y los formatos de spec que aparecen en `git ls-files`. Un repo que solo tiene `composer.json` se declara sin manifiesto propio. Después, si la carpeta no es un repo y contiene repos anidados, la composición. Todo se valida contra `schema/harness.schema.json`, y el humano completa lo que no se infiere (`riskPaths`, `contract`, `sharedPaths`, `integration`, `memory`). `arnes:init --check` corre `adoption-check.js`. En academico la carpeta es a la vez el repo del arnés, así que su composición queda en `.gitignore`. Cambio de la fase de setup (2026-10-21): la composición se versiona en el repo de carpeta, un repo chico propio de la carpeta, con `remote` y `branch` por repo para que `/arnes:setup` clone cada uno (§8).
 
 ## 6. Componentes
 
@@ -563,6 +563,27 @@ Medidas de las dos corridas del mismo issue:
 | sesión antes del ship | 38m · $8.65 | sin medir |
 
 En la 0.5.2, el aviso de un agente en segundo plano contaba como una respuesta de la persona (§6.2). Las 13 respuestas, y con ellas los 27 minutos de espera, pueden incluir algunos de esos avisos.
+
+Fase de setup (2026-10-21, rama `feature/setup`, versión 0.6.0), por el ciclo dos del issue de talleres. Corrió con la 0.5.3 desde la raíz de academico y salió como debía: la pregunta suelta pasó sin plan; el pedido cargó `arnes:plan` como primera acción; build encadenó a verify y verify a review; la ronda 2 fue acotada en sonnet y tardó 13 segundos; y el dev entregó sin comentarios y con los nombres correctos, porque la regla del front ya carga sola. Fueron veintisiete minutos de etapas contra treinta y dos del ciclo uno, y unos treinta y cinco de reloj contra setenta y dos. Quedaron cuatro detalles, y empezó la fase que deja un proyecto listo desde cero, porque todos los tropiezos del compañero fueron de preparación y no del flujo. Cada cambio está en su sección:
+- `ship.js committed` compara solo lo que entró al commit (§6.1);
+- el panel muestra la corrida que cerró en otra sesión como "última corrida" (§6.5b);
+- el Stop no bloquea con un build abierto o un agente del arnés corriendo (§6.2);
+- init completa un manifiesto existente campo por campo, y el CI fija 2.1.305 y corre `claude plugin test` de los mods (§8);
+- el repo de carpeta, `remote` y `branch` en la composición y `/arnes:setup` (§5 y §8).
+
+Medidas del ciclo dos:
+
+| Etapa | Ciclo dos (0.5.3) |
+|---|---|
+| plan | 2m |
+| build | 13m |
+| verify | 6m |
+| review | 4m, con un bloqueante de lógica en la ronda 1 y cero en la 2 |
+| ship | 2m, en dos intentos por la falsa FALLA de `ship.js committed` |
+| total en etapas | 27m, contra 32m del ciclo uno |
+| reloj | unos 35m, contra 72m del ciclo uno |
+
+Convenciones corridas después sobre los commits: cero hallazgos en 19 archivos del back y uno en el front, un `as unknown as` en un test.
 
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 

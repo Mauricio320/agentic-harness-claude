@@ -2,10 +2,10 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.5.3, sin etiquetar, en la rama `feature/pre-piloto-3`: tres rondas de correcciones antes del piloto (fase 4), por la prueba manual, por la primera corrida real y por la de un compañero de front en su Mac. Para probarla, `docs/PROBADORES.md`. Ya existen:
+Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.0, sin etiquetar, en la rama `feature/setup`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta. Para probarla, `docs/PROBADORES.md`. Ya existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
-- las diez skills: `/arnes:init`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
+- las once skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
 - los cuatro agentes: `dev`, `reviewer`, `test-writer` y `test-runner`;
 - los worktrees por issue con su registro, la línea base de tests commiteada y el aviso de sesión concurrente;
 - el mod `arnes-ui`;
@@ -34,7 +34,7 @@ claude plugin install arnes-mod@agentic-harness
 
 El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop, y en los dos sirve la terminal integrada. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:preupdv/apps/agentic-harness.git#vX.Y.Z` con la clave cargada en el agente.
 
-Para fijar la versión en un repo de proyecto, en `.claude/settings.json`:
+Para fijar la versión en un proyecto, en el `.claude/settings.json` de su repo de carpeta (abajo), o en el del repo si es de un solo repo. En una carpeta lo escribe `adopt.js folder-settings`, con los tres plugins:
 
 ```json
 {
@@ -43,9 +43,13 @@ Para fijar la versión en un repo de proyecto, en `.claude/settings.json`:
       "source": { "source": "git", "url": "https://gitlab.com/preupdv/apps/agentic-harness.git", "ref": "vX.Y.Z" }
     }
   },
-  "enabledPlugins": { "arnes@agentic-harness": true }
+  "enabledPlugins": { "arnes@agentic-harness": true, "arnes-ui@agentic-harness": true, "arnes-mod@agentic-harness": true }
 }
 ```
+
+### El repo de carpeta
+
+Un proyecto de varios repos versiona su composición en un repo chico propio, el repo de carpeta. Lleva la composición `.claude/harness.json`, con el `remote` y la `branch` de cada repo, el `CLAUDE.md` de la carpeta, el `.claude/settings.json` de arriba y un `.gitignore` que ignora las carpetas de los repos, `.tmp/`, `.claude/settings.local.json` y `graphify-out/`. Los repos de verdad se clonan dentro, y git los ignora. Lo arma `/arnes:init` la primera vez. Quien llega después instala los plugins y corre `/arnes:setup <url del repo de carpeta>`: clona todo en su rama, instala dependencias, prepara el `.env` sin inventar valores y cierra con lo que queda pendiente de la persona (`docs/PROBADORES.md` §2).
 
 El auto-update de un marketplace de terceros viene apagado y se deja así.
 
