@@ -186,3 +186,24 @@ test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => 
     assert.equal(ship(dir, args).status, 2, args.join(' '));
   }
 });
+
+test('committed: un tocado que quedó fuera del commit es nota, no falla; uno que entró distinto sí FALLA', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, '.claude/harness.json'), '\n');
+  ready(root);
+  const flag = JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'harness', 'gate', 'api.json'), 'utf8'));
+  assert.deepEqual(Object.keys(flag.blobs).sort(), ['.claude/harness.json', 'src/a.ts']);
+  h.git(api, 'add', 'src/a.ts');
+  h.git(api, 'commit', '-q', '-m', 'feature(api): sin el manifiesto');
+  let r = ship(root, ['committed', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /api: el commit \w+ lleva el contenido que verificó la bandera \(1 archivo\(s\)\)\n {4}nota: quedó sin commitear: \.claude\/harness\.json/);
+  assert.doesNotMatch(r.stdout, /FALLA/);
+
+  fs.appendFileSync(path.join(api, '.claude/harness.json'), ' \n');
+  h.git(api, 'add', '.claude/harness.json');
+  h.git(api, 'commit', '-q', '-m', 'feature(api): el manifiesto, distinto del verificado');
+  r = ship(root, ['committed', 'api']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /FALLA api: .*: \.claude\/harness\.json$/m);
+});

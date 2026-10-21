@@ -239,6 +239,9 @@ Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida
   - el reviewer ya no reporta lo que cubren las convenciones: se queda con lo que exige criterio (§6.4).
 - **Sin contract no hay orden.** El chequeo de ship imprimió el orden front → back porque ningún manifiesto declaraba `contract`, y la skill tuvo que corregirlo a mano. Con dos o más workspaces y ningún `provides` ni `consumes`, `ship.js check` avisa en una línea que el orden es el del manifiesto, y `adoption-check` lo marca como FALTA en la comprobación 1.
 
+Cambio de la fase de setup (2026-10-21, rama `feature/setup`), por el ciclo dos del issue de talleres con la 0.5.3:
+- **El commit contra la bandera, solo con lo que entró.** `ship.js committed` dio FALLA en api-academico sin razón: la bandera había verificado `.claude/harness.json`, que no es código y que la skill dejó fuera del commit a propósito. Ahora compara contra los blobs de la bandera solo los archivos que entraron al commit (`git diff-tree --root --relative HEAD` desde la carpeta del workspace). Un tocado que quedó fuera sale como nota, `quedó sin commitear: .claude/harness.json`, y nunca como falla. Un archivo que entró con contenido distinto del verificado sigue siendo FALLA.
+
 ### 6.2 Hooks clásicos (`hooks/hooks.json`)
 | Evento | Script | Hace |
 |---|---|---|

@@ -15,9 +15,10 @@
 //           cambiarse vencería la bandera
 //   stage   git add de los tocados y los borrados de <ws>, sin shell; se niega si hay un archivo
 //           que no debe entrar
-//   committed  después del commit de <ws>: el blob de HEAD de cada archivo de la bandera es el que
-//           ella verificó. Un hook pre-commit que reescribe (eslint --fix de lint-staged) cambiaría
-//           lo commiteado sin que el arnés se entere: FALLA con los archivos, y decide la persona
+//   committed  después del commit de <ws>: el blob de HEAD de cada archivo de la bandera que entró
+//           al commit es el que ella verificó. Un hook pre-commit que reescribe (eslint --fix de
+//           lint-staged) cambiaría lo commiteado sin que el arnés se entere: FALLA con los archivos,
+//           y decide la persona. Un tocado que quedó fuera del commit es una nota, nunca una falla
 // Sin contract en ningún workspace, check avisa que el orden de commit es el del manifiesto.
 // Uso: node ship.js check
 //      node ship.js branch <rama>
@@ -206,19 +207,23 @@ function committed(project, wsName) {
     die(`ship: ${ws.name} no tiene bandera legible en ${flagPath(project, ws)}`);
   }
   if (!flag.blobs) die(`ship: la bandera de ${ws.name} no trae los blobs de sus archivos (es de una versión anterior): no se puede comparar`);
+  // Solo cuenta lo que entró al commit: un tocado que la skill dejó fuera a propósito (un
+  // .claude/harness.json, que no es código) es una nota, no una falla.
+  const diff = git(ws.dir, ['diff-tree', '-r', '-z', '--no-commit-id', '--name-only', '--relative', '--root', 'HEAD']);
+  if (diff.status !== 0) die(`ship: git diff-tree falló en ${ws.name}: ${firstLine(diff.stderr)}`);
+  const entered = new Set(diff.stdout.split('\0').filter(Boolean));
   const tree = git(ws.dir, ['ls-tree', '-r', 'HEAD']);
   if (tree.status !== 0) die(`ship: git ls-tree falló en ${ws.name}: ${firstLine(tree.stderr)}`);
   // Una línea de ls-tree: <modo> <tipo> <blob>\t<ruta relativa a la carpeta>.
   const inHead = new Map(lines(tree.stdout).map((l) => [l.slice(l.indexOf('\t') + 1), l.slice(0, l.indexOf('\t')).split(' ')[2]]));
   const head = git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim();
-  const files = Object.keys(flag.blobs);
-  const changed = files.filter((f) => inHead.get(f) !== flag.blobs[f]).map((f) => (inHead.has(f) ? f : `${f} (no entró)`));
-  if (!changed.length) {
-    console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
-    return 0;
-  }
-  console.log(`FALLA ${ws.name}: el commit ${head} no lleva el contenido que verificó la bandera. Cambió después de verificar, quizá por un hook pre-commit: ${changed.join(', ')}`);
-  return 1;
+  const files = Object.keys(flag.blobs).filter((f) => entered.has(f));
+  const left = Object.keys(flag.blobs).filter((f) => !entered.has(f));
+  const changed = files.filter((f) => inHead.get(f) !== flag.blobs[f]);
+  if (changed.length) console.log(`FALLA ${ws.name}: el commit ${head} no lleva el contenido que verificó la bandera. Cambió después de verificar, quizá por un hook pre-commit: ${changed.join(', ')}`);
+  else console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
+  for (const f of left) console.log(`    nota: quedó sin commitear: ${f}`);
+  return changed.length ? 1 : 0;
 }
 
 module.exports = { shipping };
