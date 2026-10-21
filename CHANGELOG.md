@@ -2,6 +2,31 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.4] - sin etiquetar
+
+Ronda de init amable: init le habla a quien no conoce el arnés, con una sola ronda de preguntas, y la voz de todas las skills se acorta (`docs/PLAN.md` §2, §6, §7 y §8). Rama `feature/init-amable`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` de los mods y una corrida de punta a punta de los worktrees con `claude -p` sobre un clon de api-academico.
+
+### Añadido
+- `afterBuild` en el manifiesto de workspace: `commands` y la condición `onlyIfLocalDb` (`env` y `pattern`). Al cerrar build, `build.js after` lista los comandos solo si el `.env` del workspace apunta a la base local; si no, quedan en "pendiente tuyo" con el host y el puerto. El guard deja pasar un comando de `forbidden` solo si es uno de `afterBuild` y la condición se cumple. init-draft y `adopt.js complete` lo proponen cuando hay scripts de sync.
+- `issue-branch.js behind`: al empezar, plan hace fetch y dice cuántos commits va atrás de origin cada rama, y ofrece `/arnes:sync`. No hace pull.
+- `informe.js path <etapa>`: la ruta del informe de cada etapa en `.tmp/harness/informes/` y si la frase del verde ya salió en la corrida.
+- init y setup anotan su `start` y su `end` en la timeline, también sin manifiesto (`timeline.js --dir`); arnes-ui muestra setup como Preparando.
+
+### Cambiado
+- `init-draft --write` escribe cada manifiesto que falta y deja los existentes; `--force <ruta>` pisa uno a propósito, archivo por archivo. `--gitignore` escribe solo el `.gitignore` de la carpeta.
+- La composición que propone init-draft trae `integration` (`feature/`, la misma rama en todos) y el `contract` de cada repo según su stack, y la rama de cada repo es donde vive su manifiesto, o la por defecto desde cero; nunca la rama en que está la persona.
+- `adopt.js folder-settings` sin `--marketplace` toma la url y el ref del marketplace instalado.
+- La skill init mira todo antes de preguntar, hace una sola ronda numerada con recomendación, contestable con "sí a todo", y al cerrar dice cómo se sigue sin mandar a invocar etapas a mano. setup también pregunta en una sola ronda.
+- Mientras init o setup están en curso, UserPromptSubmit no agrega la línea que pide cargar arnes:plan y arnes-mod no pregunta a haiku.
+- La ronda acotada de review revisa todo el diff desde la marca anterior, con los archivos nuevos, y escala a completa solo si el cambio toca riskPaths o es más grande que el diff revisado.
+- La entrada del test-writer trae el código de cada archivo, hasta 400 líneas, y la del dev el `CLAUDE.md` del workspace sin frontmatter.
+- Los reportes de las skills: una línea de qué pasó y lo que la persona tiene que decidir o hacer; el detalle va al informe. En el chat quedan textuales los bloqueantes del reviewer y las preguntas del plan, y la frase del verde sale una vez por corrida.
+- `docs/PROBADORES.md` suma preguntas frecuentes (pull de main, cuándo se entrega, cuándo nace la rama del issue, cuándo y cómo usar un worktree) y muestra la ronda de init como la ve la persona.
+
+### Corregido
+- Al abrir un worktree, `DB_PORT` y las demás variables de base ya no se desplazan con los puertos de la app.
+- `worktree open` avisa cuando el `node_modules` enlazado trae el cliente de Prisma, que carga el `.env` del principal, y dice cómo arrancar la app del worktree: `node --env-file=.env <entrada>`.
+
 ## [0.6.3] - sin etiquetar
 
 La rama del issue nace al aprobar el plan, desde main fresco (`docs/PLAN.md` §6.3). Rama `feature/rama-del-issue`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict` y `node --test`.

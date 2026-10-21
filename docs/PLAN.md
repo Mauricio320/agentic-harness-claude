@@ -703,6 +703,17 @@ Lectura:
 - **La sesión** fue seis minutos y $1.10 más barata. Casi toda la diferencia es que después no hubo bloqueantes, y con eso no hubo corrección ni ronda 2: no hay que leerlo como efecto de esta ronda.
 - **Lo que falta medir:** varias corridas por lado, para separar la variación del modelo, y una corrida con una ronda de corrección en la 0.6.2.
 
+Ronda de init amable (2026-10-21, rama `feature/init-amable`, versión 0.6.4), por la corrida de `/arnes:init` con la 0.6.2 sobre la carpeta academico, con los dos repos ya adoptados y sin composición. Lo determinista salió bien: probe, línea base, hooks, permisos, `CLAUDE.md`, settings con el marketplace y `.gitignore`. Falló la conversación: init le habló como a un mantenedor del arnés. Cada cambio está en su sección:
+- init escribe lo que falta, pregunta en una sola ronda con recomendación y no pregunta lo que puede saber solo (§8);
+- el aviso del plan calla mientras init o setup están en curso (§6.2 y §6.5);
+- la sincronización de permisos después del build, solo contra la base local (§8);
+- plan avisa si la rama va atrás de origin (§6.3);
+- la ronda acotada de review cubre los archivos nuevos (§6.3);
+- la entrada del test-writer con el código y la del dev con el `CLAUDE.md` (§6.4);
+- la prueba de punta a punta de los worktrees, con dos correcciones: `DB_PORT` y el `.env` que carga Prisma (§7);
+- la voz del arnés en los reportes de todas las skills (§2 y §6.3);
+- las preguntas frecuentes y el ejemplo de init en `docs/PROBADORES.md`.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.

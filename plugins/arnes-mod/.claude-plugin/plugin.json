@@ -1,6 +1,6 @@
 {
   "name": "arnes-mod",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Comportamiento opcional del arnés: sin plan en curso, un pedido de código empieza por arnes:plan.",
   "author": { "name": "Mauricio Triana" },
   "dependencies": ["arnes"]
