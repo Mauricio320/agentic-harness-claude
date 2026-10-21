@@ -38,6 +38,7 @@ const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
 const { DB_VAR } = require('./lib/database.js');
+const { nativeWorktree } = require('./lib/worktree-nativo.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,9 +81,12 @@ function writeLedger(project, entries) {
   fs.writeFileSync(ledgerPath(project), JSON.stringify({ version: 1, worktrees: entries }, null, 2) + '\n');
 }
 
-// Proyecto del registro visto desde dir, o null sin manifiesto válido.
+// Proyecto del registro visto desde dir, o null sin manifiesto válido. Un worktree nativo de Claude
+// Code es una sesión con su propio plan y su propia timeline, no una tarea del issue del principal:
+// su proyecto es el suyo (lib/worktree-nativo.js).
 function projectFor(dir) {
-  const p = loadProject(mainCheckout(path.resolve(dir)));
+  const d = path.resolve(dir);
+  const p = loadProject(nativeWorktree(d) ? d : mainCheckout(d));
   return p && !p.errors.length ? p : null;
 }
 

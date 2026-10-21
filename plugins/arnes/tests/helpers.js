@@ -51,6 +51,14 @@ function repo(dir, files = {}) {
   return git(dir, 'rev-parse', 'HEAD');
 }
 
+// Un worktree nativo de Claude Code, como lo crea claude --worktree <nombre>: en
+// <repo>/.claude/worktrees/<nombre>, en la rama worktree-<nombre>, desde HEAD. Devuelve su carpeta.
+function nativeWorktree(dir, name, branch = `worktree-${name}`) {
+  const wt = path.join(dir, '.claude', 'worktrees', name);
+  git(dir, 'worktree', 'add', '-q', '-b', branch, wt);
+  return fs.realpathSync.native(wt);
+}
+
 function commitAll(dir, msg = 'cambio') {
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', msg);
@@ -157,6 +165,7 @@ module.exports = {
   git,
   repo,
   commitAll,
+  nativeWorktree,
   manifestJson,
   workspace,
   repoManifest,
