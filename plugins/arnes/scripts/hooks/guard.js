@@ -37,6 +37,7 @@ const { targetOf, liveLinks } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
 const { secretPath } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
+const { nativeWorktree } = require('../lib/worktree-nativo.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
@@ -112,6 +113,7 @@ function judgeWorktreeRemove(dir, rest) {
   const wt = toPath(dir, target);
   if (!fs.existsSync(wt)) return null;
   const links = liveLinks(wt);
+  if (links.length && nativeWorktree(wt)) return `git worktree remove ${target}: tiene enlaces del arnés (${links.join(', ')}) que el remove seguiría y borraría lo que hay detrás. Bórralo al salir de la sesión de ese worktree, cuando Claude Code pregunta: quita solo el enlace.`;
   if (links.length) return `git worktree remove ${target}: tiene enlaces del arnés (${links.join(', ')}) que el remove seguiría y borraría lo que hay detrás. Ciérralo con /arnes:worktree integrate o close, que los quita primero.`;
   const head = git(wt, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (head.status !== 0) return null;

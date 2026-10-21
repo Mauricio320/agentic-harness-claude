@@ -7,9 +7,9 @@ const h = require('./helpers.js');
 
 function repoWithWorktree(files = {}) {
   const dir = h.tmp('wtrm');
-  h.repo(dir, { '.gitignore': '.claude/worktrees/\n', 'a.ts': 'a\n', ...files });
-  h.git(dir, 'worktree', 'add', '-q', '.claude/worktrees/wt', '-b', 'wt/main/tarea');
-  return { dir, wt: path.join(dir, '.claude', 'worktrees', 'wt') };
+  h.repo(dir, { '.gitignore': '.otros/\n', 'a.ts': 'a\n', ...files });
+  h.git(dir, 'worktree', 'add', '-q', '.otros/wt', '-b', 'wt/main/tarea');
+  return { dir, wt: path.join(dir, '.otros', 'wt') };
 }
 
 const exitWorktree = (cwd, action = 'remove', extra = {}) =>

@@ -21,7 +21,9 @@
 //      node worktree-ledger.js list [--all] [--json]
 //      node worktree-ledger.js pending [--target <rama>] [--json]
 // Sin --ws, open abre uno por cada workspace adoptable (uno por repo) e integrate y close actúan
-// sobre todo el set del slug. pending lista los abiertos, con sus commits sin integrar.
+// sobre todo el set del slug. pending lista los abiertos, con sus commits sin integrar, y sin
+// --target también los worktrees nativos de Claude Code del repo (.claude/worktrees) con commits sin
+// subir o cambios sin commitear, con su rama y su antigüedad; nunca los borra.
 // Registro: { ws, path, branch, target, issue, openedAt, status: abierto|integrado|cerrado,
 //             links, copies, copiedDirs, closedAt?, merge? } · worktrees en
 //             <raíz>/.tmp/harness/worktrees/<ws>/<slug>
@@ -35,7 +37,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
-const { refExists, unmerged } = require('./lib/branches.js');
+const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
 const { DB_VAR } = require('./lib/database.js');
 const { nativeWorktree, nativeWorktrees } = require('./lib/worktree-nativo.js');
@@ -121,6 +123,47 @@ function pendingEntries(project, entries, { target } = {}) {
     .map((e) => ({ ...e, ...stateOf(project, e) }));
 }
 
+// Los worktrees nativos de Claude Code de los repos del proyecto con trabajo sin subir (§7): commits
+// que no están en ningún remoto ni en la rama por defecto local, o cambios sin commitear sin contar
+// los enlaces del arnés. → [{ path, name, branch, unpushed, dirty, created, last }]
+function nativePending(project, now = new Date()) {
+  const roots = [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.gitRoot))];
+  return roots.flatMap((r) => nativeWork(r, (project.workspaces.find((x) => x.gitRoot === r) || {}).defaultBranch, now));
+}
+
+// Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.
+function nativeWork(dir, defaultBranch, now = new Date()) {
+  const seen = new Set();
+  const out = [];
+  {
+    for (const w of nativeWorktrees(dir)) {
+      if (seen.has(norm(w.path)) || !fs.existsSync(w.path)) continue;
+      seen.add(norm(w.path));
+      const def = mergeTargets(w.main, defaultBranch).branch;
+      const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
+      const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
+      const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
+      if (!unpushed && !dirty) continue;
+      let created = now;
+      try {
+        created = fs.statSync(path.join(w.path, '.git')).birthtime;
+      } catch {
+        /* sin .git legible */
+      }
+      const t = Number(git(w.path, ['log', '-1', '--format=%ct']).stdout.trim()) * 1000;
+      out.push({ path: posix(w.path), name: w.name, branch: w.branch, unpushed, dirty, created, last: new Date(Math.max(created.getTime(), t || 0)) });
+    }
+  }
+  return out;
+}
+
+// Una línea por worktree nativo con trabajo sin subir.
+function describeNative(p, now = new Date()) {
+  const what = [p.unpushed && `${p.unpushed} commit(s) sin subir`, p.dirty && `${p.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
+  const days = Math.floor((now - p.created) / DAY_MS);
+  return `worktree ${p.name} (rama ${p.branch || 'sin rama'}) · ${what} · creado ${days ? `hace ${days} día(s)` : 'hoy'}; nunca se borra solo`;
+}
+
 // Destino registrado de una rama o de una carpeta de worktree abierta, o null si no está en el registro.
 function targetOf(dir, { branch, wtPath } = {}) {
   const project = projectFor(dir);
@@ -130,8 +173,14 @@ function targetOf(dir, { branch, wtPath } = {}) {
 }
 
 // Los enlaces que open registró en el worktree de wtPath y siguen en disco: un git worktree remove o
-// un ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan).
+// un ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan). En un
+// worktree nativo, los node_modules que enlazó SessionStart (equipNative), que no van al registro.
 function liveLinks(wtPath) {
+  if (nativeWorktree(wtPath)) {
+    const p = loadProject(wtPath);
+    const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];
+    return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].filter(isLink);
+  }
   const project = projectFor(wtPath);
   if (!project) return [];
   const e = readLedger(project).find((x) => x.status === 'abierto' && norm(x.path) === norm(wtPath));
@@ -538,6 +587,9 @@ module.exports = {
   projectFor,
   equipNative,
   pendingEntries,
+  nativePending,
+  nativeWork,
+  describeNative,
   targetOf,
   liveLinks,
   describe,
@@ -600,10 +652,15 @@ function main() {
     return;
   }
   const pending = pendingEntries(project, entries, { target: o.target });
-  if (o.json) console.log(JSON.stringify(pending.map(({ workspace, ahead, last, ...e }) => ({ ...e, ahead: ahead && ahead.length, lastActivity: last.toISOString() })), null, 2));
-  else if (pending.length) console.log(pending.map((p) => describe(p)).join('\n'));
-  else console.log(`nada sin integrar${o.target ? ` en ${o.target}` : ''}`);
-  process.exit(pending.length ? 1 : 0);
+  const natives = o.target ? [] : nativePending(project);
+  if (o.json) {
+    console.log(JSON.stringify([
+      ...pending.map(({ workspace, ahead, last, ...e }) => ({ ...e, ahead: ahead && ahead.length, lastActivity: last.toISOString() })),
+      ...natives.map((n) => ({ nativo: true, ...n, created: n.created.toISOString(), last: n.last.toISOString() })),
+    ], null, 2));
+  } else if (pending.length || natives.length) console.log([...pending.map((p) => describe(p)), ...natives.map((n) => describeNative(n))].join('\n'));
+  else console.log(`nada sin integrar${o.target ? ` en ${o.target}` : ' ni sin subir'}`);
+  process.exit(pending.length || natives.length ? 1 : 0);
 }
 
 if (require.main === module) main();

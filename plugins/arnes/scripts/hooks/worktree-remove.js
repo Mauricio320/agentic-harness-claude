@@ -8,6 +8,8 @@
 // ese evento solo existe para worktrees creados por un hook WorktreeCreate propio, y el arnés usa
 // los de git.
 //
+// En un worktree nativo de Claude Code solo niega con commits sin subir o cambios sin commitear:
+// Claude Code quita solo los enlaces al borrarlo.
 // Vale haya o no manifiesto; sin manifiesto, la rama por defecto es la de origin/HEAD, o main o master.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
@@ -18,7 +20,20 @@ const { run, deny } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
-const { linkedWorktree, targetOf, liveLinks } = require('../worktree-ledger.js');
+const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree-ledger.js');
+const { nativeWorktree } = require('../lib/worktree-nativo.js');
+
+// Un worktree nativo de Claude Code: Claude Code lo borra quitando solo los enlaces (desde la 2.1.205),
+// así que el enlace de node_modules no es el riesgo; lo es el trabajo sin subir, que se perdería.
+function judgeNative(dir) {
+  const project = loadProject(dir);
+  const hit = project && !project.errors.length ? resolveWorkspace(project, dir) : null;
+  const top = git(dir, ['rev-parse', '--show-toplevel']).stdout.trim();
+  const own = nativeWork(dir, hit && hit.ws.defaultBranch).find((n) => path.resolve(n.path).toLowerCase() === path.resolve(top).toLowerCase());
+  if (!own) return null;
+  const what = [own.unpushed && `${own.unpushed} commit(s) sin subir`, own.dirty && `${own.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
+  return `este worktree (rama ${own.branch}) tiene ${what}; borrarlo los pierde. Entrégalo con /arnes:ship, que pide el sí para subirlo, o sal con action "keep".`;
+}
 
 // Destino de integración del worktree en dir: el registrado en el ledger, o la rama por defecto.
 function targetsOf(dir, branch) {
@@ -33,6 +48,7 @@ function targetsOf(dir, branch) {
 
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
+  if (nativeWorktree(dir)) return judgeNative(dir);
   const links = liveLinks(git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir);
   if (links.length) return `este worktree tiene enlaces del arnés (${links.join(', ')}) que borrarlo seguiría. Ciérralo con /arnes:worktree integrate o close, que los quita primero, o sal con action "keep".`;
   const name = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();

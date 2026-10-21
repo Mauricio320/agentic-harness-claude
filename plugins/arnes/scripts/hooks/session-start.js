@@ -100,6 +100,17 @@ function worktreeLines(cwd, now) {
   return [`Worktrees sin integrar (${pending.length}): /arnes:worktree integrate <slug>, o close si no tienen commits propios.`, ...shown];
 }
 
+// Los worktrees nativos de Claude Code del repo con trabajo sin subir, como los del registro.
+function nativeLines(cwd, now) {
+  const project = ledger.projectFor(cwd);
+  if (!project) return [];
+  const list = ledger.nativePending(project, now);
+  if (!list.length) return [];
+  const shown = list.slice(0, WORKTREES).map((n) => `- ${ledger.describeNative(n, now)}`);
+  if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
+  return [`Worktrees de Claude Code con trabajo sin subir (${list.length}): se entregan con /arnes:ship desde su sesión, o se borran a mano si no sirven.`, ...shown];
+}
+
 // ---------- lock de sesión ----------
 
 // pid del proceso de Claude Code, que lo pone en CLAUDE_PID para sus procesos hijos; null si no está.
@@ -192,7 +203,7 @@ function sessionStart(input, now = new Date()) {
   const native = ledger.equipNative(cwd).lines;
   const head = [`arnes · ${project.name} · ${kind} · raíz ${project.root}`, ...native.map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
-  const tailLines = [...worktreeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
+  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
   const wsLines = project.workspaces.map((ws) => workspaceLine(project, ws));
   const shown = wsLines.length > room ? [...wsLines.slice(0, room - 1), `- … y ${wsLines.length - room + 1} workspace(s) más`] : wsLines;
