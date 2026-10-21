@@ -34,6 +34,29 @@ test('sin plan en curso ni código tocado, una sola línea: un pedido de código
   assert.doesNotMatch(ctx(prompt(dir)), /primera acción es cargar arnes:plan/, 'con código tocado ya no es un pedido nuevo');
 });
 
+test('mientras init o setup están en curso, y en el mensaje que los invoca, no pide cargar el plan', () => {
+  const dir = repo();
+  assert.equal(prompt(dir, '/arnes:init').out, null, 'el mensaje que invoca init');
+  assert.equal(prompt(dir, '<command-name>/arnes:setup</command-name>\n<command-args>x</command-args>').out, null, 'setup expandido por el CLI');
+  for (const stage of ['init', 'setup']) {
+    assert.equal(h.run('lib/timeline.js', ['start', stage], { cwd: dir }).status, 0);
+    assert.equal(prompt(dir, 'sí a todo').out, null, `con ${stage} en curso`);
+    h.run('lib/timeline.js', ['end', stage, '--result', 'ok'], { cwd: dir });
+    assert.equal(ctx(prompt(dir)), PLAN_FIRST, `con ${stage} cerrado vuelve`);
+  }
+  const old = { at: new Date(Date.now() - 3 * 3600e3).toISOString(), event: 'start', stage: 'init' };
+  assert.equal(tl.prepOpen([old]), null, 'un init de hace tres horas sin fin no cuenta');
+  assert.equal(tl.prepOpen([{ ...old, at: new Date().toISOString() }]), 'init');
+});
+
+test('init y setup anotan su etapa aunque el proyecto no tenga manifiesto todavía, en la carpeta de --dir', () => {
+  const dir = h.tmp('prompt-sin');
+  assert.equal(h.run('lib/timeline.js', ['start', 'init'], { cwd: dir }).status, 0);
+  assert.equal(h.run('lib/timeline.js', ['end', 'setup', '--dir', dir], { cwd: h.tmp('otra') }).status, 0);
+  assert.deepEqual(tl.read(dir).map((e) => [e.event, e.stage]), [['start', 'init'], ['end', 'setup']]);
+  assert.equal(h.run('lib/timeline.js', ['start', 'plan'], { cwd: dir }).status, 2, 'las demás etapas siguen exigiendo manifiesto');
+});
+
 test('el aviso de un agente en segundo plano no abre turno: no deja foto, no cuenta como respuesta ni pide plan', () => {
   const dir = repo();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de la persona\n');

@@ -7,6 +7,8 @@
 // si el turno cambió algo, y anota en la timeline que la persona respondió;
 // si escribió /arnes:plan --trivial, la nota lo dice, y es lo único que habilita el plan trivial.
 // Sin plan en curso y sin código tocado, agrega una línea: un pedido de código empieza por el plan.
+// No la agrega mientras init o setup están en curso (timeline prepOpen), ni al mensaje que los
+// invoca: las respuestas a sus preguntas no son pedidos de código.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -18,13 +20,15 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, writeTurn } = require('../gate-flag.js');
-const { append, read, planState } = require('../lib/timeline.js');
+const { append, read, planState, prepOpen } = require('../lib/timeline.js');
 
 // El aviso con que un agente en segundo plano reabre el turno del hilo principal también pasa por
 // UserPromptSubmit (verificado en la primera corrida real): no es un mensaje de la persona.
 const FROM_AGENT = /^\s*(<task-notification>|<agent-message\b|Another Claude session sent a message:)/;
 // /arnes:plan --trivial como lo escribió la persona, o como lo expande el CLI.
 const TRIVIAL = /^\s*\/arnes:plan\s+--trivial\b|<command-name>\/arnes:plan<\/command-name>[\s\S]*?<command-args>[^<]*--trivial/;
+// /arnes:init o /arnes:setup como los escribió la persona, o como los expande el CLI.
+const PREP = /^\s*\/arnes:(init|setup)\b|<command-name>\/arnes:(init|setup)<\/command-name>/;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
 
 // → { text, code }: la línea de estado del workspace, o null, y cuántos archivos de código tocó.
@@ -58,7 +62,8 @@ function promptContext(input) {
   }
   const rows = adoptable.map((ws) => state(project, ws));
   const out = rows.map((r) => r.text).filter(Boolean);
-  if (person && !rows.some((r) => r.code) && !planState(read(project.root)).open) out.unshift(PLAN_FIRST);
+  const entries = read(project.root);
+  if (person && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) out.unshift(PLAN_FIRST);
   return out.length ? out.join('\n') : null;
 }
 

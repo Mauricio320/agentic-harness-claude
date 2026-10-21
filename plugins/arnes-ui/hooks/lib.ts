@@ -14,7 +14,7 @@ const FLAG_MS = 30 * 60 * 1000
 const SCRIPTS = /[\\/]scripts[\\/](ci-gate|typecheck-baseline|test-select)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
-  memory: 'Guardando memoria', init: 'Inicializando', sync: 'Sincronizando', worktree: 'Worktrees', timeline: null,
+  memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', timeline: null,
 }
 
 export const slash = (p: string) => p.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')

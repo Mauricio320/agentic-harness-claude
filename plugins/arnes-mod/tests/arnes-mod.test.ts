@@ -3,7 +3,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { LOAD_PLAN, candidate, isQuestion, isYes, planOpen } from '../hooks/lib'
+import { LOAD_PLAN, candidate, isQuestion, isYes, planOpen, prepOpen } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
 const MANIFEST = JSON.stringify({ version: 1, name: 'academico', repos: [{ path: 'api-academico' }] })
@@ -113,4 +113,20 @@ test('lib: isQuestion solo para preguntas, nunca para afirmar un cambio', () => 
   const no = ['¿Puedes corregir el bug del guard en ship?', 'Qué tal si agregas un campo email al DTO', 'Cómo hago para que el botón quede deshabilitado? hazlo', 'Implementa el CRUD de talleres', 'Agrega el campo email', 'Explica y luego refactoriza el servicio de talleres']
   expect(si.map(isQuestion)).toEqual(si.map(() => true))
   expect(no.map(isQuestion)).toEqual(no.map(() => false))
+})
+
+test('con init o setup en curso no pregunta a haiku y el prompt pasa intacto', async ($, on) => {
+  const now = new Date().toISOString()
+  const seen = world(on, 'SI', `${line('start', 'setup', { at: now })}\n`)
+  await $.prompt.submit(typed('sí a todo, y los permisos también por favor'))
+  expect(seen.asked).toEqual([])
+  expect(seen.entered).toEqual([{ text: 'sí a todo, y los permisos también por favor', context: undefined }])
+})
+
+test('lib: prepOpen como el de lib/timeline.js, con su tope de dos horas', () => {
+  const now = Date.parse('2026-10-21T15:30:00Z')
+  expect(prepOpen(line('start', 'init'), now)).toBe(true)
+  expect(prepOpen(`${line('start', 'init')}\n${line('end', 'init', { result: 'ok' })}`, now)).toBe(false)
+  expect(prepOpen(line('start', 'init'), now + 3 * 3600e3)).toBe(false)
+  expect(prepOpen(line('start', 'plan'), now)).toBe(false)
 })

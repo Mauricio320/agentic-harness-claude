@@ -23,6 +23,7 @@ Reglas:
    - Sin fuente, o si el destino ya tiene composición, usa esa carpeta y dilo.
    - Si dice "clonaría", corre lo mismo con `--write`. Clonar no necesita confirmación: lo pidió la persona.
    - Si sale con 1, explica el motivo y termina.
+   - Con la carpeta lista, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`, y al cerrar `end setup --dir "<carpeta>" --result ok`: mientras setup está en curso, las respuestas de la persona no se toman como pedidos de código.
 2. **Repos de la composición:** `node "S" repos --dir "<carpeta>"`, y después con `--write`: clona los que faltan y hace fetch de los que existen.
    - **Un repo en otra rama:** di en cuál está y cuál declara la composición, y pregunta si lo cambias. Solo con un sí, `repos --switch <ruta> --write`. Con cambios sin commitear no se mueve.
 3. **Dependencias:** `node "S" deps --dir "<carpeta>"` lista el comando de cada repo según su lockfile.

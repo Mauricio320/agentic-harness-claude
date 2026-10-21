@@ -7,6 +7,8 @@
 //      node timeline.js end <etapa> [--result <ok|fail|texto>] [--ws <nombre>] [--detail <texto>]
 //      node timeline.js note <etapa> [--result <texto>] [--ws <nombre>] [--detail <texto>]
 //      node timeline.js print
+// --dir <carpeta> resuelve el proyecto desde esa carpeta en vez del cwd. init y setup preparan un
+// proyecto que puede no tener manifiesto todavía: sus etapas se anotan igual, en la carpeta.
 // Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"?, "usd"? }
 // "note" lo escriben los hooks y las skills:
 //   - el Stop anota { stage: "turno", result: "cerrado" } cuando el turno cierra, y UserPromptSubmit
@@ -26,7 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject } = require('./manifest.js');
+const { loadProject, requireProject } = require('./manifest.js');
 const { help, die } = require('./exec.js');
 
 const FILE = 'timeline.jsonl';
@@ -79,6 +81,19 @@ function planState(entries) {
   return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
 }
 
+// Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end
+// después, de menos de dos horas, para que una skill cortada no lo deje así para siempre), el aviso
+// de UserPromptSubmit que pide cargar arnes:plan no se inyecta y arnes-mod no pregunta.
+const PREP = ['init', 'setup'];
+const PREP_MS = 2 * 60 * 60 * 1000;
+function prepOpen(entries, now = Date.now()) {
+  const i = entries.map((e) => PREP.includes(e.stage) && e.event === 'start').lastIndexOf(true);
+  if (i < 0) return null;
+  const { stage, at } = entries[i];
+  if (entries.slice(i + 1).some((e) => e.stage === stage && e.event === 'end')) return null;
+  return now - new Date(at).getTime() < PREP_MS ? stage : null;
+}
+
 const money = (usd) => `$${usd.toFixed(2)}`;
 
 function format(entries) {
@@ -128,32 +143,34 @@ function format(entries) {
   return out;
 }
 
-module.exports = { FILE, append, read, format, planState };
+module.exports = { FILE, PREP, append, read, format, planState, prepOpen };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, result: { type: 'string' }, detail: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, result: { type: 'string' }, detail: { type: 'string' }, dir: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`timeline: ${e.message}`);
   }
   if (args.values.help) help(__filename);
   const [event, stage] = args.positionals;
+  const dir = path.resolve(args.values.dir || process.cwd());
   if (event === 'print' && !stage) {
-    const project = requireProject();
+    const project = requireProject(dir);
     const entries = read(project.root);
     const file = path.join(project.root, '.tmp', 'harness', FILE);
     console.log(entries.length ? [`timeline · ${file}`, ...format(entries)].join('\n') : `timeline vacía: ${file}`);
     return;
   }
-  if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] | timeline.js print');
+  if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] [--dir d] | timeline.js print [--dir d]');
   if (event === 'start' && args.values.result) die('timeline: --result solo va con end');
   if (stage === 'plan' && args.values.result === 'aprobado') die('timeline: la aprobación del plan la anota plan-state.js approve, que comprueba que vino de la persona');
-  const project = requireProject();
-  append(project.root, {
+  const found = PREP.includes(stage) ? loadProject(dir) : null;
+  const root = found && !found.errors.length ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;
+  append(root, {
     event,
     stage,
     ws: args.values.ws,

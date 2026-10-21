@@ -47,19 +47,38 @@ export const isQuestion = (text: string) => QUESTION.test(text) && !CHANGE.test(
 // Sin \b: en JS la í no es letra para \b, y "Sí." no pasaría.
 export const isYes = (reply: string) => /^[^\p{L}]*s[ií](?!\p{L})/iu.test(reply.trim())
 
-type Entry = { event?: string; stage?: string; result?: string }
+type Entry = { at?: string; event?: string; stage?: string; result?: string }
 
-// La misma regla que planState de lib/timeline.js: hay plan en curso si hubo un start plan y después
-// no hubo un end ship ok. Una línea que no se lee se ignora, como allá.
-export function planOpen(timeline: string): boolean {
+// Una línea que no se lee se ignora, como en lib/timeline.js.
+function entriesOf(timeline: string): Entry[] {
   const entries: Entry[] = []
   for (const line of timeline.split(/\r?\n/)) {
     try {
       if (line.trim()) entries.push(JSON.parse(line))
     } catch {}
   }
+  return entries
+}
+
+// La misma regla que planState de lib/timeline.js: hay plan en curso si hubo un start plan y después
+// no hubo un end ship ok.
+export function planOpen(timeline: string): boolean {
+  const entries = entriesOf(timeline)
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true)
   return i >= 0 && !entries.slice(i + 1).some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')
+}
+
+// La misma regla que prepOpen de lib/timeline.js: init o setup en curso, su último start sin un end
+// después y de menos de dos horas. Sus respuestas no son pedidos de código.
+const PREP = ['init', 'setup']
+const PREP_MS = 2 * 60 * 60 * 1000
+export function prepOpen(timeline: string, now = Date.now()): boolean {
+  const entries = entriesOf(timeline)
+  const i = entries.map((e) => PREP.includes(e.stage ?? '') && e.event === 'start').lastIndexOf(true)
+  if (i < 0) return false
+  const { stage, at } = entries[i]!
+  if (entries.slice(i + 1).some((e) => e.stage === stage && e.event === 'end')) return false
+  return now - new Date(at ?? 0).getTime() < PREP_MS
 }
 
 export const slash = (p: string) => p.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')

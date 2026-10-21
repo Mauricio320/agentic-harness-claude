@@ -17,6 +17,8 @@ Corre `node "S/adoption-check.js"`. Di en una línea cuántas comprobaciones pas
 
 ## Sin argumentos
 
+Anota el inicio, `node "S/lib/timeline.js" start init`, y al cerrar `end init --result ok`: mientras init está en curso, las respuestas de la persona no se toman como pedidos de código.
+
 ### 1. Mirar, sin escribir ni preguntar
 
 - `node "S/init-draft.js"`: los manifiestos que faltan, con lo que detectó de cada repo (comandos, specs, lo prohibido, el contract y la rama de cada repo en la composición). De los que ya existen dice que no se tocan.
