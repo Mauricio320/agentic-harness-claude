@@ -3,7 +3,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { LOAD_PLAN, candidate, isYes, planOpen } from '../hooks/lib'
+import { LOAD_PLAN, candidate, isQuestion, isYes, planOpen } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
 const MANIFEST = JSON.stringify({ version: 1, name: 'academico', repos: [{ path: 'api-academico' }] })
@@ -96,4 +96,21 @@ test('lib: qué se pregunta, cómo se lee la respuesta y cuándo hay plan en cur
   expect(planOpen(`${line('start', 'plan')}\nbasura\n`)).toBe(true)
   expect(planOpen(`${line('start', 'plan')}\n${line('end', 'ship', { result: 'falla' })}`)).toBe(true)
   expect(planOpen(`${line('start', 'plan')}\n${line('end', 'ship', { result: 'ok' })}`)).toBe(false)
+})
+
+test('una pregunta evidente pasa sin llamar a haiku; con un verbo de cambio, decide haiku', async ($, on) => {
+  const seen = world(on, 'SI')
+  await $.prompt.submit(typed('¿Cómo funciona el guard de Edit y Write en este proyecto?'))
+  await $.prompt.submit(typed('Explica qué hace la bandera de verificación del gate'))
+  expect(seen.asked).toEqual([])
+  await $.prompt.submit(typed('¿Puedes agregar el campo email al formulario de talleres?'))
+  expect(seen.asked).toEqual(['haiku'])
+  expect(seen.entered.map((x) => x.context)).toEqual([undefined, undefined, [LOAD_PLAN]])
+})
+
+test('lib: isQuestion solo para preguntas, nunca para afirmar un cambio', () => {
+  const si = ['¿Por qué falla el test de talleres en el front?', 'como se corre el gate en un worktree nuevo', 'Qué significa REVISIÓN HUMANA OBLIGATORIA en el reporte', 'Muéstrame la timeline de la corrida de ayer', 'Dónde vive la línea base de tests del repo', 'Cuál es la rama del issue de talleres']
+  const no = ['¿Puedes corregir el bug del guard en ship?', 'Qué tal si agregas un campo email al DTO', 'Cómo hago para que el botón quede deshabilitado? hazlo', 'Implementa el CRUD de talleres', 'Agrega el campo email', 'Explica y luego refactoriza el servicio de talleres']
+  expect(si.map(isQuestion)).toEqual(si.map(() => true))
+  expect(no.map(isQuestion)).toEqual(no.map(() => false))
 })

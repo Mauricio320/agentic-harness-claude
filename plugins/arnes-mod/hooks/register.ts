@@ -1,12 +1,12 @@
 // arnes-mod (docs/PLAN.md §6.5): comportamiento opcional del arnés. Por ahora una sola pieza, la
 // cuarta capa del plan obligatorio: sin plan en curso, un mensaje de la persona que pide un cambio de
 // código lleva adjunta la instrucción de cargar arnes:plan. Decide con una pregunta cerrada al modelo
-// más barato. Falla abierto: si algo falla o el modelo no responde, el prompt sigue tal cual y lo
-// atajan las otras tres capas, que viven en el plugin base (el guard de Edit y Write, la línea de
+// más barato, salvo una pregunta evidente, que pasa sin llamarlo (lib.isQuestion). Falla abierto: si
+// algo falla o el modelo no responde, el prompt sigue tal cual y lo atajan las otras tres capas, que viven en el plugin base (el guard de Edit y Write, la línea de
 // UserPromptSubmit y /arnes:plan --trivial).
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ASK, LOAD_PLAN, MANIFEST, MODEL, TIMELINE, TIMEOUT_MS, candidate, isYes, join, planOpen, same, slash } from './lib'
+import { ASK, LOAD_PLAN, MANIFEST, MODEL, TIMELINE, TIMEOUT_MS, candidate, isQuestion, isYes, join, planOpen, same, slash } from './lib'
 
 type $ = EngineInterface
 
@@ -35,7 +35,7 @@ async function asksForCode($: $, text: string): Promise<boolean> {
 
 export const register: Register = (on) => {
   on('prompt.submit', async ($, e, next) => {
-    if (!candidate(e)) return next(e)
+    if (!candidate(e) || isQuestion(e.text)) return next(e)
     const root = await rootOf($)
     if (!root || planOpen(await readText($, join(root, TIMELINE)))) return next(e)
     if (!(await asksForCode($, e.text))) return next(e)
