@@ -37,7 +37,7 @@ test('política de invocación de §4: init, setup, ship, worktree y sync solo p
 });
 
 test('agentes de §6.4 con su model y su effort; el reviewer sin Bash ni Edit, con Write para su reporte', () => {
-  const want = { dev: 'sonnet', reviewer: 'opus', 'test-writer': 'sonnet', 'test-runner': 'haiku' };
+  const want = { dev: 'sonnet', reviewer: 'opus', 'test-writer': 'sonnet' };
   assert.deepEqual(agents.map((a) => a.replace(/\.md$/, '')).sort(), Object.keys(want).sort());
   for (const [name, model] of Object.entries(want)) {
     const { fm } = frontmatter(path.join(PLUGIN, 'agents', `${name}.md`));

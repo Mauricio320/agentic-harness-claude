@@ -6,7 +6,7 @@ Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUE
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
 - las once skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
-- los cuatro agentes: `dev`, `reviewer`, `test-writer` y `test-runner`;
+- los tres agentes: `dev`, `reviewer` y `test-writer`;
 - los worktrees por issue con su registro, la línea base de tests commiteada y el aviso de sesión concurrente;
 - el mod `arnes-ui`;
 - el mod `arnes-mod`, por ahora con una sola pieza: la cuarta capa del plan obligatorio, que adjunta a un pedido de código sin plan en curso la instrucción de cargar `arnes:plan`.

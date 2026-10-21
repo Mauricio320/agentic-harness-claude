@@ -466,12 +466,11 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       <h3>Agente o subagente</h3>
       <p>Un <dfn>agente</dfn> (o <dfn>subagente</dfn>) es un ayudante que Claude llama para un trabajo puntual. Arranca con la memoria en blanco, recibe solo lo que Claude le pasa, hace su trabajo y devuelve un reporte. Cada uno tiene sus propias herramientas permitidas y su propio <dfn>modelo</dfn>, que es la versión de Claude que lo mueve: <strong>opus</strong> es la más capaz y la más cara, <strong>sonnet</strong> va en el medio y <strong>haiku</strong> es la más rápida y barata.</p>
       <div class="grid">
-        <div class="card"><h4>dev <span class="badge b-ayudante">sonnet</span></h4><p>El que escribe el código de producción de un solo workspace. Lee las reglas del repo antes de escribir. No escribe tests.</p></div>
+        <div class="card"><h4>dev <span class="badge b-ayudante">sonnet</span></h4><p>El que escribe el código de producción de un solo workspace. Recibe en su entrada las reglas del repo que aplican. No escribe tests.</p></div>
         <div class="card"><h4>test-writer <span class="badge b-ayudante">sonnet</span></h4><p>El que solo sabe escribir tests, y solo para código nuevo o cambiado. No toca código de producción.</p></div>
-        <div class="card"><h4>reviewer <span class="badge b-ayudante">opus</span></h4><p>El revisor. Solo puede leer (Read, Grep, Glob): no tiene terminal ni puede editar. Trabaja con esfuerzo alto.</p></div>
-        <div class="card"><h4>test-runner <span class="badge b-ayudante">haiku</span></h4><p>Corre un comando de tests y copia la salida tal cual, sin interpretarla. Esfuerzo bajo.</p></div>
+        <div class="card"><h4>reviewer <span class="badge b-ayudante">opus</span></h4><p>El revisor. Lee (Read, Grep, Glob) y solo escribe su reporte: no tiene terminal ni puede editar código. Trabaja con esfuerzo alto.</p></div>
       </div>
-      <p>¿Por qué un modelo distinto por ayudante? Porque cada trabajo pide algo distinto: copiar la salida de un script no necesita al modelo más caro, y juzgar un cambio entero contra una lista de reglas sí lo agradece. Cada agente lleva su <code>model</code> y su <code>effort</code> escritos en su archivo. Y como cada uno tiene su propio contexto, el revisor juzga el árbol de archivos, no el relato de quien lo construyó.</p>
+      <p>¿Por qué un modelo distinto por ayudante? Porque cada trabajo pide algo distinto: escribir un test contra un estándar no necesita al modelo más caro, y juzgar un cambio entero contra una lista de reglas sí lo agradece. Cada agente lleva su <code>model</code> y su <code>effort</code> escritos en su archivo. Y como cada uno tiene su propio contexto, el revisor juzga el árbol de archivos, no el relato de quien lo construyó.</p>
       <p class="small">Un detalle del plan: los agentes de un plugin ignoran los campos <code>hooks</code>, <code>mcpServers</code> y <code>permissionMode</code> de su archivo. Por eso todo el control sobre ellos va por los guardias del plugin, no por el agente.</p>
 
       <h3>Hook clásico</h3>
@@ -1297,7 +1296,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
       <h2>Glosario</h2>
       <dl class="gloss">
         <dt>Adoptado</dt><dd>Un repo con su propio manifiesto que cumple el mínimo de adopción que revisa <code>/arnes:init --check</code>.</dd>
-        <dt>Agente / subagente</dt><dd>Un ayudante que Claude llama para un trabajo puntual, con su propio contexto, sus herramientas y su modelo. El arnés trae dev, test-writer, reviewer y test-runner.</dd>
+        <dt>Agente / subagente</dt><dd>Un ayudante que Claude llama para un trabajo puntual, con su propio contexto, sus herramientas y su modelo. El arnés trae dev, test-writer y reviewer.</dd>
         <dt>Arnés</dt><dd>Lo que se le pone alrededor a Claude Code para que trabaje siempre igual: recetas, ayudantes, guardias y scripts.</dd>
         <dt>Bandera</dt><dd>El archivo <code>.tmp/harness/gate/&lt;ws&gt;.json</code> que dice que un workspace, tal como está, pasó la verificación. Vence a los 30 minutos o con cualquier cambio. Sin ella no hay commit.</dd>
         <dt>Bloqueante</dt><dd>Un hallazgo del revisor que cae en la lista cerrada de reglas. Con bloqueantes, ship no entrega.</dd>

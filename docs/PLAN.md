@@ -85,7 +85,6 @@ agentic-harness/
         dev.md                           # sonnet; lee CLAUDE.md del workspace; no escribe tests
         reviewer.md                      # opus; solo lectura; lista cerrada + cumplimiento de criterios + riesgo
         test-writer.md                   # sonnet; contra el estándar de tests del repo
-        test-runner.md                   # haiku; corre y reporta; separa preexistentes
       hooks/hooks.json                   # hooks clásicos, todos `node "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/<x>.js"` (ruta entre comillas: en Windows la caché puede tener espacios)
       scripts/
         lib/manifest.js                  # busca harness.json subiendo desde el `cwd` del hook; compone repo + carpeta (§5); valida contra el schema; resuelve workspace por ruta
@@ -328,7 +327,7 @@ Si hay algo, avisa en una línea, `arnes: hay trabajo en marcha (build de front 
   - **verify y review no se detienen entre etapas.** Cuando verify quedó en rojo por la caché de Next y preguntó si borraba la carpeta, la persona dijo que sí. verify borró, verificó en verde y cerró el turno con "falta revisar". Ahora, dentro de un issue en curso (`plan.md` con `Aprobado:`), verify en verde sigue con review aunque el turno haya empezado con una respuesta de la persona. review sin bloqueantes cierra con `Listo para /arnes:ship`, y con bloqueantes sigue con la corrección hasta el tope. El Stop agrega un aviso de una línea cuando hay bandera vigente sin revisión (§6.2).
 
 ### 6.4 Agentes
-`dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet), `test-runner` (haiku; rojos preexistentes por ruta y nombre desde `tests/known-failures.txt` del repo si existe). El clasificador desaparece: el orquestador decide si hace falta plan.
+`dev` (sonnet, Read/Write/Edit/Bash/Glob/Grep; lee `CLAUDE.md` y rules del workspace; no escribe tests; devuelve contrato resultante y criterios cubiertos con `archivo:línea`), `reviewer` (opus, solo lectura con Read, Grep y Glob, sin Bash; lista cerrada de bloqueantes tomada de `.claude/rules/*` del repo + genéricas: contrato back/front, transacción multi-tabla, migración sin down, criterio no implementado, string de negocio mágico, secreto en código), `test-writer` (sonnet). Hubo un `test-runner` (haiku) que corría los tests y copiaba la salida; se borró en la ronda de menos turnos (2026-10-21), porque verify corre `ci-gate.js` directo desde hace dos versiones. El clasificador desaparece: el orquestador decide si hace falta plan.
 
 Cambio de la fase 3 (2026-10-20): `agents/dev.md` (sonnet, effort medium, 72 líneas) lee `CLAUDE.md`, las rules y el manifiesto, y no escribe tests. Corre typecheck una vez y lint de sus archivos al final. Devuelve seis secciones: Contrato resultante, Archivos tocados, Desviaciones, Cobertura con `archivo:línea`, Riesgo y Pendiente para verify. Los cuatro agentes llevan su `model` y su `effort` en el frontmatter.
 
