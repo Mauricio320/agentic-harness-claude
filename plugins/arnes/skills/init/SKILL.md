@@ -24,7 +24,7 @@ Anota el inicio, `node "S/lib/timeline.js" start init`, y al cerrar `end init --
 - `node "S/init-draft.js"`: los manifiestos que faltan, con lo que detectó de cada repo (comandos, specs, lo prohibido, el contract y la rama de cada repo en la composición). De los que ya existen dice que no se tocan.
 - **Si dice que una rama remota trae el manifiesto que falta**, detente: di "<repo> está en <rama>, que no trae la configuración del arnés; <rama remota> sí la trae. Cámbiate a esa rama y vuelve a correr /arnes:init." No propongas nada desde cero.
 - Si algún manifiesto ya existe: `node "S/adopt.js" complete`, lo que le falta a cada uno.
-- `node "S/adopt.js" probe`, `hooks`, `baseref`, `permissions`, `worktreeinclude`, `claude-md`, `folder-settings` (solo en una carpeta multi-repo) y `baseline <ws>` por workspace: qué haría cada paso, sin hacerlo.
+- `node "S/adopt.js" probe`, `hooks`, `baseref`, `permissions`, `worktreeinclude`, `claude-md`, `folder-settings` (solo en una carpeta multi-repo), `baseline <ws>` por workspace y `graph`: qué haría cada paso, sin hacerlo.
 
 ### 2. Lo que se escribe sin preguntar
 
@@ -38,7 +38,7 @@ Un solo mensaje, con un bloque numerado. Cada punto dice qué se escribe y dónd
 - **La composición de la carpeta**: los repos, la rama de cada uno, qué provee y qué consume cada uno, y la misma rama del issue en todos con `feature/`.
 - **Lo que le falta a una configuración existente**, un punto por campo: las convenciones (comentarios, `any`, `console.`, TODO), los comandos que tocan una base o reescriben archivos, que se le prohíben al modelo, y el contract.
 - **La sincronización después del build** (`afterBuild`), si el repo tiene scripts de sync: el build y la sincronización corren solos al cerrar cada build, solo si el `.env` apunta a la base local. Di el patrón de base local en palabras (host y puerto) y pide confirmarlo.
-- **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace y **la línea base de tests** de cada repo con el árbol limpio.
+- **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace, **la línea base de tests** de cada repo con el árbol limpio y, si graphify está instalado, **el grafo de código** de cada repo, que va después de la línea base. Sin graphify, una línea con cómo instalarlo, `uv tool install graphify`, y sigue sin él.
 - **El .worktreeinclude** de cada repo con `.env`, para que los worktrees que crea Claude Code (`claude --worktree`, el escritorio) nazcan con sus `.env`; se commitea en el repo.
 - **Quitar `worktree.baseRef: "head"`** de un `.claude/settings.json` versionado, si lo tiene: un worktree de Claude Code tiene que nacer de origin, no del HEAD de quien lo abre.
 - **Un flag que le falta al comando de test** si probe lo dice.
@@ -49,7 +49,7 @@ Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.
 
 Aplica lo aceptado, sin volver a preguntar:
 - `node "S/init-draft.js" --write` escribe los manifiestos que faltan y no toca los existentes. Pisar uno existente es `--force <ruta>`, solo si la persona lo pidió para ese archivo. Las correcciones que dictó, con Edit.
-- `node "S/adopt.js" complete --only <campo> --write` por cada campo aceptado; `hooks --remove`; `baseref --remove`; `permissions --write`; `worktreeinclude --write`; `claude-md --write`; `folder-settings --write`; `baseline <ws> --write`.
+- `node "S/adopt.js" complete --only <campo> --write` por cada campo aceptado; `hooks --remove`; `baseref --remove`; `permissions --write`; `worktreeinclude --write`; `claude-md --write`; `folder-settings --write`; `baseline <ws> --write`; después de la línea base, `graph --write`, y di cuánto tardó.
 - Valida con `node "S/lib/manifest.js" show`. Si no valida, corrígelo antes de seguir.
 - Si un paso no corre porque falta una dependencia, dilo con el comando: instalarla es de la persona. init no instala ni commitea.
 

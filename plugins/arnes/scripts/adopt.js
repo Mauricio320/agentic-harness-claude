@@ -24,6 +24,9 @@
 //                           contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
+//   graph [--write]         el grafo de graphify de cada repo adoptable y, en una carpeta, el merge en
+//                           <raíz>/graphify-out, como el paso graph de setup, con el tiempo que tardó;
+//                           sin graphify, cómo instalarlo (uv tool install graphify). Idempotente
 //   baseref [--remove]      los .claude/settings.json versionados del proyecto y de cada repo que fijan
 //                           worktree.baseRef en "head": un worktree nativo tiene que nacer de
 //                           origin/<rama por defecto>, no del HEAD de quien lo abre. --remove lo quita
@@ -286,6 +289,11 @@ function complete(project, only, write) {
   return 0;
 }
 
+function graph(project, write) {
+  const { buildGraph } = require('./setup.js');
+  return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write);
+}
+
 // Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
 function baseRefs(project) {
   return settingsFiles(project).filter((f) => {
@@ -424,15 +432,15 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
   const run = {
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
-    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
+    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   process.exit(run[mode]());
 }
