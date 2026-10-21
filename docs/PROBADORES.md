@@ -72,15 +72,39 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
 
 1. Haz `git fetch` y comprueba que cada repo esté en la rama que trae `.claude/harness.json`. Si un repo no lo tiene, init te dice en qué rama está y qué rama remota sí lo trae; cámbiate antes de seguir.
 2. Instala las dependencias del repo (`npm ci` o la que use): init no instala nada.
-3. Abre Claude Code en el repo, o en la carpeta que contiene varios, y corre `/arnes:init`. Detecta el stack, los comandos y el formato de los specs, muestra los borradores de `.claude/harness.json` y te pregunta lo que no puede inferir: las `riskPaths` de cada workspace y, en una carpeta, `contract` e `integration`. En una carpeta con back y front, declara `contract`: sin él, ship no sabe que el back va primero. Con tu visto bueno escribe los manifiestos y los valida. Si un manifiesto ya existe, no lo regenera: te muestra campo por campo lo que le falta (`conventions`, entradas de `forbidden`, `contract`), te pregunta y agrega solo lo que aceptes.
-4. Después, init ofrece lo determinista de la adopción y te pide un sí antes de escribir nada:
-   - prueba que la salida del test del manifiesto se pueda leer y, si no, te dice el flag que falta (`--verbose`, o `--reporters=default` si tu config de jest trae un reporter propio);
-   - quita de los `.claude/settings.json` los hooks del arnés anterior, que niegan lo que el arnés deja pasar;
-   - escribe los permisos de §3;
-   - en una carpeta multi-repo, escribe el borrador del `CLAUDE.md` de la carpeta, para que lo completes;
-   - con el árbol limpio, captura la línea base de tests y anota en `tests/known-failures.txt`, con la fecha de hoy, los rojos que ya había.
-   init no commitea: la línea base y las fallas conocidas las commiteas tú, con `gates:` al inicio del asunto.
-5. En una carpeta multi-repo, la composición rellena el remote y la rama de cada repo, y init escribe el `.gitignore` y, con tu sí, el `.claude/settings.json` con el marketplace fijado. Haz de la carpeta un repo (`git init`), commitea esos archivos y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
+3. Abre Claude Code en el repo, o en la carpeta que contiene varios, y corre `/arnes:init`. Mira todo antes de preguntar: detecta el stack, los comandos y el formato de los specs, lo que le falta a un manifiesto que ya existe y lo que haría cada paso de la adopción. Escribe sin preguntar el `.gitignore` de la carpeta, y te lo dice. No te pregunta lo que puede saber solo: los nombres, la rama de cada repo (donde vive su manifiesto, nunca la rama en que estés), la dirección del marketplace (la del plugin que instalaste) ni qué provee y qué consume cada repo. Después hace una sola ronda de preguntas, cada una con su recomendación. En academico, con los dos repos ya adoptados y sin composición, se ve así:
+
+   ```
+   Miré la carpeta academico. Ya agregué al .gitignore de la carpeta /api-academico/,
+   /academico-front/, /.tmp/, /.claude/settings.local.json y /graphify-out/.
+
+   Antes de escribir lo demás, confirma esto:
+
+   1. La composición de la carpeta, en .claude/harness.json: los dos repos en fix/adopcion-arnes,
+      que es donde vive su configuración; el back provee src/**/dto/** y el front consume
+      src/**/api/**; y la misma rama del issue en los dos, con feature/.
+      Recomiendo: sí, porque es lo que ya declaran los repos y lo que setup le deja a quien llega.
+   2. En api-academico, prohibirle al modelo los comandos que tocan una base y que todavía no lo
+      están: prisma migrate dev, prisma db push y cinco más.
+      Recomiendo: sí; esos los corres tú, sabiendo a qué base apunta tu .env.
+   3. En api-academico, que al cerrar cada build corran npm run build y npm run acl:sync, solo si
+      tu .env apunta a la base local (localhost o 127.0.0.1 en el puerto 3306).
+      Recomiendo: sí, si tu base local usa el 3306; si usa otro puerto, dime cuál.
+   4. Los permisos, para que no te pregunte por cada comando del arnés, en
+      .claude/settings.local.json, que no se commitea.
+      Recomiendo: sí.
+   5. El CLAUDE.md de la carpeta: un borrador con los repos y el flujo, que completas tú.
+      Recomiendo: sí; es lo que lee cada sesión al abrir la carpeta.
+   6. El .claude/settings.json de la carpeta, con el marketplace del arnés en la rama probadores,
+      como lo tienes instalado.
+      Recomiendo: sí, así quien clone la carpeta recibe los mismos plugins.
+
+   Responde «sí a todo», o dime los números que cambias.
+   ```
+
+   Con tu respuesta escribe todo, lo valida y cierra en pocas líneas: qué quedó escrito, lo que te toca (commitear la configuración de cada repo en su repo y subir el repo de carpeta) y cómo sigues: "escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship". En una carpeta con back y front, el contract hace que ship sepa que el back va primero.
+4. Lo determinista de la adopción entra en esa misma ronda: probar que la salida del test se lea (y el flag que falta, `--verbose` o `--reporters=default`), quitar los hooks del arnés anterior, los permisos de §3, el `CLAUDE.md` de la carpeta y, con el árbol limpio, la línea base de tests con los rojos que ya había anotados en `tests/known-failures.txt` con la fecha de hoy. init no commitea: la línea base y las fallas conocidas las commiteas tú, con `gates:` al inicio del asunto.
+5. En una carpeta multi-repo, haz de la carpeta un repo (`git init`), commitea lo que escribió init y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
 6. `/arnes:init --check` corre las ocho comprobaciones del mínimo de adopción (`docs/PLAN.md` §8). Cada una sale `ok`, `FALTA`, `MANUAL` (configuración del host git que no se ve desde local) o `NO ADOPTABLE` (un repo sin manifiesto propio, como uno PHP, que no bloquea).
 
 ## 5. Qué vas a ver
@@ -89,7 +113,7 @@ Pide el trabajo como siempre, sin comandos: "Implementa este issue: …". El mod
 
 ¿Y la rama? La rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear. Si ya estás en otra rama, el plan te pregunta si crea una nueva desde main o si construye ahí mismo, porque el pedido continúa ese trabajo. Con tu aprobación corre solo build, verify y review, sin detenerse entre etapas aunque te haga una pregunta en el camino. verify revisa primero las convenciones del manifiesto (comentarios, `as unknown as`, `console.`, TODO), y el dev las corrige antes de entregar. El commit y el push los pides tú con `/arnes:ship`.
 
-Los comandos que tocan una base no los corre la sesión: los scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre, y las escrituras de prisma, typeorm o knex, van en `forbidden`, y el guard los niega. Córrelos tú desde tu terminal, sabiendo contra qué base apunta tu `.env`: un proxy en `127.0.0.1` puede ser QA.
+Los comandos que tocan una base no los corre la sesión: los scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre, y las escrituras de prisma, typeorm o knex, van en `forbidden`, y el guard los niega. Córrelos tú desde tu terminal, sabiendo contra qué base apunta tu `.env`: un proxy en `127.0.0.1` puede ser QA. La excepción es la sincronización después del build (`afterBuild`), si la aceptaste en init: al cerrar cada build, el arnés corre el build y la sincronización solo si tu `.env` apunta a la base local del patrón, y te lo dice; si apunta a otro lado, no corre nada y te lo deja en "pendiente tuyo" con el host y el puerto que vio.
 
 Con `arnes-ui`:
 - **La banda**, una línea sobre el prompt: la etapa y su tiempo, los agentes vivos, por workspace las marcas del gate, los archivos editados, la bandera y los worktrees sin integrar, y al final el reloj y el costo de la sesión. Por ejemplo: `arnes ▸ Revisando 00:42 · reviewer opus 00:42 · api ✓tsc ✓tests ⏳review ✎3 ✓flag · 42:13 $3.10`.
@@ -106,7 +130,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 ## 6. Comandos
 
 - **Solo los invocas tú:** `/arnes:plan --trivial <pedido>`, `/arnes:setup [--check] <url> [destino]`, `/arnes:init [--check]`, `/arnes:ship [--solo-commit] [<rama>]`, `/arnes:worktree open <slug> | integrate <slug> | close <slug> | list | pending` y `/arnes:sync`.
-- **Los carga el modelo cuando corresponde, y también puedes invocarlos:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`.
+- **Los carga el modelo cuando corresponde:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`. No hace falta invocarlos: escribe tu pedido en lenguaje normal.
 - **Del mod:** `/arnes-panel` abre o cierra el panel.
 
 ## 7. Limitaciones conocidas de 0.6.2
@@ -116,17 +140,31 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **La bandera de verificación** dura 30 minutos y cubre solo los archivos tocados. La garantía real es el CI.
 - **Un hook pre-commit que reescribe archivos**, como `eslint --fix`, hace que ship se detenga con FALLA después del commit, con los archivos que cambiaron. Decides tú. Un tocado que ship dejó fuera del commit a propósito sale como nota, no como falla.
 - **Errores en tiempo de ejecución.** Lo que solo se ve arrancando la app, como un error de inyección de dependencias, no lo detectan ni tsc ni jest.
-- **Las rondas de review.** La primera revisa todo en opus. Las siguientes revisan solo lo que cambió, en sonnet, y vuelven a revisar todo si el cambio salió de lo revisado. Hay dos rondas de corrección como máximo: en el tope, el arnés se detiene y te lo reporta.
+- **Las rondas de review.** La primera revisa todo en opus. Las siguientes revisan todo lo que cambió desde la anterior, archivos nuevos incluidos, en sonnet, y vuelven a revisar todo en opus si el cambio toca `riskPaths` o es más grande que lo que se revisó. Hay dos rondas de corrección como máximo: en el tope, el arnés se detiene y te lo reporta.
 - **El typecheck tras cada edición** solo corre si el manifiesto declara `commands.typecheckFast`. Si no, espera a verify.
 - **Los worktrees de `/arnes:worktree`** nacen con `node_modules` enlazado al del checkout principal y con sus propias copias de `.env`, con los puertos desplazados (10 el primer set, 20 el segundo): open imprime el mapa, `set talleres: api 3003 → 3013, front 3000 → 3010`.
-  - Para probar la app, arráncala desde la carpeta del worktree; su front ya apunta a su back.
+  - Para probar la app, arráncala desde la carpeta del worktree; su front ya apunta a su back. Si open avisó que Prisma carga el `.env` del principal (su cliente generado vive en `node_modules`, que está enlazado), arráncala con `node --env-file=.env <entrada>`: si no, toma los puertos y la base del principal.
   - Si el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma`, ábrelo con `--no-link`, que instala adentro. Borra el worktree solo con integrate o close, que quitan el enlace primero.
 - **La medición.** El costo por etapa lo anota `arnes-ui`: sin el mod, la timeline trae solo tiempos. Una etapa que empezó antes de que el mod cargara no lleva costo, y el costo de un agente incluye lo que gastaron los que corrieron al mismo tiempo. La espera de la persona va desde que el turno cerró hasta tu siguiente mensaje: si escribes mientras un agente trabaja en segundo plano, ese rato cuenta como espera.
 - **Avisos de `arnes-ui`.** En algunas terminales los toasts no se ven, como en la de Muxentra dentro de VS Code. Los avisos importantes salen también en el transcript. Falta confirmar en una sesión real la corrección de la línea `Plan:` del panel.
 - **Los mods** solo cargan en sesiones locales, y `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop.
 - **Instalado desde una rama,** `/arnes:init --check` da FALTA en la comprobación 6, que pide el plugin fijado a un tag `vX.Y.Z`. Es lo esperado mientras se prueba la rama.
 
-## 8. Reportar un problema
+## 8. Preguntas frecuentes
+
+**¿El arnés hace pull de main?** No. El pull es tuyo. Al empezar, el plan hace `git fetch` y te dice si tu rama va atrás de `origin/main`, con cuántos commits. Si estás en main, al aprobar el plan la rama del issue sale de `origin/main` actualizado, y main solo avanza si es fast-forward y no tienes cambios a medias. Si ya empezaste una rama y quieres traerle lo nuevo de main, `/arnes:sync` lo hace con un respaldo, y te deja la vuelta atrás.
+
+**¿Cuándo se entrega?** Cuando review termina con "Listo para /arnes:ship". `/arnes:ship --solo-commit` hace un commit por repo, el back primero, y se detiene. `/arnes:ship` a secas, además, hace push y abre los MR, después de pedirte un sí explícito. Nadie entrega por ti.
+
+**¿Cuándo se crea la rama del issue?** No al abrir la sesión ni mientras se planifica: la crea el arnés al aprobar el plan, en todos los repos del plan con el mismo nombre. ship la reutiliza al entregar, y solo la crea él si nadie la creó antes.
+
+**¿Cuándo uso un worktree, y cómo?** Cuando dos tareas del mismo issue tocarían los mismos archivos a la vez, o cuando otra sesión ya trabaja en esta carpeta (al abrir, el arnés te avisa). Si las tareas tocan archivos distintos, no hace falta.
+- Ábrelo desde la rama del issue: `/arnes:worktree open <tarea>`. Te dice la carpeta y el mapa de puertos (`set talleres: api 3003 → 3013`).
+- Trabaja ahí abriendo Claude Code en esa carpeta: verifica y commitea adentro, en su rama `wt/...`.
+- Para probar la app, arráncala desde esa carpeta, con sus puertos. Si al abrir te avisó que Prisma carga el `.env` del principal, arráncala con `node --env-file=.env <entrada>`, por ejemplo `node --env-file=.env dist/main`.
+- Al terminar, desde la sesión del checkout principal: `/arnes:worktree integrate <tarea>`. Nunca lo borres a mano: integrate quita primero el enlace de `node_modules`, y un borrado a mano puede llevarse el `node_modules` del principal.
+
+## 9. Reportar un problema
 
 Abre un issue en https://gitlab.com/preupdv/apps/agentic-harness/-/issues con:
 - **Qué pasó:** qué pediste, qué esperabas y el texto exacto que viste, más la salida de `claude --version` y de `claude plugin list`.
