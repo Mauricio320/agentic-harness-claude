@@ -7,11 +7,14 @@
 //   blobs        { ruta: el blob que git guardaría (git hash-object, que normaliza los finales de
 //                línea como el commit) } de cada tocado; ship comprueba con ellos que el commit
 //                lleva lo verificado, aunque un hook pre-commit reescriba
+//   base         el ref contra el que se calcularon los tocados: HEAD, o el primer padre de un merge
+//                ya commiteado (integrate de un worktree, sync), que verify pasa con --base para
+//                verificar lo que entró con el merge
 // Vigente = existe, result "pass", mismo HEAD, mismos touchedHash y contentHash, y menos de 30
 // minutos. La huella cubre solo los tocados, no el árbol entero: el CI garantiza la honestidad, no
 // la bandera (docs/PLAN.md §6.1, §11).
 //
-// Uso: node gate-flag.js write <ws> --result pass|fail
+// Uso: node gate-flag.js write <ws> --result pass|fail [--base <ref>]
 //      node gate-flag.js check <ws>
 // Exit: write 0 escrita · check 0 vigente · check 1 ausente, vencida o en fail (motivo en
 //       stderr) · 2 uso inválido, sin manifiesto, workspace desconocido o no adoptable, o git falló
@@ -36,10 +39,10 @@ function flagPath(project, ws) {
 
 // touched() con el proyecto excluye .tmp/harness/: si no, escribir la bandera dentro del
 // workspace cambiaría la lista de tocados y la dejaría vencida al instante.
-function stateOf(project, ws) {
+function stateOf(project, ws, base = 'HEAD') {
   const head = git(ws.gitRoot, ['rev-parse', 'HEAD']);
   if (head.status !== 0) return { error: `git rev-parse HEAD falló en ${ws.name}: ${firstLine(head.stderr)}` };
-  const t = touched(ws, 'HEAD', project);
+  const t = touched(ws, base, project);
   if (t.error) return { error: t.error };
   const sha = (data) => crypto.createHash('sha256').update(data).digest('hex');
   const file = (f) => path.join(ws.dir, f);
@@ -59,12 +62,17 @@ function blobsOf(ws, files) {
   return { blobs: Object.fromEntries(files.map((f, i) => [f, oids[i]])) };
 }
 
-function writeFlag(project, ws, result, now = new Date()) {
-  const s = stateOf(project, ws);
+function writeFlag(project, ws, result, now = new Date(), base = 'HEAD') {
+  if (base !== 'HEAD') {
+    const r = git(ws.gitRoot, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]);
+    if (r.status !== 0) return { error: `base irresoluble en ${ws.name}: ${base}` };
+    base = r.stdout.trim();
+  }
+  const s = stateOf(project, ws, base);
   if (s.error) return s;
   const b = blobsOf(ws, s.files);
   if (b.error) return b;
-  const flag = { head: s.head, touchedHash: s.touchedHash, contentHash: s.contentHash, blobs: b.blobs, result, at: now.toISOString() };
+  const flag = { head: s.head, base, touchedHash: s.touchedHash, contentHash: s.contentHash, blobs: b.blobs, result, at: now.toISOString() };
   const file = flagPath(project, ws);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(flag, null, 2) + '\n');
@@ -84,7 +92,7 @@ function checkFlag(project, ws, now = new Date()) {
   if (flag.result !== 'pass') return { ok: false, reason: `la última verificación de ${ws.name} terminó en "${flag.result}"` };
   const age = now - new Date(flag.at);
   if (!(age >= 0 && age < MAX_AGE_MS)) return { ok: false, reason: `bandera vencida (${Math.round(age / 60000)} min; máximo 30)` };
-  const s = stateOf(project, ws);
+  const s = stateOf(project, ws, flag.base || 'HEAD');
   if (s.error) return s;
   if (s.head !== flag.head) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
   if (s.touchedHash !== flag.touchedHash) return { ok: false, reason: 'la lista de archivos tocados cambió desde la verificación' };
@@ -125,13 +133,13 @@ module.exports = { MAX_AGE_MS, stateOf, flagPath, writeFlag, checkFlag, turnPath
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { result: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { result: { type: 'string' }, base: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`gate-flag: ${e.message}`);
   }
   if (args.values.help) help(__filename);
   const [mode, wsName] = args.positionals;
-  if (!['write', 'check'].includes(mode) || !wsName) die('uso: gate-flag.js write <ws> --result pass|fail | check <ws>');
+  if (!['write', 'check'].includes(mode) || !wsName || (mode === 'check' && args.values.base)) die('uso: gate-flag.js write <ws> --result pass|fail [--base <ref>] | check <ws>');
   if (mode === 'write' && !RESULTS.includes(args.values.result)) die('gate-flag: write necesita --result pass|fail');
 
   const project = requireProject();
@@ -139,9 +147,9 @@ function main() {
   if (!ws.adoptable) die(`${ws.name}: workspace no adoptable todavía (sin .claude/harness.json propio)`);
 
   if (mode === 'write') {
-    const r = writeFlag(project, ws, args.values.result);
+    const r = writeFlag(project, ws, args.values.result, new Date(), args.values.base || 'HEAD');
     if (r.error) die(`gate-flag: ${r.error}`);
-    console.log(`bandera ${r.flag.result} para ${ws.name} en ${r.file}`);
+    console.log(`bandera ${r.flag.result} para ${ws.name} en ${r.file}${r.flag.base !== 'HEAD' ? ` · contra ${r.flag.base.slice(0, 10)}` : ''}`);
     process.exit(0);
   }
   const r = checkFlag(project, ws);

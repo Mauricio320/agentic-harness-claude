@@ -40,7 +40,7 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
    - Lista los archivos en conflicto y resuelve cada uno leyendo los dos lados. Nunca uses `checkout --ours` ni `--theirs` en masa.
    - Verifica el workspace (skill verify) y commitea el merge con `git commit --no-edit`.
    - Vuelve a correr `integrate <slug>` para borrar el worktree y cerrar el registro.
-4. Después de integrar, verifica la rama del issue con la skill verify: el merge juntó trabajo que se verificó por separado.
+4. Después de integrar, verifica lo que entró con el merge: carga la skill verify con `--base <primer padre>`, el de `git -C "<carpeta>" rev-parse HEAD^1`. Contra HEAD no vería nada, porque el merge ya está commiteado.
 5. Di en una línea cómo quedó el registro (`list --all`).
 
 ## close <slug>

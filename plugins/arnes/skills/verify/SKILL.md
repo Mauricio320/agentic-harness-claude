@@ -1,11 +1,14 @@
 ---
 name: verify
+argument-hint: "[--base <commit>]"
 description: Verificar, probar o comprobar un cambio de código antes de cerrar el turno o de commitear. Por cada workspace tocado corre el typecheck contra el HEAD, el lint de los tocados, los specs de test-select y la línea base de tests; escribe tests para el código nuevo sin spec y, si todo pasa, la bandera de verificación.
 ---
 
 # arnes:verify
 
 Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte.
+
+**Después de un merge ya commiteado** (integrate de un worktree, sync), `$ARGUMENTS` trae `--base <commit>`, el primer padre del merge. Contra HEAD no hay nada que verificar: usa ese base en `touched-files.js --workspaces --base <commit>`, en `ci-gate.js --base <commit>` y en `gate-flag.js write <ws> --result pass --base <commit>`. Sin él, el base es HEAD.
 
 ## Pasos
 
