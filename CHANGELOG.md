@@ -2,6 +2,25 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.0] - sin etiquetar
+
+La fase de setup, por el ciclo dos del issue de talleres con la 0.5.3 desde la raíz de academico: el flujo salió como debía, y los tropiezos del compañero fueron todos de preparación (`docs/PLAN.md` §10). Rama `feature/setup`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods.
+
+### Añadido
+- `/arnes:setup <url o ruta del repo de carpeta> [destino]`, que solo invoca la persona, y `scripts/setup.js` con sus pasos idempotentes: `clone`, `repos`, `deps`, `env`, `probe`, `baseline`, `graph`, `claude-md`, `permissions` y `close`. Sin `--write` cada paso dice qué haría; `/arnes:setup --check` no toca nada. Nunca corre un comando de `forbidden` ni escribe credenciales (`docs/PLAN.md` §8).
+- El repo de carpeta: la composición, el `CLAUDE.md` de la carpeta, `.claude/settings.json` con el marketplace fijado y un `.gitignore` con los repos anidados, versionados en un repo propio de la carpeta.
+- `remote` y `branch` por repo en el schema de la composición. `init-draft` los rellena, sin usuario ni token, y escribe el `.gitignore` de la carpeta.
+- `adopt.js folder-settings`, que escribe el `settings.json` del repo de carpeta con `extraKnownMarketplaces` y `enabledPlugins`.
+- `adopt.js complete`, y su paso en init, para completar un manifiesto existente campo por campo: `conventions`, `forbidden` y `contract`.
+- `hooks/agents.js` en `SubagentStart` y `SubagentStop`: el registro de los agentes `arnes:*` vivos.
+
+### Cambiado
+- `ship.js committed` compara contra la bandera solo los archivos que entraron al commit. Un tocado que quedó fuera es una nota, `quedó sin commitear: <archivo>`, y no una FALLA.
+- `arnes-ui` muestra una corrida que cerró con ship en otra sesión como "última corrida", en una línea con sus etapas y costo, y deja la cronología vacía hasta el próximo `start plan`.
+- El Stop avisa en una línea y no bloquea si hay un build abierto en la timeline o un agente del arnés corriendo.
+- `.gitlab-ci.yml` fija el CLI en 2.1.305 y suma el job `plugin-test` con `claude plugin test` de `arnes-ui` y `arnes-mod`.
+- `docs/PROBADORES.md` empieza por setup, e init queda para adoptar un proyecto sin manifiesto. El README y `docs/PLAN.md` §8 registran el repo de carpeta, y §10 las medidas del ciclo dos.
+
 ## [0.5.3] - sin etiquetar
 
 Tercera ronda de correcciones antes del piloto, por la corrida de un compañero de front con la 0.5.2 en su Mac: el mismo CRUD de talleres sobre academico (`docs/PLAN.md` §10). Rama `feature/pre-piloto-3`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods; `arnes-mod` con 2.1.305.
