@@ -421,7 +421,7 @@ function checkReview(project) {
   return out;
 }
 
-module.exports = { RISK, rulePaths, checkReview, rulesBlock, numbered };
+module.exports = { RISK, MAX_DIFF_LINES, rulePaths, checkReview, rulesBlock, numbered, withoutFrontmatter };
 
 function main() {
   let args;

@@ -6,7 +6,10 @@
 //          escribe .tmp/harness/build/<ws>-input.md (o <ws>-test-writer-input.md) con:
 //          - la carpeta y los comandos del manifiesto, las riskPaths y los forbidden;
 //          - para el dev, el comando de convenciones si el workspace las declara;
-//          - para el test-writer, los archivos de --files, specPattern y la ruta del spec de cada uno;
+//          - para el test-writer, los archivos de --files, specPattern, la ruta del spec de cada uno y
+//            el contenido de cada archivo, hasta 400 líneas como el diff de review.js (uno más largo
+//            se nombra para leerlo aparte);
+//          - para el dev, el CLAUDE.md del repo y el del workspace, sin frontmatter;
 //          - el contrato del back, textual, si el workspace consume uno (--contrato, o por defecto
 //            .tmp/harness/build/contrato.md);
 //          - el texto de las reglas de .claude/rules que aplican a los archivos previstos del plan
@@ -28,7 +31,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { help, die } = require('./lib/exec.js');
-const { rulesBlock } = require('./review.js');
+const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
 const { localDb } = require('./lib/database.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,5}\b/g;
@@ -89,6 +92,33 @@ function specOf(ws, file) {
 
 const list = (v) => [].concat(v || []);
 
+// El contenido de cada archivo para el test-writer, para que no tenga que abrirlo: entero hasta el
+// tope de líneas del diff de review; uno más largo, o que no se lee, se nombra para leerlo con Read.
+function contents(ws, files) {
+  const out = [];
+  for (const f of files) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(ws.dir, f), 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '');
+    } catch {
+      out.push(`### ${f}`, '', 'No se pudo leer: ábrelo con Read.', '');
+      continue;
+    }
+    const n = text.split('\n').length;
+    if (n > MAX_DIFF_LINES) out.push(`### ${f}`, '', `Tiene ${n} líneas, más que el tope de ${MAX_DIFF_LINES}: léelo entero con Read.`, '');
+    else out.push(`### ${f}`, '', '````', text, '````', '');
+  }
+  return out;
+}
+
+// El CLAUDE.md del repo y el del workspace, sin frontmatter: Claude Code solo lo carga en el agente
+// cuando este lee un archivo de esa carpeta, y el dev lo necesita antes de escribir.
+function claudeMd(ws) {
+  const files = [...new Set([ws.repo, ws.dir].map((d) => path.join(d, 'CLAUDE.md')))].filter((f) => fs.existsSync(f));
+  if (!files.length) return ['No hay CLAUDE.md en el workspace.', ''];
+  return files.flatMap((f) => [`### ${posix(f)}`, '', withoutFrontmatter(fs.readFileSync(f, 'utf8')), '']);
+}
+
 function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   const [ws] = selectWorkspaces(project, [wsName]);
   if (!ws.adoptable) die(`build: ${ws.name} no es adoptable (sin manifiesto propio)`);
@@ -122,7 +152,9 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   ];
   if (tests) {
     out.push(`## Archivos para spec`, '', `specPattern: ${list(ws.specPattern).join(', ') || 'no declarado'}`, ...targets.map((f, i) => `- ${f} → ${specs[i] || '(sin specPattern)'}`), '');
+    out.push('## El código de cada archivo', '', ...contents(ws, targets));
   } else {
+    out.push('## CLAUDE.md del workspace', '', ...claudeMd(ws));
     out.push('## Archivos previstos en el plan', '', ...(targets.length ? targets.map((f) => `- ${f}`) : ['- el plan no los lista']), '');
   }
   if (consumes) {

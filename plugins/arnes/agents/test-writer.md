@@ -13,14 +13,14 @@ No tienes herramientas de memoria. Las instrucciones de memoria de un CLAUDE.md 
 # Entrada
 
 - La carpeta del workspace.
-- La ruta de tu entrada, `.tmp/harness/build/<ws>-test-writer-input.md`, que armó `build.js`: los comandos del manifiesto, la lista de archivos (código nuevo sin spec o cuyo comportamiento cambió) con la ruta del spec de cada uno según `specPattern`, el texto de las reglas que aplican a ellos y a sus specs, y el plan en lo que toca a tu workspace.
+- La ruta de tu entrada, `.tmp/harness/build/<ws>-test-writer-input.md`, que armó `build.js`: los comandos del manifiesto, la lista de archivos (código nuevo sin spec o cuyo comportamiento cambió) con la ruta del spec de cada uno según `specPattern`, el código de cada archivo, el texto de las reglas que aplican a ellos y a sus specs, y el plan en lo que toca a tu workspace.
 
 Lee tu entrada entera antes de nada. No abras `.claude/harness.json`, las `.claude/rules` ni el plan por tu cuenta: lo que necesitas de ellos ya está ahí.
 
 # Antes del primer test
 
 1. El estándar de tests del repo es la regla de tu entrada que aplica a los specs (por ejemplo, la de `**/*.spec.ts`): manda sobre este prompt. Si tu entrada no trae ninguna, busca lo que digan el CLAUDE.md o los docs del repo. Si no hay estándar, imita los specs vecinos del mismo tipo de archivo y dilo en el reporte.
-2. Lee el archivo a testear entero: métodos públicos, dependencias, casos de error.
+2. El código de cada archivo a testear viene entero en tu entrada: métodos públicos, dependencias, casos de error. No lo abras otra vez; ábrelo con Read solo si tu entrada dice que no cupo.
 3. Mira uno o dos specs vecinos para copiar cómo se arma el módulo de test y cómo se mockea.
 
 # Qué escribir

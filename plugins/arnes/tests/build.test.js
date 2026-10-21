@@ -92,6 +92,28 @@ test('input del test-writer: los archivos con la ruta de su spec y las reglas de
   assert.doesNotMatch(md, /convenciones, antes de entregar/);
 });
 
+test('input del test-writer trae el código de cada archivo hasta el tope; el del dev, el CLAUDE.md sin frontmatter', () => {
+  const root = folder();
+  h.write(root, 'api/src/talleres/talleres.service.ts', 'export class TalleresService {\r\n  listar() {}\r\n}\r\n');
+  h.write(root, 'api/src/grande.ts', Array.from({ length: 401 }, (_, i) => `const x${i} = ${i};`).join('\n'));
+  let r = build(root, ['input', '--ws', 'api', '--para', 'test-writer', '--files', 'src/talleres/talleres.service.ts', '--files', 'src/grande.ts', '--files', 'src/no-existe.ts']);
+  assert.equal(r.status, 0, r.stderr);
+  const md = read(root, 'api-test-writer-input.md');
+  assert.match(md, /## El código de cada archivo\n\n### src\/talleres\/talleres\.service\.ts\n\n````\nexport class TalleresService \{\n {2}listar\(\) \{\}\n\}\n````/);
+  assert.match(md, /### src\/grande\.ts\n\nTiene 401 líneas, más que el tope de 400: léelo entero con Read\./);
+  assert.match(md, /### src\/no-existe\.ts\n\nNo se pudo leer: ábrelo con Read\./);
+  assert.doesNotMatch(md, /const x400/);
+
+  h.write(root, 'api/CLAUDE.md', '---\ndescription: reglas\n---\n# api\n\nNada de lógica en los controladores.\n');
+  r = build(root, ['input', '--ws', 'api']);
+  assert.equal(r.status, 0, r.stderr);
+  const dev = read(root, 'api-input.md');
+  assert.match(dev, /## CLAUDE\.md del workspace\n\n### .*api\/CLAUDE\.md\n\n# api\n\nNada de lógica en los controladores\./);
+  assert.doesNotMatch(dev, /description: reglas/);
+  assert.match(read(root, 'api-input.md'), /CLAUDE\.md del workspace/);
+  assert.match(build(root, ['input', '--ws', 'front']).status === 0 && read(root, 'front-input.md'), /No hay CLAUDE\.md en el workspace\./);
+});
+
 test('usos inválidos → 2', () => {
   const root = folder();
   for (const args of [[], ['input'], ['otro', '--ws', 'api'], ['input', '--ws', 'nadie'], ['input', '--ws', 'api', '--para', 'x'], ['input', '--ws', 'api', '--para', 'test-writer'], ['input', '--ws', 'api', '--files', 'a.ts']]) {
