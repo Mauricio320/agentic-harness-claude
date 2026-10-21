@@ -26,6 +26,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - la "rama propuesta" del check;
    - una corta en kebab-case a partir del título de `.tmp/harness/plan.md` o del pedido de la persona.
 2. Corre `node "S/worktree-ledger.js" pending --target <rama>`, con el prefijo incluido. Si sale con 1, di qué worktrees siguen abiertos, anota `end ship --result fail --detail "worktrees sin integrar"` y termina: falta `/arnes:worktree integrate <slug>`.
+   - **En un worktree nativo de Claude Code**, la rama es la del worktree, y entregar es el push y el MR, no un merge local: `ship.js branch` la reutiliza.
 3. Corre `node "S/ship.js" branch <rama>`. El prefijo del manifiesto se agrega solo. Si plan ya la creó, la reutiliza; crearla aquí queda solo para cuando nadie la creó antes.
 4. Si sale con 1, muestra el motivo y termina. Nunca muevas un HEAD a mano.
 

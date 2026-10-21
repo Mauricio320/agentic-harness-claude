@@ -18,6 +18,8 @@
 //           niega, como ship
 //   stay    la persona eligió construir en la rama actual: no la mueve, solo avisa si va atrás de
 //           origin/<defaultBranch> y ofrece /arnes:sync
+// En un worktree nativo de Claude Code (lib/worktree-nativo.js), la rama del issue es la del worktree:
+// check no pregunta y create no crea otra, solo la anotan.
 //   behind  al empezar plan, antes de que haya plan: git fetch de cada repo adoptable y, por cada uno
 //           cuya rama actual va atrás de origin/<defaultBranch>, una línea con cuántos commits y
 //           /arnes:sync para traerlos. Nunca hace pull
@@ -35,6 +37,14 @@ const { requireProject, harnessDir } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists } = require('./lib/branches.js');
 const { append } = require('./lib/timeline.js');
+const { nativeWorktree } = require('./lib/worktree-nativo.js');
+
+// En un worktree nativo de Claude Code, la rama del issue es la del worktree (worktree-<nombre> o la
+// que tenga): plan no crea otra ni pregunta, solo lo dice. → la línea, o null fuera de uno
+function nativeLine(ws) {
+  const w = nativeWorktree(ws.gitRoot);
+  return w ? `${ws.name}: estás en el worktree ${w.name}, en la rama ${w.branch}: esa es la rama del issue; no creo otra` : null;
+}
 
 const planFile = (project) => path.join(harnessDir(project), 'plan.md');
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -94,6 +104,11 @@ function check(project) {
   const name = nameOf(project, plan);
   let other = 0;
   for (const ws of workspaces(project, plan)) {
+    const nl = nativeLine(ws);
+    if (nl) {
+      console.log(nl);
+      continue;
+    }
     const f = fetch(ws);
     const s = stateOf(ws);
     console.log(`${ws.name}: en ${s.branch} · por defecto ${s.def}${s.dirty ? ` · ${s.dirty} archivo(s) sin commitear` : ''}${s.hasOrigin && s.behind ? ` · ${s.behind} commit(s) atrás de ${s.origin}` : ''}${f ? ` · ${f}` : ''}`);
@@ -121,8 +136,15 @@ function create(project, wanted, fromOther) {
   if (git(project.root, ['check-ref-format', '--branch', name]).status !== 0) die(`issue-branch: "${name}" no es un nombre de rama válido`);
   let failed = false;
   const done = [];
+  const native = [];
   for (const ws of workspaces(project, plan)) {
     const say = (m) => console.log(`${ws.name}: ${m}`);
+    const nl = nativeLine(ws);
+    if (nl) {
+      console.log(nl);
+      native.push(`${nativeWorktree(ws.gitRoot).branch} en ${ws.name}`);
+      continue;
+    }
     const f = fetch(ws);
     if (f) say(`${f}; sigo con lo que hay en local`);
     const s = stateOf(ws);
@@ -171,6 +193,12 @@ function create(project, wanted, fromOther) {
     if (r.status !== 0) die(`issue-branch: git switch -c ${name} falló en ${ws.name}: ${firstLine(r.stderr)}`);
     say(`crea ${name} desde ${from === 'HEAD' ? s.def : from} (${git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim()})`);
     done.push(ws.name);
+  }
+  if (native.length && !done.length) {
+    notePlan(project, `${native.join(', ')}: la del worktree nativo de Claude Code`);
+    append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `worktree nativo: ${native.join(', ')}` });
+    console.log(`rama: ${native.join(', ')}`);
+    return failed ? 1 : 0;
   }
   if (done.length) {
     notePlan(project, `${name}, creada al aprobar el plan en ${done.join(', ')}`);
