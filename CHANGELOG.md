@@ -2,6 +2,15 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.6] - sin etiquetar
+
+Ronda corta de cierre antes de publicar (`docs/PLAN.md` §6.4 y §7). Rama `feature/cierre-nativos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y una corrida con `claude -p --worktree` sobre un clon de api-academico con un bloqueante de revisión.
+
+### Corregido
+- El reporte del reviewer lo guarda el hilo principal: Claude Code no deja a un subagente escribir archivos de reporte. El reviewer vuelve a solo lectura (Read, Grep y Glob) y devuelve el reporte como texto; la skill review lo escribe en `.tmp/harness/review/report.md` antes de `mark`. `mark --clean` sigue para las revisiones sin hallazgos, y la regla de plan-guard sobre el reviewer queda como defensa.
+- ExitWorktree en un worktree nativo con trabajo sin subir dice qué hacer: subir la rama con `/arnes:ship`, o commitear y subir a mano; nunca integrate.
+- Los costos de las corridas de punta a punta de la 0.6.4 y la 0.6.5 en `docs/PLAN.md`: `total_cost_usd` de `claude -p --resume` es el acumulado de la sesión.
+
 ## [0.6.5] - sin etiquetar
 
 Ronda de worktrees nativos: en un repo solo, el arnés se monta sobre los worktrees que crea Claude Code (`claude --worktree`, el escritorio), y sus propios worktrees por set quedan para la carpeta multi-repo y las tareas de un mismo issue (`docs/PLAN.md` §7). Rama `feature/worktrees-nativos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y una corrida de punta a punta con `claude -p --worktree` sobre un clon de api-academico.

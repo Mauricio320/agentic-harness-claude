@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.5, sin etiquetar, en la rama `feature/worktrees-nativos`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta, y los worktrees que nacen usables. Para probarla, `docs/PROBADORES.md`. Ya existen:
+Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.6, sin etiquetar, en la rama `feature/cierre-nativos`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta, y los worktrees que nacen usables. Para probarla, `docs/PROBADORES.md`. Ya existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
 - las once skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
@@ -142,3 +142,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 | v0.6.3 (sin etiquetar) | 2.1.306 | 24 | La rama del issue nace al aprobar el plan, desde main fresco |
 | v0.6.4 (sin etiquetar) | 2.1.306 | 24 | init con una sola ronda de preguntas y sin preguntar lo que sabe solo, afterBuild contra la base local, plan avisa si la rama va atrás, la ronda acotada cubre los archivos nuevos, la voz corta de las skills y dos correcciones de worktrees |
 | v0.6.5 (sin etiquetar) | 2.1.306 | 24 | El arnés sobre los worktrees nativos de Claude Code en un repo solo (node_modules, puertos, rama del issue, pendientes sin subir), init con el grafo, la voz en SessionStart y el Stop, y verify contra el primer padre de un merge |
+| v0.6.6 (sin etiquetar) | 2.1.306 | 24 | El reporte del reviewer lo guarda el hilo principal, y ExitWorktree en un worktree nativo manda a subir la rama |

@@ -768,6 +768,8 @@ Ronda de worktrees nativos (2026-10-21, rama `feature/worktrees-nativos`, versi�
 - la voz del arnés en SessionStart y el Stop (§6.2);
 - verify contra el primer padre de un merge, que cierra la decisión abierta 11 (§12).
 
+Ronda de cierre (2026-10-21, rama `feature/cierre-nativos`, versión 0.6.6), antes de publicar: el reporte del reviewer lo guarda el hilo principal (§6.4), ExitWorktree en un worktree nativo manda a subir la rama (§7), y una segunda corrida con `claude -p --worktree` que pasó por una ronda con bloqueante y una acotada en sonnet (§7). Quedan para quien actualice con el escritorio la prueba en el escritorio y la de un worktree nativo dentro de un repo de una carpeta multi-repo.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
