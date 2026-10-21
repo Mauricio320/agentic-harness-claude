@@ -347,7 +347,7 @@ function input(project, full) {
       ? `Ronda ${r.round} de ${MAX_ROUNDS}, acotada: revisa solo el diff desde lo revisado en la ronda ${r.from}, ${r.blockers ? `contra sus ${r.blockers} bloqueante(s)` : 'que terminó sin bloqueantes'}. Su reporte va abajo.`
       : `Ronda ${r.round} de ${MAX_ROUNDS}, completa${r.reason ? ` porque ${r.reason}` : ''}.`,
     fs.existsSync(plan) ? `Plan: ${plan}` : 'Plan: no hay (.tmp/harness/plan.md no existe); el reporte va sin la sección de criterios.',
-    `Tu reporte va en ${reportFile(project)}: escríbelo ahí con Write, entero, y devuélvelo igual.`,
+    'Devuelve tu reporte entero como respuesta: la skill review lo guarda tal como llega.',
     `Lee el árbol final con Read: cada ruta de abajo es relativa a la carpeta de su workspace. ${bounded ? 'El diff es el del cambio desde esa ronda.' : 'El diff es contra el HEAD de base.'}`,
     'Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final; las borradas van sin número. Cita esos números.',
     '',

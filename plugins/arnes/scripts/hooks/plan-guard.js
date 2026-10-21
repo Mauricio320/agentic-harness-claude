@@ -8,7 +8,9 @@
 // Un archivo dentro de un worktree del ledger es código de su workspace, y el plan que cuenta es el
 // del checkout principal, donde la sesión del issue anotó su timeline.
 // Al reviewer (agent_type arnes:reviewer en el input del hook) le niega toda escritura fuera de
-// .tmp/harness/review del proyecto: escribe su reporte y nada más.
+// .tmp/harness/review del proyecto. Desde la 0.6.6 el reviewer no tiene Write (su reporte lo guarda la
+// skill, porque Claude Code no deja a un subagente escribir archivos de reporte); la regla queda como
+// defensa por si alguien le devuelve la herramienta.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
 'use strict';

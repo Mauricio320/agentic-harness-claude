@@ -27,12 +27,12 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
    - **No agregues tu opinión del cambio** ni un resumen de lo que hiciste: el reviewer juzga el árbol, no tu relato.
    - **No lo relances** para "confirmar" ni para que reconsidere un bloqueante.
 
-4. El reviewer escribe su reporte en `.tmp/harness/review/report.md`. No lo copies ni lo reescribas. Si no lo escribió y respondió `Sin hallazgos.` con `BLOQUEANTES: 0`, marca con `node "S/review.js" mark --clean`, que escribe el reporte mínimo, y salta el paso 5.
+4. El reviewer devuelve su reporte como texto: guárdalo con Write en `.tmp/harness/review/report.md`, entero y sin cambiar una coma, antes de marcar. Claude Code no deja a un subagente escribir archivos de reporte, así que lo guarda el hilo principal. Si respondió solo `Sin hallazgos.` con `BLOQUEANTES: 0`, no lo guardes: marca con `node "S/review.js" mark --clean`, que escribe el reporte mínimo, y salta el paso 5.
 
 5. Marca la revisión con el número de la última línea del reporte (`BLOQUEANTES: <n>`): `node "S/review.js" mark --blockers <n>`.
    - **Si el reporte no trae esa línea:** cuenta las líneas `BLOQUEANTE` del reporte.
    - **Si mark sale con 1:** el árbol cambió durante la revisión. Dilo, anota `end review --result fail --detail "el árbol cambió"` y termina.
-   - **Si sale con 2:** falta el reporte o su número no coincide. Dilo y relanza al reviewer una vez para que lo escriba; no lo escribas tú.
+   - **Si sale con 2:** falta el reporte o su número no coincide. Guarda otra vez el texto del reviewer tal como llegó; si su número no cuadra, relánzalo una vez. Nunca escribas un reporte propio.
 
 6. Anota el fin: `node "S/lib/timeline.js" end review --result ok|fail --detail "<n> bloqueante(s) · ronda <r> <modo>"`. Es `fail` si hay bloqueantes.
 
