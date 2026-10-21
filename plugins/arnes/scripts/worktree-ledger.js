@@ -213,7 +213,9 @@ function equip(project, entries, e, noLink, say) {
   writeLedger(project, entries);
 }
 
-function open(project, slug, { ws: names, issue, 'no-link': noLink } = {}, now = new Date()) {
+function open(project, slug, { ws: names, issue, 'no-link': noLink, 'port-offset': rawOffset } = {}, now = new Date()) {
+  const portOffset = rawOffset === undefined ? undefined : Number(rawOffset);
+  if (portOffset !== undefined && !(Number.isInteger(portOffset) && portOffset >= 0)) refuse(`--port-offset tiene que ser un entero mayor o igual a 0, no "${rawOffset}"`);
   if (!SLUG.test(slug)) refuse(`slug inválido "${slug}": minúsculas, números y guiones`);
   const chosen = names && names.length ? selectWorkspaces(project, names) : project.workspaces.filter((w) => w.adoptable);
   if (!chosen.length) refuse('no hay workspaces adoptables donde abrir');
@@ -240,8 +242,59 @@ function open(project, slug, { ws: names, issue, 'no-link': noLink } = {}, now =
     out.push(`abierto ${e.ws}: ${e.path} en ${e.branch} (desde ${e.target})`);
     equip(project, entries, e, noLink, (m) => out.push(`  ${m}`));
   }
+  const set = entries.filter((e) => e.status === 'abierto' && slugOf(e) === slug);
+  const offset = portOffset === undefined ? pickOffset(entries, slug) : portOffset;
+  out.push(movePorts(project, set, slug, offset));
+  writeLedger(project, entries);
   return out;
 }
+
+// Puertos (§7): un set abierto corre su app al lado de la del checkout principal. Cada set toma un
+// desplazamiento múltiplo de 10 que no use otro set abierto: el primero 10, el segundo 20.
+const PORT_LINE = /^(\s*(?:export\s+)?[A-Za-z0-9_]*PORT\s*=\s*)(["']?)(\d+)\2(\s*(?:#.*)?)$/i;
+const LOCAL_PORT = /\b(localhost|127\.0\.0\.1):(\d+)\b/g;
+
+function pickOffset(entries, slug) {
+  const used = new Set(entries.filter((e) => e.status === 'abierto' && slugOf(e) !== slug && e.ports).map((e) => e.ports.offset));
+  let o = 10;
+  while (used.has(o)) o += 10;
+  return o;
+}
+
+// En las copias de .env del set: cada variable que termina en PORT con valor numérico suma el
+// desplazamiento, y cada localhost:<puerto> o 127.0.0.1:<puerto> que apunta al puerto original de
+// otro workspace del set pasa al nuevo, para que el front del worktree hable con su back. Con 0 no
+// se toca nada. Anota { offset, map } en cada registro del set. → la línea del mapa
+function movePorts(project, set, slug, offset) {
+  const files = set.flatMap((e) => inWorktree(project, e).flatMap(({ ws, dir }) => (e.copies || []).filter((c) => norm(path.dirname(c)) === norm(dir)).map((file) => ({ ws: ws.name, file }))));
+  const own = new Map();
+  for (const f of files) {
+    for (const l of fs.readFileSync(f.file, 'utf8').split(/\r?\n/)) {
+      const m = l.match(PORT_LINE);
+      if (m) own.set(f.ws, [...new Set([...(own.get(f.ws) || []), Number(m[3])])]);
+    }
+  }
+  const map = [...own].flatMap(([ws, ports]) => ports.map((from) => ({ ws, from, to: from + offset })));
+  for (const e of set) e.ports = { offset, map: offset ? map : [] };
+  if (!offset) return `set ${slug}: --port-offset 0, los puertos quedan como en el principal`;
+  for (const f of files) {
+    const others = new Set([...own].filter(([ws]) => ws !== f.ws).flatMap(([, p]) => p));
+    const text = fs.readFileSync(f.file, 'utf8');
+    const next = text
+      .split(/(\r?\n)/)
+      .map((l) => {
+        const m = l.match(PORT_LINE);
+        if (m) return `${m[1]}${m[2]}${Number(m[3]) + offset}${m[2]}${m[4]}`;
+        return l.replace(LOCAL_PORT, (all, host, p) => (others.has(Number(p)) ? `${host}:${Number(p) + offset}` : all));
+      })
+      .join('');
+    if (next !== text) fs.writeFileSync(f.file, next);
+  }
+  return portsText(slug, set[0].ports);
+}
+
+const portsText = (slug, ports) =>
+  !ports ? '' : !ports.offset ? `set ${slug}: puertos como en el principal` : ports.map.length ? `set ${slug}: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}` : `set ${slug}: sin variables *PORT en los .env copiados (desplazamiento ${ports.offset})`;
 
 function setOf(project, slug, names) {
   const entries = readLedger(project);
@@ -366,6 +419,7 @@ function main() {
         target: { type: 'string' },
         all: { type: 'boolean' },
         'no-link': { type: 'boolean' },
+        'port-offset': { type: 'string' },
         json: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
@@ -400,6 +454,8 @@ function main() {
       const extra = e.status === 'abierto' ? describe({ ...e, ...stateOf(project, e) }) : `${e.ws} ${e.branch} → ${e.target} · ${e.closedAt ? `el ${date(e.closedAt)}` : ''}${e.merge ? ` · merge ${e.merge}` : ''}`;
       console.log(`${e.status.padEnd(10)} ${extra} · issue ${e.issue} · ${e.path}`);
     }
+    const sets = new Map(shown.filter((e) => e.status === 'abierto' && e.ports).map((e) => [slugOf(e), e.ports]));
+    for (const [slug, ports] of sets) console.log(portsText(slug, ports));
     return;
   }
   const pending = pendingEntries(project, entries, { target: o.target });

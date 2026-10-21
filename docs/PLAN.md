@@ -452,6 +452,11 @@ Cambio de la ronda de worktrees (2026-10-21, rama `feature/worktrees`), que cier
   - registra en el ledger qué enlazó (`links`) y qué copió (`copies`; `copiedDirs` si un enlace no se pudo crear y cayó a copia), para saber exactamente qué deshacer. Cada enlace se anota antes de crearlo.
   - Con `--no-link` no enlaza: corre dentro del worktree la instalación del paso deps de `setup.js` (`installIn`). Es para los issues que regeneran algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma`, que con el enlace pisaría el cliente generado del principal. La skill worktree explica cuándo elegirlo.
   - Lo enlazado y lo copiado no cuenta como cambio sin commitear al integrar o cerrar.
+- **Puertos.** Si la persona levanta la app en el worktree mientras la del checkout principal sigue corriendo, chocan. open asigna a cada set un desplazamiento múltiplo de 10 que no use otro set abierto: el primero toma 10, el segundo 20. En las copias de `.env`:
+  - cada variable cuyo nombre termina en `PORT` y cuyo valor es un número suma el desplazamiento, con o sin comillas;
+  - dentro del set, cada `localhost:<puerto>` o `127.0.0.1:<puerto>` que apunta al puerto original de otro workspace del set pasa al nuevo, para que el front del worktree hable con el back del worktree. Un puerto que no es de un workspace del set, como el de la base, no se toca.
+
+  Imprime el mapa, `set talleres: api 3003 → 3013, front 3000 → 3010`, lo guarda en cada registro del set (`ports: { offset, map }`) y `list` lo repite. Con `--port-offset N` la persona elige el desplazamiento; con `--port-offset 0` no se toca nada.
 
 ## 8. Mínimo de adopción (lo comprueba `arnes:init --check`)
 
