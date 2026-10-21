@@ -2,6 +2,23 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.3] - sin etiquetar
+
+La rama del issue nace al aprobar el plan, desde main fresco (`docs/PLAN.md` §6.3). Rama `feature/rama-del-issue`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict` y `node --test`.
+
+### Añadido
+- `issue-branch.js`, que la skill plan corre al aprobar, en todos los workspaces del plan y con el mismo nombre: el prefijo de `integration.branchPrefix` y un nombre corto sacado del título del plan.
+  - En la rama por defecto y con el árbol limpio, hace `git fetch origin`, la adelanta a `origin/<defaultBranch>` si es fast-forward y crea la rama del issue.
+  - Con cambios sin commitear, crea la rama igual, porque git se los lleva, pero no adelanta la por defecto, y lo dice.
+  - La rama queda en la línea `Rama:` del plan y en la timeline.
+
+### Cambiado
+- En otra rama, plan no asume nada: pregunta en el mismo mensaje de aprobación, con recomendación, si crea la rama nueva desde main actualizado o construye en la rama actual.
+  - Con el sí, se niega mientras haya cambios sin commitear.
+  - Con la alternativa, se queda y solo avisa si va atrás de main.
+- Ship reutiliza la rama que creó plan, y la crea solo si nadie lo hizo antes.
+- `docs/PROBADORES.md` dice que la rama la crea el arnés al aprobar el plan, y que la persona solo cuida de no dejar cosas a medias sin commitear.
+
 ## [0.6.2] - sin etiquetar
 
 Ronda de menos vueltas por agente, sin perder determinismo: lo que un script puede juntar lo junta antes, y el agente lee su entrada. Rama `feature/menos-turnos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y medida con una corrida antes y otra después sobre un clon de api-academico (`docs/PLAN.md` §10).
