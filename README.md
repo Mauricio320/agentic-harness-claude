@@ -8,9 +8,10 @@ Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUE
 - las diez skills: `/arnes:init`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
 - los cuatro agentes: `dev`, `reviewer`, `test-writer` y `test-runner`;
 - los worktrees por issue con su registro, la línea base de tests commiteada y el aviso de sesión concurrente;
-- el mod `arnes-ui`.
+- el mod `arnes-ui`;
+- el mod `arnes-mod`, por ahora con una sola pieza: la cuarta capa del plan obligatorio, que adjunta a un pedido de código sin plan en curso la instrucción de cargar `arnes:plan`.
 
-Falta `arnes-mod` (fase 5).
+Falta el resto de `arnes-mod` (fase 5).
 
 ## Principios
 
@@ -57,6 +58,7 @@ claude plugin validate --strict plugins/arnes
 claude --plugin-dir ./plugins/arnes
 claude --plugin-dir ./plugins/arnes --plugin-dir ./plugins/arnes-ui
 claude plugin test plugins/arnes-ui
+claude plugin test plugins/arnes-mod
 ```
 
 ## Permisos recomendados
@@ -124,3 +126,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 | v0.5.1 (sin etiquetar) | 2.1.304 | 24 | Ronda antes del piloto, por la prueba manual de la fase 3: la etapa de arnes-ui sale de la timeline, el rojo lo dice el gate, la espera de la aprobación del plan se mide aparte y las rondas de review van acotadas y con tope; guía `docs/PROBADORES.md` |
 | v0.5.2 (sin etiquetar) | 2.1.304 | 24 | Segunda ronda antes del piloto, por la primera corrida real desde la raíz de academico: la cronología es la corrida de la timeline, con reloj, costo por etapa y espera de la persona; review acotada también tras una revisión limpia; ship compara el commit con la bandera; init hace lo determinista de la adopción |
 | v0.5.3 (sin etiquetar) | 2.1.304 | 24 | Tercera ronda antes del piloto, por la corrida de un front en Mac: el plan es obligatorio (guard sobre Edit y Write, aprobación de la persona, `/arnes:plan --trivial`), el aviso de un agente no abre turno, init dice la rama que trae el manifiesto, los comandos contra una base van a `forbidden` y las convenciones mecánicas entran al gate |
+| `arnes-mod` desde v0.5.3 (sin etiquetar) | 2.1.305 como mínimo | 24 | Primera pieza del mod de comportamiento: `prompt.submit` pregunta a haiku con `$.model.complete` si el mensaje pide un cambio de código y, sin plan en curso, adjunta con `context` la instrucción de cargar `arnes:plan`. Probado en una sesión real con 2.1.305; con 2.1.304 no se probó. Falla abierto, y sin el mod las tres capas del plugin base siguen |

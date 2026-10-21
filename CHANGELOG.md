@@ -4,9 +4,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). V
 
 ## [0.5.3] - sin etiquetar
 
-Tercera ronda de correcciones antes del piloto, por la corrida de un compañero de front con la 0.5.2 en su Mac: el mismo CRUD de talleres sobre academico (`docs/PLAN.md` §10). Rama `feature/pre-piloto-3`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` del mod.
+Tercera ronda de correcciones antes del piloto, por la corrida de un compañero de front con la 0.5.2 en su Mac: el mismo CRUD de talleres sobre academico (`docs/PLAN.md` §10). Rama `feature/pre-piloto-3`, probada con Claude Code 2.1.304 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods; `arnes-mod` con 2.1.305.
 
 ### Añadido
+- `arnes-mod` nace con una sola pieza, la cuarta capa del plan obligatorio: un `prompt.submit` que, sin plan en curso, pregunta a haiku si el mensaje de la persona pide un cambio de código y, si sí, adjunta como `context` la instrucción de cargar `arnes:plan`. Una pregunta, un comando con barra o un mensaje corto pasan intactos, y si el modelo no responde el prompt sigue tal cual. Va como `context` porque un texto reescrito con `/arnes:plan` no dispara la skill: el CLI resuelve los comandos antes de `prompt.submit` (`docs/PLAN.md` §6.5).
 - `plan-guard.js`, un PreToolUse sobre Edit y Write: sin plan aprobado en la corrida, niega escribir código de un workspace, también a los agentes.
 - `plan-state.js`: el estado del plan, la aprobación, que exige el plan escrito y una respuesta de la persona después, y el plan trivial de `/arnes:plan --trivial`, que solo vale si lo escribió la persona.
 - UserPromptSubmit recuerda en una línea, sin plan en curso ni código tocado, que un pedido de código empieza por `arnes:plan`; el protocolo de SessionStart suma la regla.
