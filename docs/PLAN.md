@@ -749,6 +749,14 @@ Ronda de init amable (2026-10-21, rama `feature/init-amable`, versión 0.6.4), p
 - la voz del arnés en los reportes de todas las skills (§2 y §6.3);
 - las preguntas frecuentes y el ejemplo de init en `docs/PROBADORES.md`.
 
+Ronda de worktrees nativos (2026-10-21, rama `feature/worktrees-nativos`, versión 0.6.5). Un compañero de front que usa el escritorio ya trabajaba en worktrees de Claude Code sin saberlo, y el arnés no los entendía: el worktree nacía sin `node_modules`, verify fallaba adentro, plan no sabía que `worktree-<nombre>` ya era la rama del issue y nada avisaba de un worktree con commits sin subir. Cada cambio está en su sección:
+- el worktree nativo se reconoce, es su propio proyecto, nace usable al arrancar la sesión, plan y ship entienden su rama y nada se queda sin subir (§7);
+- la carpeta multi-repo sigue con `/arnes:worktree open`, y `worktree.baseRef: "head"` sale de los settings versionados (§7);
+- la prueba de punta a punta con `claude -p --worktree` (§7);
+- init arma el grafo (§8);
+- la voz del arnés en SessionStart y el Stop (§6.2);
+- verify contra el primer padre de un merge, que cierra la decisión abierta 11 (§12).
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.

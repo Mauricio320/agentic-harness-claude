@@ -2,6 +2,29 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.5] - sin etiquetar
+
+Ronda de worktrees nativos: en un repo solo, el arnés se monta sobre los worktrees que crea Claude Code (`claude --worktree`, el escritorio), y sus propios worktrees por set quedan para la carpeta multi-repo y las tareas de un mismo issue (`docs/PLAN.md` §7). Rama `feature/worktrees-nativos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y una corrida de punta a punta con `claude -p --worktree` sobre un clon de api-academico.
+
+### Añadido
+- `lib/worktree-nativo.js`: si el cwd está en `<principal>/.claude/worktrees/<nombre>`, con su checkout principal y su rama.
+- SessionStart en un worktree nativo enlaza el `node_modules` del principal donde falta y desplaza una vez los puertos de los `.env` que copió `.worktreeinclude`, y lo dice.
+- `regeneratesNodeModules` en el manifiesto de workspace; build avisa si el plan lo toca con `node_modules` enlazado, y `build.js deps --write` instala adentro.
+- `adopt.js worktreeinclude`, `adopt.js baseref` y `adopt.js graph`, en la ronda de init. adoption-check suma una sección informativa con `.worktreeinclude` y el grafo.
+- `gate-flag.js write --base <ref>`: la bandera de lo que entró con un merge ya commiteado.
+
+### Cambiado
+- Un worktree nativo es su propio proyecto, con su plan y su timeline: plan-guard ya no busca el plan en el principal.
+- En un worktree nativo, plan toma la rama del worktree sin preguntar ni crear otra, y ship commitea ahí; entregar es el push y el MR.
+- `worktree-ledger.js pending` lista también los worktrees nativos con commits sin subir o cambios sin commitear, y SessionStart los avisa; nunca los borra. ExitWorktree en un nativo se niega solo con trabajo sin subir.
+- Después de integrate y de sync, verify corre contra el primer padre del merge (decisión 11 de §12).
+- Los mensajes de SessionStart y del Stop siguen la voz del arnés: sin rutas ni nombres de scripts, y con el nombre de una skill solo cuando la persona la escribe.
+- La skill worktree y `docs/PROBADORES.md` dicen cuándo `claude --worktree` y cuándo `/arnes:worktree open`.
+- `build.js` reconoce archivos previstos con extensiones de hasta diez letras, como `schema.prisma`.
+
+### Corregido
+- El guard sigue negando `git worktree remove` con el enlace de `node_modules` vivo, también en un worktree nativo.
+
 ## [0.6.4] - sin etiquetar
 
 Ronda de init amable: init le habla a quien no conoce el arnés, con una sola ronda de preguntas, y la voz de todas las skills se acorta (`docs/PLAN.md` §2, §6, §7 y §8). Rama `feature/init-amable`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` de los mods y una corrida de punta a punta de los worktrees con `claude -p` sobre un clon de api-academico.
