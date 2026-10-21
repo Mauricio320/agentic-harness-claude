@@ -120,13 +120,22 @@ export const idOf = (x: { stage: string; ws?: string }) => `${x.stage}|${x.ws ??
 // las etapas cerradas con su duración y su costo (la nota "costo" que sigue a su fin), la abierta
 // más reciente y la espera de la persona (las notas del turno). No depende de los turnos del hilo
 // principal: con los agentes en segundo plano, el turno cierra apenas los lanza (docs/PLAN.md §6.5b).
+// Si esa corrida ya cerró con ship antes de esta sesión, va como `last` y la actual empieza en la
+// sesión: la cronología queda vacía hasta el próximo start de plan.
 export function corrida(all: Entry[], sessionStart: number): Corrida {
   const plan = all.map((x) => x.stage === 'plan' && x.event === 'start').lastIndexOf(true)
   const from = plan >= 0 ? all[plan]!.at : sessionStart
+  const shipped = all.findLast((x) => x.at >= from && x.stage === 'ship' && x.event === 'end' && x.result === 'ok')
+  if (plan < 0 || !shipped || !sessionStart || shipped.at >= sessionStart) return walk(all.filter((e) => e.at >= from), from)
+  const prev = walk(all.filter((e) => e.at >= from && e.at < sessionStart), from)
+  return { ...walk(all.filter((e) => e.at >= sessionStart), sessionStart), last: { at: shipped.at, stages: prev.stages } }
+}
+
+function walk(list: Entry[], from: number): Corrida {
   const open = new Map<string, Entry>()
   const stages: (StageDone & { id: string })[] = []
   const wait: Corrida['wait'] = { ms: 0, n: 0, since: null }
-  for (const x of all.filter((e) => e.at >= from)) {
+  for (const x of list) {
     if (x.stage === 'turno') {
       if (x.result === 'cerrado') wait.since = x.at
       if (x.result === 'respuesta' && wait.since !== null) Object.assign(wait, { ms: wait.ms + x.at - wait.since, n: wait.n + 1, since: null })
@@ -312,8 +321,18 @@ export function paneText(run: Corrida, runs: Run[], rows: GateRow[], t: number, 
       ...(run.stages.length ? [row('total en etapas', mins(run.stages.reduce((a, s) => a + s.ms, 0)), costs.length ? money(costs.reduce((a, s) => a + s.usd!, 0)) : '')] : []),
     ],
     avg: per.length ? `  promedio de ${runs.length} corrida(s): ${per.join(' · ')}` : '',
+    last: run.last ? lastText(run.last, t) : '',
     gate: rows.map((r) => `  ${r.ws} · ${r.branch ?? '?'} · ${r.changed ? `${r.changed} cambio(s), ${r.code} de código` : 'limpio'} · tsc ${sym(r.tsc)} · tests ${sym(r.tests)} · review ${sym(r.review)} · ${flagText(r, t)} · ✎${r.edited.length}`),
   }
+}
+
+// La corrida que cerró con ship en otra sesión, en una línea: hace cuánto, sus etapas y su costo.
+export function lastText(last: NonNullable<Corrida['last']>, t: number): string {
+  const ms = Math.max(0, t - last.at)
+  const ago = ms < 3_600_000 ? mins(ms) : ms < 172_800_000 ? `${Math.round(ms / 3_600_000)}h` : `${Math.round(ms / 86_400_000)}d`
+  const costs = last.stages.filter((s) => s.usd !== undefined)
+  const total = costs.length ? ` · ${money(costs.reduce((a, s) => a + s.usd!, 0))}` : ''
+  return `última corrida, cerrada con ship hace ${ago}: ${last.stages.map((s) => `${label(s)} ${mins(s.ms)}`).join(' · ')}${total}`
 }
 
 export const agentText = (a: Agent, t: number) =>

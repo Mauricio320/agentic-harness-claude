@@ -276,6 +276,7 @@ export const register: Register = (on) => {
         {line(headText(proj?.name ?? 'sin manifiesto', r.open, ses, t))}
         <Text bold>Cronología de la corrida</Text>
         {p.chron.length ? p.chron.map((c) => line(c)) : line('  sin etapas en esta corrida', true)}
+        {p.last && line(`  ${p.last}`, true)}
         {p.avg && line(p.avg, true)}
         <Text bold>Agentes</Text>
         {ags.length === 0 && line('  ninguno', true)}

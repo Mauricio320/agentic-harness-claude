@@ -398,6 +398,8 @@ Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida
 
 Cambio de la fase 3 (2026-10-20): `arnes-ui` lee `.tmp/harness/worktrees.json` en cada refresco. La banda suma `N wt sin integrar`, el panel lista cada worktree abierto con su rama y su destino, y "Lo que sigue" pide `/arnes:worktree integrate` antes que verificar. Abierto es sin integrar, como en `worktree-ledger.js pending`; el mod no cuenta commits.
 
+Cambio de la fase de setup (2026-10-21): **la corrida de ayer no es la de hoy.** Al abrir una sesión nueva, el panel mostró como cronología la corrida del día anterior, completa, con `hace 1068m` en la timeline y `Lo que sigue: nada pendiente`. Ahora, si la corrida del último `start plan` cerró con `end ship --result ok` antes de que empezara la sesión, `lib.corrida` la devuelve aparte como `last` y la actual empieza en la sesión. El panel la resume en una línea bajo la cronología, `última corrida, cerrada con ship hace 17h: Planeando 2m · Construyendo (api) 13m · Entregando 2m · $2.75`, y la cronología queda vacía hasta el próximo `start plan`. Un ship que terminó en fail no cierra la corrida.
+
 Tamaño objetivo: un `register.tsx` de 200–300 líneas más el contrato de tipos. Se construye justo después de la fase 2, antes que `arnes-mod`, porque es la mejor herramienta para depurar las fases 3 y 4: ver las etapas hace visible lo que el arnés está haciendo.
 
 ### 6.6 Memoria

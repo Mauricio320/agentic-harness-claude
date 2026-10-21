@@ -15,8 +15,8 @@ export type StageDone = { name: string; detail?: string; ms: number; usd?: numbe
 export type Wait = { ms: number; n: number; since: number | null }
 
 // La corrida actual, calculada de la timeline: desde el último start de plan, o desde que empezó la
-// sesión si no hubo plan.
-export type Corrida = { since: number; stages: StageDone[]; open: Stage | null; wait: Wait }
+// sesión si no hubo plan. last es la corrida que cerró con ship en otra sesión: cuándo y sus etapas.
+export type Corrida = { since: number; stages: StageDone[]; open: Stage | null; wait: Wait; last?: { at: number; stages: StageDone[] } }
 
 // El reloj y el costo de la sesión, de $.session.usage().
 export type Session = { startedAt: number; usd?: number }

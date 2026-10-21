@@ -348,3 +348,31 @@ test('lib: la timeline desde lo visto, las marcas del gate y el título del plan
   expect(planTitle('')).toBe(undefined)
   expect(planTitle('\uFEFF\n   \n')).toBe(undefined)
 })
+
+test('una corrida que cerró con ship en otra sesión es la "última corrida" en una línea; la cronología espera el próximo plan', async ($, on) => {
+  const ayer = [
+    line('2026-10-18T22:00:00Z', 'start', 'plan'), line('2026-10-18T22:02:00Z', 'end', 'plan'),
+    line('2026-10-18T22:02:00Z', 'note', 'plan', { result: 'costo', usd: 0.5 }),
+    line('2026-10-18T22:02:00Z', 'start', 'build', { ws: 'api' }), line('2026-10-18T22:15:00Z', 'end', 'build', { ws: 'api' }),
+    line('2026-10-18T22:15:00Z', 'note', 'build', { ws: 'api', result: 'costo', usd: 2 }),
+    line('2026-10-18T22:20:00Z', 'start', 'ship'), line('2026-10-18T22:22:00Z', 'end', 'ship', { result: 'ok' }),
+    line('2026-10-18T22:22:01Z', 'note', 'ship', { result: 'costo', usd: 0.25 }),
+  ].join('')
+  const { files } = world(on, { ...FILES, [TIMELINE]: ayer })
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false } } as never))
+  await $.session.start({ cwd: `${ROOT}/api-academico`, surface: 'terminal', isInteractive: true })
+  let texts = await paneLines($)
+  expect(chron(texts)).toEqual(['  sin etapas en esta corrida', '  última corrida, cerrada con ship hace 17h: Planeando 2m · Construyendo (api) 13m · Entregando 2m · $2.75'])
+
+  files[TIMELINE] += line('2026-10-19T15:00:01Z', 'start', 'plan')
+  await $.tool.call(bash(`${TL} start plan`))
+  texts = await paneLines($)
+  expect(chron(texts)).toEqual(['⏳ Planeando                    00:00  $0.00'])
+
+  const r = corrida(entries(ayer), START)
+  expect(r.stages).toEqual([])
+  expect(r.last?.stages.map((s) => s.name)).toEqual(['Planeando', 'Construyendo', 'Entregando'])
+  expect(corrida(entries(ayer), Date.parse('2026-10-18T22:10:00Z')).last).toBe(undefined)
+  const fallido = ayer.replace('"end","stage":"ship","result":"ok"', '"end","stage":"ship","result":"fail"')
+  expect(corrida(entries(fallido), START).last).toBe(undefined)
+})
