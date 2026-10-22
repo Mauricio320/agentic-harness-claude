@@ -7,11 +7,18 @@
 //            que después haya una respuesta de la persona: la nota "respuesta" que UserPromptSubmit
 //            anota solo para un mensaje suyo, nunca para el aviso de un agente. Un modelo que se
 //            responde a sí mismo en el mismo turno no aprueba nada
+//   tareas [--anota]
+//            la lista de tareas del plan aprobado, una por etapa y por workspace (construir cada
+//            workspace de "## Workspaces y orden", en ese orden; verificar, revisar y entregar), con su
+//            estado según la timeline, como JSON para TodoWrite. Con --anota la deja en la timeline (nota
+//            "tareas" de plan) si la corrida no la tiene, y desde ahí timeline.js la reimprime en cada
+//            start y end
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
 // Uso: node plan-state.js status
 //      node plan-state.js approve [--detail <texto>]
+//      node plan-state.js tareas [--anota]
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
 // Exit: 0 aprobado, o status con plan aprobado · 1 status sin plan aprobado, o approve/trivial
 //       negados (el motivo en stderr) · 2 uso inválido o sin manifiesto
@@ -22,7 +29,8 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, harnessDir } = require('./lib/manifest.js');
-const { append, read, planState } = require('./lib/timeline.js');
+const { append, read, planState, tasks } = require('./lib/timeline.js');
+const { readPlan, section, mentionAt } = require('./lib/plan.js');
 const { help, die } = require('./lib/exec.js');
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -86,14 +94,38 @@ function trivial(project, pedido, criterio) {
   return 0;
 }
 
-module.exports = { status, approve, trivial };
+// Los workspaces de "## Workspaces y orden" en el orden en que el plan los nombra; sin ninguno, los
+// adoptables del proyecto.
+function planOrder(project, plan) {
+  const sec = section(plan, /^workspaces/i);
+  const at = (w) => Math.min(...[w.name, w.rel].filter((n) => n && n !== '.').map((n) => mentionAt(sec, n)));
+  const named = project.workspaces.filter((w) => w.adoptable && at(w) < Infinity).sort((a, b) => at(a) - at(b));
+  return named.length ? named : project.workspaces.filter((w) => w.adoptable);
+}
+
+function tareas(project, anota) {
+  const entries = read(project.root);
+  const p = planState(entries);
+  if (!p.open || !p.approved) die('plan-state: no hay plan aprobado en curso; la lista sale de él', 1);
+  if (anota && !tasks(entries)) {
+    const plan = readPlan(project) || '';
+    const list = [...planOrder(project, plan).map((w) => `Construir ${w.name}`), 'Verificar', 'Revisar', 'Entregar'];
+    append(project.root, { event: 'note', stage: 'plan', result: 'tareas', detail: list.join(' · ') });
+  }
+  const list = tasks(read(project.root));
+  if (!list) die('plan-state: la corrida no tiene lista de tareas; créala con tareas --anota', 1);
+  console.log(JSON.stringify(list));
+  return 0;
+}
+
+module.exports = { status, approve, trivial, tareas };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { detail: { type: 'string' }, pedido: { type: 'string' }, criterio: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { detail: { type: 'string' }, pedido: { type: 'string' }, criterio: { type: 'string' }, anota: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`plan-state: ${e.message}`);
@@ -101,12 +133,13 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t';
-  if (extra || !['status', 'approve', 'trivial'].includes(mode)) die(usage);
+  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota]';
+  if (extra || !['status', 'approve', 'trivial', 'tareas'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
   if (mode !== 'trivial' && (o.pedido || o.criterio)) die(usage);
   const project = requireProject();
   if (mode === 'status') process.exit(status(project));
+  if (mode === 'tareas') process.exit(tareas(project, o.anota));
   process.exit(mode === 'approve' ? approve(project, o.detail) : trivial(project, o.pedido, o.criterio));
 }
 

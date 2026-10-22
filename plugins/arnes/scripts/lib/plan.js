@@ -19,7 +19,13 @@ function readPlan(project) {
 }
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (text, name) => new RegExp(`(^|[^\\w-])${escape(name)}([^\\w-]|$)`, 'm').test(text);
+const mentionRe = (name) => new RegExp(`(^|[^\\w-])${escape(name)}([^\\w-]|$)`, 'm');
+const mentions = (text, name) => mentionRe(name).test(text);
+// Dónde nombra el texto a name por primera vez, o Infinity.
+const mentionAt = (text, name) => {
+  const m = mentionRe(name).exec(text);
+  return m ? m.index : Infinity;
+};
 
 // El nombre corto del título del plan: sin tildes, en kebab-case, hasta cinco palabras. Es el de la
 // rama del issue y el del worktree que plan abre al aprobar.
@@ -44,4 +50,4 @@ function planWorkspaces(workspaces, plan) {
   return list.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot));
 }
 
-module.exports = { planPath, readPlan, slugOf, section, planWorkspaces, mentions };
+module.exports = { planPath, readPlan, slugOf, section, planWorkspaces, mentions, mentionAt };

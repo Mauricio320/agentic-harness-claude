@@ -6,7 +6,7 @@ description: Verificar, probar o comprobar un cambio de código antes de cerrar 
 
 # arnes:verify
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando `timeline.js` imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
 **Después de un merge ya commiteado** (integrate de un worktree, sync), `$ARGUMENTS` trae `--base <commit>`, el primer padre del merge. Contra HEAD no hay nada que verificar: usa ese base en `touched-files.js --workspaces --base <commit>`, en `ci-gate.js --base <commit>` y en `gate-flag.js write <ws> --result pass --base <commit>`. Sin él, el base es HEAD.
 

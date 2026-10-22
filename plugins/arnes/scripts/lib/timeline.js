@@ -16,7 +16,10 @@
 //     cierre y la respuesta es la espera de la persona, de toda la corrida, aparte de las etapas;
 //   - arnes-ui anota { stage, ws?, result: "costo", usd } al ver el fin de una etapa: la diferencia
 //     del costo de la sesión desde su inicio. Sin el mod no hay costo, y print muestra solo tiempos;
-//   - el Stop anota sus bloqueos y pendientes, y plan si la persona aprobó o descartó el plan.
+//   - el Stop anota sus bloqueos y pendientes, y plan si la persona aprobó o descartó el plan;
+//   - plan-state.js anota { stage: "plan", result: "tareas", detail: "Construir api · … · Entregar" },
+//     la lista de tareas de la corrida. Desde ahí, cada start y end imprime "tareas: <json>" con el
+//     estado de cada una sacado de la timeline, para la lista de tareas de la sesión (TodoWrite).
 // print: una línea por evento en hora local; cada fin lleva la duración desde su inicio (misma
 // etapa y mismo workspace) y su costo si lo hay. Las notas del turno no salen como líneas: la
 // respuesta que cierra una espera sale con su duración. Al final van el tiempo y el costo por
@@ -96,6 +99,26 @@ function prepOpen(entries, now = Date.now()) {
   return now - new Date(at).getTime() < PREP_MS ? stage : null;
 }
 
+// La lista de tareas de la corrida (la nota "tareas" de plan), con el estado de cada una según la
+// timeline desde el último start de plan: su último start sin end después está en curso, un end ok la
+// completa, un end que no es ok la deja en curso (falta corregir). → [{ content, status, activeForm }]
+// para TodoWrite, o null si la corrida no tiene lista.
+const TASK_STAGES = { Construir: ['build', 'Construyendo'], Verificar: ['verify', 'Verificando'], Revisar: ['review', 'Revisando'], Entregar: ['ship', 'Entregando'] };
+function tasks(entries) {
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  if (i < 0) return null;
+  const run = entries.slice(i);
+  const note = run.filter((e) => e.stage === 'plan' && e.event === 'note' && e.result === 'tareas').pop();
+  if (!note || !note.detail) return null;
+  return note.detail.split(' · ').map((content) => {
+    const [verb, ws] = content.split(' ');
+    const [stage, doing] = TASK_STAGES[verb] || [null, verb];
+    const last = run.filter((e) => e.stage === stage && (!ws || e.ws === ws) && (e.event === 'start' || e.event === 'end')).pop();
+    const status = !last ? 'pending' : last.event === 'end' && last.result === 'ok' ? 'completed' : 'in_progress';
+    return { content, status, activeForm: `${doing}${ws ? ` ${ws}` : ''}` };
+  });
+}
+
 const money = (usd) => `$${usd.toFixed(2)}`;
 
 function format(entries) {
@@ -145,7 +168,7 @@ function format(entries) {
   return out;
 }
 
-module.exports = { FILE, PREP, append, read, format, planState, prepOpen };
+module.exports = { FILE, PREP, append, read, format, planState, prepOpen, tasks };
 
 function main() {
   let args;
@@ -179,6 +202,8 @@ function main() {
     result: args.values.result,
     detail: args.values.detail,
   });
+  const list = event === 'note' ? null : tasks(read(root));
+  if (list) console.log(`tareas: ${JSON.stringify(list)}`);
 }
 
 if (require.main === module) main();
