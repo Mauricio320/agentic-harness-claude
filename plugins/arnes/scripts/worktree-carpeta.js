@@ -130,11 +130,24 @@ function bring(f, state, ws, branch) {
   return { line: `${ws.name}: lo traje a este worktree en la rama ${branch}, ${how}`, entry };
 }
 
-// node_modules enlazado y .env* copiados en cada workspace del repo traído. Cada enlace se anota en el
-// registro antes de crearlo, para que nunca quede uno sin registrar.
+// Enlaza src en dst si src existe y dst no, anotándolo antes en la lista. → true si quedó enlazado
+function linkInto(f, state, list, src, dst) {
+  if (!fs.existsSync(src) || ledger().present(dst)) return false;
+  list.push(posix(dst));
+  writeState(f.project, state);
+  if (link(src, dst) === 'link') return true;
+  list.pop();
+  fs.rmSync(dst, { recursive: true, force: true });
+  return false;
+}
+
+// node_modules enlazado y .env* copiados en cada workspace del repo traído, y el grafo del repo
+// enlazado para que plan lo consulte desde aquí. Cada enlace se anota en el registro antes de
+// crearlo, para que nunca quede uno sin registrar.
 function equipRepo(f, state, entry) {
   const L = ledger();
   const out = [];
+  linkInto(f, state, entry.links, path.join(entry.main, 'graphify-out'), path.join(entry.path, 'graphify-out'));
   for (const ws of f.main.workspaces.filter((w) => w.adoptable && key(w.repo) === key(entry.main))) {
     const dir = path.join(entry.path, path.relative(ws.repo, ws.dir));
     const src = path.join(ws.dir, 'node_modules');
@@ -207,6 +220,8 @@ function materialize(dir, { only } = {}) {
     writeState(f.project, state);
     if (entry) out.push(...equipRepo(f, state, entry));
   }
+  state.links = state.links || [];
+  if (linkInto(f, state, state.links, path.join(f.main.root, 'graphify-out'), path.join(f.w.path, 'graphify-out'))) out.push('enlacé el grafo de código de la carpeta, para consultarlo desde aquí');
   out.push(...(state.notes || []));
   delete state.notes;
   writeState(f.project, state);
@@ -257,6 +272,10 @@ function dematerialize(dir) {
     writeState(f.project, state);
     const n = refExists(e.main, `refs/heads/${e.branch}`) ? unpushed(e) : 0;
     out.push(`${path.basename(e.repo)}: quité su worktree; la rama ${e.branch} queda en el repo${n ? ` con ${n} commit(s) sin subir` : ''}`);
+  }
+  if (!refused.length) {
+    state.links = (state.links || []).filter((l) => unlink(l));
+    writeState(f.project, state);
   }
   return { refused, lines: out };
 }

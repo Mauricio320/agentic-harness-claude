@@ -311,6 +311,17 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   expect(timelineLines(`${note}\n{"at": "cortada`)).toEqual([{ at: Date.parse('2026-10-19T20:51:39.290Z'), text: 'stop-gate nota pendiente · turno cerrado sin verificar: api' }])
 })
 
+test('lib: la etapa del plan dice cuántas consultas hizo al grafo, y marca el grafo presente sin consultar', () => {
+  const g = (detail: string) => line('2026-10-19T10:00:30Z', 'note', 'grafo', { result: 'consulta', detail })
+  const open = corrida(entries([line('2026-10-19T10:00:00Z', 'start', 'plan'), g('query "talleres"'), g('explain Taller'), g('path A B')].join('\n')), 0)
+  expect(open.open?.note).toBe('grafo 3 consultas')
+  expect(bandText(open.open, false, [], [], Date.parse('2026-10-19T10:01:00Z'))).toBe('arnes ▸ Planeando · grafo 3 consultas 01:00')
+  const none = corrida(entries([line('2026-10-19T10:00:00Z', 'start', 'plan'), line('2026-10-19T10:01:00Z', 'note', 'plan', { result: 'grafo', detail: '0 consulta(s), grafo presente' }), line('2026-10-19T10:01:01Z', 'end', 'plan', { result: 'ok' })].join('\n')), 0)
+  expect(none.stages[0]).toEqual({ name: 'Planeando', ms: 61000, note: 'grafo sin consultar ⚠' })
+  const without = corrida(entries([line('2026-10-19T10:00:00Z', 'start', 'plan'), line('2026-10-19T10:01:00Z', 'note', 'plan', { result: 'grafo', detail: '0 consulta(s), sin grafo' }), line('2026-10-19T10:01:01Z', 'end', 'plan', { result: 'ok' })].join('\n')), 0)
+  expect(without.stages[0]!.note).toBeUndefined()
+})
+
 test('lib: la corrida empieza en el último start de plan, o en la sesión sin plan; costos y espera de la timeline', () => {
   const tl = [
     line('2026-10-19T09:00:00Z', 'start', 'plan'), line('2026-10-19T09:01:00Z', 'end', 'plan'),

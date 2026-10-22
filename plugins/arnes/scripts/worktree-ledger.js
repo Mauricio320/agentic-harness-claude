@@ -188,7 +188,7 @@ function liveLinks(wtPath) {
   if (nativeWorktree(wtPath)) {
     const p = loadProject(wtPath);
     const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];
-    return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].filter(isLink);
+    return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].concat(posix(path.join(wtPath, 'graphify-out'))).filter(isLink);
   }
   const project = projectFor(wtPath);
   if (!project) return [];
@@ -429,6 +429,12 @@ function equipNative(dir) {
       links.push(posix(dst));
       lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
     }
+  }
+  // El grafo de código del checkout principal, para que plan lo consulte desde aquí.
+  const graph = path.join(w.path, 'graphify-out');
+  if (fs.existsSync(path.join(w.main, 'graphify-out')) && !present(graph) && link(path.join(w.main, 'graphify-out'), graph) === 'link') {
+    links.push(posix(graph));
+    lines.push('enlacé el grafo de código del checkout principal, para consultarlo desde aquí');
   }
   const state = path.join(harnessDir(project), NATIVE_PORTS);
   let ports = null;

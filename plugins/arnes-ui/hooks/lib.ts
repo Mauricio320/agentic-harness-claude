@@ -57,7 +57,7 @@ export const clock = (ms: number, s = Math.max(0, Math.round(ms / 1000))) =>
   `${s >= 3600 ? `${Math.floor(s / 3600)}:` : ''}${two(Math.floor(s / 60) % 60)}:${two(s % 60)}`
 export const mins = (ms: number) => (ms < 60000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60000)}m`)
 export const money = (usd: number) => `$${usd.toFixed(2)}`
-export const label = (s: { name: string; detail?: string }) => (s.detail ? `${s.name} (${s.detail})` : s.name)
+export const label = (s: { name: string; detail?: string; note?: string }) => `${s.detail ? `${s.name} (${s.detail})` : s.name}${s.note ? ` · ${s.note}` : ''}`
 export const short = (type: string, model: string) => `${type.replace(/^arnes:/, '')} ${model.replace(/^claude-/, '').split('-')[0]}`
 export const sym = (m?: Mark) => (m === 'ok' ? '✓' : m === 'fail' ? '✗' : m === 'run' ? '⏳' : '–')
 
@@ -134,11 +134,22 @@ export function corrida(all: Entry[], sessionStart: number): Corrida {
   return { ...walk(all.filter((e) => e.at >= sessionStart), sessionStart), last: { at: shipped.at, stages: prev.stages } }
 }
 
+// Lo que el plan consultó al grafo, para la etapa: las notas "consulta" que el guard anota por cada
+// graphify query, explain o path, y la nota "grafo" que deja plan al cerrar. Con el grafo presente y
+// ninguna consulta, la etapa lo marca.
+export function graphNote(queries: number, closing?: string): string | undefined {
+  if (queries) return `grafo ${queries} consulta${queries === 1 ? '' : 's'}`
+  return closing && /grafo presente/.test(closing) ? 'grafo sin consultar ⚠' : undefined
+}
+
 function walk(list: Entry[], from: number): Corrida {
   const open = new Map<string, Entry>()
   const stages: (StageDone & { id: string })[] = []
   const wait: Corrida['wait'] = { ms: 0, n: 0, since: null }
+  const graph = { queries: 0, closing: undefined as string | undefined }
   for (const x of list) {
+    if (x.stage === 'grafo' && x.result === 'consulta') graph.queries++
+    if (x.stage === 'plan' && x.event === 'note' && x.result === 'grafo') graph.closing = x.detail
     if (x.stage === 'turno') {
       if (x.result === 'cerrado') wait.since = x.at
       if (x.result === 'respuesta' && wait.since !== null) Object.assign(wait, { ms: wait.ms + x.at - wait.since, n: wait.n + 1, since: null })
@@ -154,10 +165,11 @@ function walk(list: Entry[], from: number): Corrida {
     if (done) done.usd = x.usd
   }
   const last = [...open.values()].sort((a, b) => b.at - a.at)[0]
+  const note = (stage: string) => (stage === 'plan' ? graphNote(graph.queries, graph.closing) : undefined)
   return {
     since: from,
-    stages: stages.map(({ id: _, ...s }) => s),
-    open: last ? { name: stageOf(last)!, detail: last.ws, startedAt: last.at, id: idOf(last) } : null,
+    stages: stages.map(({ id, ...s }) => ({ ...s, ...(note(id.split('|')[0]!) ? { note: note(id.split('|')[0]!) } : {}) })),
+    open: last ? { name: stageOf(last)!, detail: last.ws, note: note(last.stage), startedAt: last.at, id: idOf(last) } : null,
     wait,
   }
 }

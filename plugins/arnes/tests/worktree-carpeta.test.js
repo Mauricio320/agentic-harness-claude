@@ -23,7 +23,7 @@ function folder({ deps = true, composition = {} } = {}) {
     const seed = path.join(remotes, `${name}-semilla`);
     h.repo(seed, {
       '.claude/harness.json': h.repoManifest(name, h.workspace({ name, defaultBranch: 'main', commands: { typecheck: ['tsc --noEmit'], app: 'node app.js' } })),
-      '.gitignore': '.tmp/\nnode_modules\n.env\napp-entorno.txt\n',
+      '.gitignore': '.tmp/\nnode_modules\n.env\napp-entorno.txt\ngraphify-out/\n',
       'src/a.ts': 'a\n',
       'app.js': APP,
     });
@@ -37,9 +37,11 @@ function folder({ deps = true, composition = {} } = {}) {
     if (deps) h.write(root, `${name}/node_modules/paquete/centinela.js`, 'module.exports = 1;\n');
   }
   h.write(root, 'api/.env', 'PORT=3003\nDB_PORT=3306\n');
+  h.write(root, 'api/graphify-out/graph.json', '{"de":"api"}');
+  h.write(root, 'graphify-out/graph.json', '{"de":"carpeta"}');
   h.write(root, 'web/.env', 'PORT=3000\nAPI_URL=http://localhost:3003/api\n');
   h.repo(root, {
-    '.gitignore': '/api/\n/web/\n/.tmp/\n/.claude/worktrees/\n',
+    '.gitignore': '/api/\n/web/\n/.tmp/\n/.claude/worktrees/\n/graphify-out/\n',
     '.claude/harness.json': h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api', contract: { provides: ['src/**'] } }, { path: 'web', contract: { consumes: ['src/**'] } }], integration: { branchPrefix: 'feature/', ...composition } }),
   });
   return root;
@@ -71,6 +73,8 @@ test('al arrancar en el worktree de la carpeta trae cada repo en la rama del iss
   assert.equal(fs.readFileSync(path.join(wt, 'web', '.env'), 'utf8'), 'PORT=3010\nAPI_URL=http://localhost:3013/api\n', 'el front de aquí habla con el back de aquí');
   assert.equal(fs.readFileSync(path.join(root, 'api', '.env'), 'utf8'), 'PORT=3003\nDB_PORT=3306\n', 'el principal queda igual');
   assert.match(ctx, /^- puertos de este worktree: api 3003 → 3013, web 3000 → 3010; la app se levanta desde aquí/m);
+  assert.ok(isLink(path.join(wt, 'api', 'graphify-out')) && isLink(path.join(wt, 'graphify-out')), 'el grafo del repo y el de la carpeta, enlazados para que plan los consulte');
+  assert.match(ctx, /^- enlacé el grafo de código de la carpeta/m);
   const p = loadProject(path.join(wt, 'api', 'src'));
   assert.equal(p.root, wt, 'la composición del worktree resuelve los repos por ruta relativa');
   assert.deepEqual(p.workspaces.map((w) => [w.name, w.adoptable, w.dir]), [['api', true, path.join(wt, 'api')], ['web', true, path.join(wt, 'web')]]);
@@ -152,6 +156,8 @@ test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nad
     assert.doesNotMatch(worktrees(path.join(root, name)), /talleres/);
     assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue`);
   }
+  assert.ok(!fs.existsSync(path.join(wt, 'graphify-out')), 'el enlace al grafo de la carpeta también se quitó');
+  assert.ok(fs.existsSync(path.join(root, 'graphify-out', 'graph.json')) && fs.existsSync(path.join(root, 'api', 'graphify-out', 'graph.json')), 'los grafos del principal siguen');
   assert.equal(head(path.join(root, 'api'), 'feature/talleres'), commit, 'la rama del issue queda en el repo con su commit');
   h.git(root, 'worktree', 'remove', '--force', wt);
   assert.ok(fs.existsSync(path.join(root, 'api', 'node_modules', 'paquete', 'centinela.js')));

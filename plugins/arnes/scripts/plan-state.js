@@ -18,6 +18,9 @@
 //            del manifiesto (plan.references, de la composición y de cada repo) y si plan decide según
 //            ellas (decide: referencia) o pregunta (decide: preguntar, por defecto); y los ambientes de
 //            prueba manual (testEnvironments), donde la persona prueba lo que pide el plan
+//   grafo    al cerrar el plan: cuántas consultas al grafo hizo (las notas "consulta" que el guard anota
+//            por cada graphify query, explain o path desde el último start de plan) y si hay grafo en el
+//            proyecto; lo deja en la timeline (nota "grafo" de plan), que arnes-ui muestra en la etapa
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
@@ -25,6 +28,7 @@
 //      node plan-state.js approve [--detail <texto>]
 //      node plan-state.js tareas [--anota]
 //      node plan-state.js referencias
+//      node plan-state.js grafo
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
 // Exit: 0 aprobado, o status con plan aprobado · 1 status sin plan aprobado, o approve/trivial
 //       negados (el motivo en stderr) · 2 uso inválido o sin manifiesto
@@ -134,7 +138,20 @@ function referencias(project) {
   return 0;
 }
 
-module.exports = { status, approve, trivial, tareas, referencias };
+function grafo(project) {
+  const entries = read(project.root);
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  const n = entries.slice(Math.max(i, 0)).filter((e) => e.stage === 'grafo' && e.result === 'consulta').length;
+  const dirs = [project.root, ...new Set(project.workspaces.map((w) => w.repo))];
+  const present = dirs.some((d) => fs.existsSync(path.join(d, 'graphify-out', 'graph.json')));
+  const detail = `${n} consulta(s), ${present ? 'grafo presente' : 'sin grafo'}`;
+  append(project.root, { event: 'note', stage: 'plan', result: 'grafo', detail });
+  if (present && !n) console.log('grafo: presente y sin consultar en este plan; la sección Mapa consultado lo dice, y el panel lo marca');
+  else console.log(`grafo: ${detail}`);
+  return 0;
+}
+
+module.exports = { status, approve, trivial, tareas, referencias, grafo };
 
 function main() {
   let args;
@@ -149,14 +166,15 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota] | referencias';
-  if (extra || !['status', 'approve', 'trivial', 'tareas', 'referencias'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo';
+  if (extra || !['status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
   if (mode !== 'trivial' && (o.pedido || o.criterio)) die(usage);
   const project = requireProject();
   if (mode === 'status') process.exit(status(project));
   if (mode === 'tareas') process.exit(tareas(project, o.anota));
   if (mode === 'referencias') process.exit(referencias(project));
+  if (mode === 'grafo') process.exit(grafo(project));
   process.exit(mode === 'approve' ? approve(project, o.detail) : trivial(project, o.pedido, o.criterio));
 }
 

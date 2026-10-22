@@ -4,11 +4,12 @@
 export type Mark = 'ok' | 'fail' | 'run'
 
 // Etapa abierta en la timeline: desde cuándo, su clave (etapa|workspace) y, si el mod vio su
-// inicio, cuánto marcaba /cost entonces (para su costo hasta ahora).
-export type Stage = { name: string; detail?: string; startedAt: number; id?: string; usd?: number }
+// inicio, cuánto marcaba /cost entonces (para su costo hasta ahora). note es lo que se dice de ella
+// tras un punto, como las consultas al grafo del plan ("grafo 3 consultas").
+export type Stage = { name: string; detail?: string; note?: string; startedAt: number; id?: string; usd?: number }
 
 // Etapa cerrada: su duración y, si arnes-ui anotó la nota de costo, cuánto costó.
-export type StageDone = { name: string; detail?: string; ms: number; usd?: number }
+export type StageDone = { name: string; detail?: string; note?: string; ms: number; usd?: number }
 
 // La espera de la persona en la corrida: lo sumado entre cada cierre de turno y su respuesta, y
 // desde cuándo se espera ahora (null si no se espera).
