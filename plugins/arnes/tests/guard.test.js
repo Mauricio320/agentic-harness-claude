@@ -156,13 +156,13 @@ test('guard resuelve -C, -C con -c antes, y el último cd del comando', () => {
   assert.ok(denied(guard(root, 'cd api && cd .. && git commit -m x')), 'el último cd vuelve a la raíz');
 });
 
-test('guard bloquea bandera vencida, de otro HEAD o en fail', () => {
+test('guard bloquea una bandera de otro HEAD o en fail; una vieja con el mismo HEAD y contenido sigue valiendo', () => {
   const { root, api } = folder();
   const file = path.join(root, '.tmp', 'harness', 'gate', 'api.json');
   flag(root, 'api');
   const f = JSON.parse(fs.readFileSync(file, 'utf8'));
   fs.writeFileSync(file, JSON.stringify({ ...f, at: '2020-01-01T00:00:00.000Z' }));
-  assert.match(reason(guard(api, 'git commit -m x')), /vencida/);
+  assert.equal(guard(api, 'git commit -m x').out, null, 'no vence por tiempo');
   fs.writeFileSync(file, JSON.stringify({ ...f, head: 'deadbeef' }));
   assert.match(reason(guard(api, 'git commit -m x')), /HEAD cambió/);
   flag(root, 'api', 'fail');

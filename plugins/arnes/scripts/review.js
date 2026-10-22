@@ -20,6 +20,8 @@
 //          ronda siguiente tras bloqueantes, o la 1 tras una limpia. Tope: tras la ronda 3 con
 //          bloqueantes se niega. --completa revisa todo y
 //          vuelve a la ronda 1. Los diffs llevan el número de línea del archivo (numbered).
+//          Si la ronda anterior de este mismo contenido ya tiene su reporte guardado y no se marcó
+//          (el turno cerró antes), no arma otra: dice "sin marcar", y la skill marca con ese reporte.
 //   mark   escribe .tmp/harness/review.json con los bloqueantes, la ronda y la huella de input.json;
 //          se niega si el árbol cambió desde input, porque lo revisado ya no es lo que hay. Exige el
 //          reporte del reviewer tal cual en .tmp/harness/review/report.md, con su línea BLOQUEANTES
@@ -333,6 +335,12 @@ function input(project, full) {
   }
   if (!Object.keys(now).length) {
     console.log('sin tocados en ningún workspace adoptable: nada que revisar');
+    return;
+  }
+  const pending = readJson(path.join(reviewDir(project), 'input.json'));
+  const marks0 = (pending && pending.workspaces) || {};
+  if (!full && fs.existsSync(reportFile(project)) && Object.keys(marks0).length === Object.keys(now).length && Object.keys(now).every((n) => same(now[n].st, marks0[n]))) {
+    console.log(`sin marcar: la ronda ${pending.round || 1} de este mismo contenido ya tiene su reporte guardado; falta marcarla con los bloqueantes de ese reporte`);
     return;
   }
   const r = roundOf(project, now, full);

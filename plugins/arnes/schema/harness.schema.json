@@ -140,6 +140,7 @@
       "properties": {
         "branchPrefix": { "type": "string" },
         "sameBranchAcrossWorkspaces": { "type": "boolean" },
+        "merge": { "description": "Cómo llega la rama del issue a la rama por defecto: mr (por defecto), con push y un MR que mergea el host; o local, para quien trabaja solo y sin QA: ship la mergea con --no-ff, verifica el merge y, con un sí, sube la rama por defecto.", "type": "string", "pattern": "^(mr|local)$" },
         "workInPlace": { "description": "Al aprobar el plan, crear la rama del issue en el checkout de cada repo en vez de mover la sesión a un worktree nativo de Claude Code.", "type": "boolean" }
       }
     },

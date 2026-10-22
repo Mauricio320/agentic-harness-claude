@@ -19,6 +19,8 @@
 //
 // Uso: node ci-gate.js [--ws <nombre>]... [--base <ref>]
 // Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.
+// Deja por workspace el resultado y el primer error, con su archivo y su línea, en
+// .tmp/harness/gate/<ws>-ultimo.json (gate-flag.js writeLast): ship lo lee para decir por qué no entrega.
 // Exit: 0 verde · 1 rojo (algún paso falló o no se pudo verificar) · 2 uso inválido o sin manifiesto
 
 'use strict';
@@ -35,6 +37,37 @@ const { touched } = require('./touched-files.js');
 const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
 const conventions = require('./conventions.js');
+const { writeLast } = require('./gate-flag.js');
+
+// El primer error de cada paso en rojo, para decirlo en palabras: { file, line, what } y, en los
+// tests, cuántos fallan y en qué specs.
+function firstTypecheck(nuevos, out) {
+  const d = nuevos[0];
+  if (!d) return null;
+  const hit = out.split(/\r?\n/).map((l) => l.match(tb.DIAG_RE)).find((m) => m && m[4] === d.code && posix(m[1]) === posix(d.file));
+  return { file: posix(d.file), line: hit ? Number(hit[2]) : null, what: d.msg };
+}
+
+function firstLint(out, dir) {
+  let file = null;
+  for (const l of out.split(/\r?\n/)) {
+    const m = l.match(/^\s+(\d+):\d+\s+error\s+(.+?)(?:\s{2,}\S+)?\s*$/);
+    if (m && file) return { file, line: Number(m[1]), what: m[2] };
+    if (/^\S.*\.\w+$/.test(l.trimEnd())) file = posix(path.isAbsolute(l.trim()) ? path.relative(dir, l.trim()) : l.trim());
+  }
+  return null;
+}
+
+function firstTests(out) {
+  const news = [...String(out || '').matchAll(/^falla nueva: (.+?) › (.+)$/gm)].map((m) => ({ spec: m[1], name: m[2] }));
+  if (!news.length) {
+    const red = String(out || '').split(/\r?\n/).find((l) => /^línea base:|sin fallas parseables|falla\(s\) sin nombre|no hay parser/.test(l));
+    return red ? { what: red } : null;
+  }
+  const spec = news[0].spec;
+  const at = new RegExp(`${path.posix.basename(spec).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(\\d+):\\d+`).exec(out);
+  return { file: spec, line: at ? Number(at[1]) : null, what: news[0].name, count: news.length, files: [...new Set(news.map((n) => n.spec))] };
+}
 
 function baseOf(ws, explicit) {
   const ref = explicit || process.env.CI_MERGE_REQUEST_DIFF_BASE_SHA;
@@ -126,7 +159,7 @@ function stepTypecheck(project, ws, base) {
   const [baseCounts, nowCounts] = [tb.countDiagnostics(b.diags), tb.countDiagnostics(n.diags)];
   const nuevos = tb.diffCounts(baseCounts, nowCounts);
   const lines = [...(ignored.length ? [tb.ignoredLine(ignored)] : []), ...nuevos.map((d) => `${d.file} · ${d.code} · ${d.msg}${d.delta > 1 ? ` (×${d.delta})` : ''}`)];
-  if (nuevos.length) return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s) · ${photo}`, out: lines.join('\n') };
+  if (nuevos.length) return { status: 'falla', detail: `${nuevos.length} diagnóstico(s) nuevo(s) · ${photo}`, out: lines.join('\n'), first: firstTypecheck(nuevos, now.out) };
   return { status: 'ok', detail: `sin diagnósticos nuevos (base ${tb.totalOf(baseCounts)}, ahora ${tb.totalOf(nowCounts)}) · ${photo}`, out: lines.join('\n') || undefined };
 }
 
@@ -134,7 +167,7 @@ function stepConventions(ws, code, base) {
   if (!ws.conventions || !ws.conventions.length) return { status: 'omitido', detail: 'sin conventions' };
   const r = conventions.check(ws, code, base.hash);
   if (r.error) return { status: 'falla', detail: r.error };
-  if (r.findings.length) return { status: 'falla', detail: `${r.findings.length} hallazgo(s)`, out: r.findings.map(conventions.describe).join('\n') };
+  if (r.findings.length) return { status: 'falla', detail: `${r.findings.length} hallazgo(s)`, out: r.findings.map(conventions.describe).join('\n'), first: { file: r.findings[0].file, line: r.findings[0].line, what: r.findings[0].message } };
   return { status: 'ok', detail: `${code.length} archivo(s), ${ws.conventions.length} convención(es)` };
 }
 
@@ -144,13 +177,14 @@ function stepLint(ws, code) {
   const r = runExpanded(cmd, ws.dir, { files: code });
   return r.status === 0
     ? { status: 'ok', detail: `${code.length} archivo(s)` }
-    : { status: 'falla', detail: `exit ${r.status}`, out: tail(r.out, 30) };
+    : { status: 'falla', detail: `exit ${r.status}`, out: tail(r.out, 30), first: firstLint(r.out, ws.dir) };
 }
 
 // Los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.
 function stepTests(ws, files) {
   if (!ws.commands.test && !ws.commands.testAll) return { status: 'omitido', detail: 'sin commands.test' };
-  return tbl.checkTests(ws, tbl.planTests(ws, files));
+  const r = tbl.checkTests(ws, tbl.planTests(ws, files));
+  return r.status === 'falla' ? { ...r, first: firstTests(r.out) || { what: r.detail } } : r;
 }
 
 function main() {
@@ -179,6 +213,7 @@ function main() {
     const t = touched(ws, base.hash, project);
     if (t.error) {
       console.log(`  FALLA      ${t.error}`);
+      writeLast(project, ws, base.hash, { result: 'fail', steps: [], first: { step: 'base', what: t.error } });
       red = true;
       continue;
     }
@@ -191,8 +226,10 @@ function main() {
     // base ilegible tampoco es código, y sin este corte pasaría como "sin cambios".
     if (!code.length && !gone.length && !bl.error) {
       console.log('  ok         sin cambios de código');
+      writeLast(project, ws, base.hash, { result: 'pass', steps: [] });
       continue;
     }
+    const steps = [];
     for (const [name, step] of [
       ['typecheck', () => stepTypecheck(project, ws, base)],
       ['convenciones', () => stepConventions(ws, code, base)],
@@ -201,9 +238,12 @@ function main() {
     ]) {
       const r = step();
       if (r.status === 'falla') red = true;
+      steps.push({ name, status: r.status, detail: r.detail, ...(r.first ? { first: { step: name, ...r.first } } : {}) });
       console.log(`  ${name.padEnd(12)} ${r.status === 'falla' ? 'FALLA' : r.status} · ${r.detail}`);
       if (r.out) console.log(r.out.replace(/^/gm, '             '));
     }
+    const failed = steps.filter((s) => s.status === 'falla');
+    writeLast(project, ws, base.hash, { result: failed.length ? 'fail' : 'pass', steps: steps.map(({ first, ...s }) => s), ...(failed.length ? { first: failed[0].first || { step: failed[0].name, what: failed[0].detail } } : {}) });
   }
   console.log(
     `\nresultado: ${red ? 'ROJO' : 'VERDE'}. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.`,

@@ -10,7 +10,6 @@ export type Entry = { at: number; event: string; stage: string; ws?: string; res
 
 export const MANIFEST = '.claude/harness.json'
 export const CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}']
-const FLAG_MS = 30 * 60 * 1000
 const SCRIPTS = /[\\/]scripts[\\/](ci-gate|typecheck-baseline|test-select)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
@@ -61,12 +60,12 @@ export const label = (s: { name: string; detail?: string; note?: string }) => `$
 export const short = (type: string, model: string) => `${type.replace(/^arnes:/, '')} ${model.replace(/^claude-/, '').split('-')[0]}`
 export const sym = (m?: Mark) => (m === 'ok' ? '✓' : m === 'fail' ? '✗' : m === 'run' ? '⏳' : '–')
 
-// Vigente para la vista: menos de 30 min, mismo HEAD y sin Edit/Write después. La vigencia exacta
+// Vigente para la vista: mismo HEAD y sin Edit/Write después; no vence por tiempo. La vigencia exacta
 // (la lista de tocados) la juzgan el guard y el Stop del plugin base.
 // Cualquier edición de un archivo cambiado la vence, venga de un Edit, de un Bash o de la persona:
 // changedAt es la fecha de modificación más reciente de los archivos que lista git.
 export const fresh = (r: GateRow, t: number) =>
-  !!r.flag && t - r.flag.at < FLAG_MS && (!r.head || r.flag.head === r.head) && Math.max(r.editedAt, r.changedAt ?? 0) <= r.flag.at
+  !!r.flag && (!r.head || r.flag.head === r.head) && Math.max(r.editedAt, r.changedAt ?? 0) <= r.flag.at
 export const flagText = (r: GateRow, t: number) =>
   !r.flag ? 'sin bandera' : fresh(r, t) ? `bandera ${r.flag.result} hace ${mins(t - r.flag.at)}` : `bandera vencida (${r.flag.result})`
 

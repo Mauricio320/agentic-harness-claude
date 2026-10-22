@@ -40,7 +40,7 @@ const PROTOCOL = [
   '1. Manda la configuración de cada repo: sus comandos, sus rutas de riesgo y lo prohibido. No inventes comandos que no estén ahí.',
   '2. Un pedido que cambia código empieza por el plan, que aprueba la persona; sin plan aprobado no se puede escribir código. Para un cambio mínimo, la persona escribe /arnes:plan --trivial.',
   '3. Antes de cerrar un turno con cambios de código, verifícalos. La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano; sin ella, el cierre del turno se frena una vez.',
-  '4. Un commit exige la verificación vigente de su workspace: el mismo commit de base, los mismos archivos y menos de 30 minutos.',
+  '4. Un commit exige la verificación vigente de su workspace: el mismo commit de base y el mismo contenido de los archivos, sin vencer por tiempo.',
   '5. Se niega siempre: git reset --hard, push forzado, clean -f, borrar una rama o un worktree con commits sin integrar, y leer secretos (.env, llaves). Con la configuración, además: lo prohibido del workspace y un git add masivo con .env o logs.',
   '6. Antes de entregar, revisa el cambio; si toca rutas de riesgo, va REVISIÓN HUMANA OBLIGATORIA. Los worktrees del issue con commits los integra la persona con /arnes:worktree integrate <slug>, y entrega con /arnes:ship.',
   '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Se dice una vez por corrida.',

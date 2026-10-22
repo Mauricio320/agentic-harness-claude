@@ -137,7 +137,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 
 - **REVISIÓN HUMANA OBLIGATORIA.** Si el cambio toca `riskPaths`, el arnés lo marca en el plan, en el reporte del reviewer, en ship y en el cuerpo del MR. No aprueba por nadie: esa aprobación la da una persona en GitLab.
 - **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.** El reviewer tampoco lo certifica: busca lo que está en su lista cerrada.
-- **La bandera de verificación** dura 30 minutos y cubre solo los archivos tocados. La garantía real es el CI.
+- **La bandera de verificación** no vence por tiempo: vale mientras el commit de base y el contenido de los archivos tocados sean los mismos, y cubre solo esos archivos. La garantía real es el CI.
 - **Un hook pre-commit que reescribe archivos**, como `eslint --fix`, hace que ship se detenga con FALLA después del commit, con los archivos que cambiaron. Decides tú. Un tocado que ship dejó fuera del commit a propósito sale como nota, no como falla.
 - **Errores en tiempo de ejecución.** Lo que solo se ve arrancando la app, como un error de inyección de dependencias, no lo detectan ni tsc ni jest.
 - **Las rondas de review.** La primera revisa todo en opus. Las siguientes revisan todo lo que cambió desde la anterior, archivos nuevos incluidos, en sonnet, y vuelven a revisar todo en opus si el cambio toca `riskPaths` o es más grande que lo que se revisó. Hay dos rondas de corrección como máximo: en el tope, el arnés se detiene y te lo reporta.
@@ -155,6 +155,8 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 **¿El arnés hace pull de main?** No. El pull es tuyo. Al empezar, el plan hace `git fetch` y te dice si tu rama va atrás de `origin/main`, con cuántos commits. Si estás en main, al aprobar el plan la rama del issue sale de `origin/main` actualizado, y main solo avanza si es fast-forward y no tienes cambios a medias. Si ya empezaste una rama y quieres traerle lo nuevo de main, `/arnes:sync` lo hace con un respaldo, y te deja la vuelta atrás.
 
 **¿Cuándo se entrega?** Cuando review termina con "Listo para /arnes:ship". `/arnes:ship --solo-commit` hace un commit por repo, el back primero, y se detiene. `/arnes:ship` a secas, además, hace push y abre los MR, después de pedirte un sí explícito. Nadie entrega por ti.
+
+**¿Por qué ship se detuvo?** ship resuelve solo lo que falta: si no está verificado, verifica; si no está revisado, revisa; si quedó un worktree del issue sin integrar, lo integra; y un `.env` o un log se quedan fuera del commit. Se detiene solo por tres razones, y te lo dice en palabras, con los pasos para destrabarlo: la verificación está en rojo (con el archivo y la línea del primer error), la revisión encontró bloqueantes (cada uno textual, con lo que lo corrige), o el cambio toca una zona de riesgo y la entrega va directo a main sin MR, y nadie la miró (con la ruta y a quién le toca). Casi siempre el primer paso es responder "corrígelo".
 
 **¿Cuándo se crea la rama del issue?** No al abrir la sesión ni mientras se planifica: la crea el arnés al aprobar el plan, en todos los repos del plan con el mismo nombre. ship la reutiliza al entregar, y solo la crea él si nadie la creó antes.
 

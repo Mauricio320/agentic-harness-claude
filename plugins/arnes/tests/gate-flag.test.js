@@ -28,7 +28,8 @@ test('write pass → check 0, aunque la bandera viva dentro del repo sin ignorar
   const { dir, flag } = repo();
   assert.equal(gate(dir, ['write', 'api', '--result', 'pass']).status, 0);
   const f = JSON.parse(fs.readFileSync(flag, 'utf8'));
-  assert.deepEqual(Object.keys(f).sort(), ['at', 'base', 'blobs', 'contentHash', 'head', 'result', 'touchedHash']);
+  assert.deepEqual(Object.keys(f).sort(), ['at', 'base', 'blobs', 'contentHash', 'eol', 'head', 'result', 'touchedHash']);
+  assert.match(f.eol['src/a.ts'], /^[0-9a-f]{64}$/, 'la huella del contenido con los fines de línea de git');
   assert.deepEqual(f.blobs, { 'src/a.ts': h.git(dir, 'hash-object', 'src/a.ts') }, 'el blob que git guardaría de cada tocado');
   assert.match(f.head, /^[0-9a-f]{40}$/);
   assert.match(f.touchedHash, /^[0-9a-f]{64}$/);
@@ -76,15 +77,16 @@ test('HEAD distinto → 1', () => {
   assert.match(gate(dir, ['check', 'api']).stderr, /HEAD cambió/);
 });
 
-test('result fail o bandera de hace más de 30 minutos → 1', () => {
+test('result fail → 1; la bandera no vence por tiempo: vale mientras HEAD y contenido coincidan', () => {
   const { dir, flag } = repo();
   gate(dir, ['write', 'api', '--result', 'fail']);
   assert.match(gate(dir, ['check', 'api']).stderr, /terminó en "fail"/);
   gate(dir, ['write', 'api', '--result', 'pass']);
   const f = JSON.parse(fs.readFileSync(flag, 'utf8'));
-  f.at = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  f.at = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
   fs.writeFileSync(flag, JSON.stringify(f));
-  assert.match(gate(dir, ['check', 'api']).stderr, /vencida/);
+  const r = gate(dir, ['check', 'api']);
+  assert.equal(r.status, 0, r.stderr);
 });
 
 test('usos inválidos → 2', () => {

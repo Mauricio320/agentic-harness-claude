@@ -5,7 +5,9 @@
 // no dice nada. Nunca bloquea. Con un mensaje de la persona, y no con el aviso de un agente en
 // segundo plano, deja la foto del turno (gate-flag writeTurn) que stop-gate compara para decidir
 // si el turno cambió algo, y anota en la timeline que la persona respondió;
-// si escribió /arnes:plan --trivial, la nota lo dice, y es lo único que habilita el plan trivial.
+// si escribió /arnes:plan --trivial, la nota lo dice, y es lo único que habilita el plan trivial;
+// si escribió /arnes:ship --revisado <nombre>, la nota lleva ese nombre: es la revisión humana de una
+// zona de riesgo que ship exige cuando la entrega va sin MR.
 // Sin plan en curso y sin código tocado, agrega una línea: un pedido de código empieza por el plan.
 // No la agrega mientras init o setup están en curso (timeline prepOpen), ni al mensaje que los
 // invoca: las respuestas a sus preguntas no son pedidos de código.
@@ -29,6 +31,8 @@ const FROM_AGENT = /^\s*(<task-notification>|<agent-message\b|Another Claude ses
 const TRIVIAL = /^\s*\/arnes:plan\s+--trivial\b|<command-name>\/arnes:plan<\/command-name>[\s\S]*?<command-args>[^<]*--trivial/;
 // /arnes:init o /arnes:setup como los escribió la persona, o como los expande el CLI.
 const PREP = /^\s*\/arnes:(init|setup)\b|<command-name>\/arnes:(init|setup)<\/command-name>/;
+// /arnes:ship --revisado <nombre> como lo escribió la persona, o como lo expande el CLI.
+const REVISADO = /^\s*\/arnes:ship\b[^\n]*?--revisado\s+([^\s<]+)|<command-name>\/arnes:ship<\/command-name>[\s\S]*?<command-args>[^<]*?--revisado\s+([^\s<]+)/;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
 
 // → { text, code }: la línea de estado del workspace, o null, y cuántos archivos de código tocó.
@@ -58,7 +62,8 @@ function promptContext(input) {
   if (person) {
     writeTurn(project, adoptable);
     // Cierra la espera que abrió la nota "cerrado" del Stop.
-    append(project.root, { event: 'note', stage: 'turno', result: 'respuesta', trivial: TRIVIAL.test(text) || undefined });
+    const revisado = text.match(REVISADO);
+    append(project.root, { event: 'note', stage: 'turno', result: 'respuesta', trivial: TRIVIAL.test(text) || undefined, revisado: revisado ? revisado[1] || revisado[2] : undefined });
   }
   const rows = adoptable.map((ws) => state(project, ws));
   const out = rows.map((r) => r.text).filter(Boolean);

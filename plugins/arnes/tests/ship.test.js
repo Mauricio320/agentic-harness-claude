@@ -42,13 +42,13 @@ const ready = (root) => {
   reviewed(root, 0);
 };
 
-test('check sin bandera ni revisión → NO LISTO con cada motivo', () => {
+test('check sin bandera ni revisión → falta resolver: verificar cada workspace y revisar', () => {
   const { root } = folder();
   const r = ship(root, ['check']);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stdout, /api: bandera no vigente \(sin bandera de verificación para api\)/);
-  assert.match(r.stdout, /front: sin revisión/);
-  assert.match(r.stdout, /resultado: NO LISTO/);
+  assert.match(r.stdout, /bandera: falta: sin bandera de verificación para api/);
+  assert.match(r.stdout, /revisión: falta: sin revisión/);
+  assert.match(r.stdout, /resultado: FALTA RESOLVER\n  verificar api\n  verificar front\n  revisar/);
 });
 
 test('check listo: orden back → front, prefijo, convención, sin worktrees abiertos y riskPaths', () => {
@@ -74,12 +74,13 @@ test('check: la revisión con bloqueantes, un .env o la base de tests tocada', (
   ready(root);
   reviewed(root, 1, ['--completa']);
   let r = ship(root, ['check']);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /api: la revisión encontró 1 bloqueante/);
+  assert.equal(r.status, 3, 'con bloqueantes se detiene');
+  assert.match(r.stdout, /revisión: falta: la revisión encontró 1 bloqueante/);
+  assert.match(r.stdout, /resultado: SE DETIENE\npara la persona:\nNo pude entregar porque la revisión encontró un bloqueante/);
   assert.match(r.stdout, /línea base de tests: cambia → el asunto del commit empieza con gates:/);
   h.write(api, '.env', 'SECRETO=1\n');
   r = ship(root, ['check']);
-  assert.match(r.stdout, /api: archivos que no deben entrar: \.env/);
+  assert.match(r.stdout, /se quedan fuera del commit: \.env/);
 });
 
 test('check se niega con un worktree del registro abierto hacia la rama del issue, con las líneas de pending', () => {
@@ -91,7 +92,7 @@ test('check se niega con un worktree del registro abierto hacia la rama del issu
   const r = ship(root, ['check']);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stdout, /worktrees abiertos del issue: 1\n    api wt\/feature\/cobros\/tarifas → feature\/cobros · 0 commit\(s\) sin integrar/);
-  assert.match(r.stdout, /hay 1 worktree\(s\) del issue sin integrar en feature\/cobros/);
+  assert.match(r.stdout, /resultado: FALTA RESOLVER\n  integrar tarifas$/m, 'ship lo integra solo');
   const p = h.run('worktree-ledger.js', ['pending', '--target', 'feature/cobros'], { cwd: root });
   assert.equal(p.status, 1);
   assert.match(r.stdout, new RegExp(p.stdout.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -129,7 +130,7 @@ test('branch se niega a la rama por defecto y a una rama que existe en otro comm
   assert.match(ship(solo, ['branch', 'cobros']).stdout, /api: crea cobros/);
 });
 
-test('stage agrega tocados y borrados del workspace; se niega con un .env', () => {
+test('stage agrega tocados y borrados del workspace; un .env se queda fuera', () => {
   const { root, api } = folder();
   h.write(api, 'src/nuevo.ts', 'n\n');
   h.write(api, 'src/fuera.ts', 'f\n');
@@ -145,8 +146,9 @@ test('stage agrega tocados y borrados del workspace; se niega con un .env', () =
   assert.match(r.stdout, /A\tsrc\/otro\.ts/);
   h.write(api, '.env.local', 'x\n');
   const bad = ship(root, ['stage', 'api']);
-  assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /no deben entrar: \.env\.local/);
+  assert.equal(bad.status, 0, bad.stderr);
+  assert.match(bad.stdout, /api: se quedan fuera del commit, porque no deben entrar: \.env\.local/);
+  assert.doesNotMatch(bad.stdout, /\t\.env\.local/, 'no entra al stage');
 });
 
 test('committed: el commit lleva lo que verificó la bandera; si un hook pre-commit lo reescribe, FALLA con el archivo', () => {

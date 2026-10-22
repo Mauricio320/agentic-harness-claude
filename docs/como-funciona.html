@@ -826,7 +826,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
         <li><code>result</code> y <code>at</code>: el resultado y la hora.</li>
       </ul>
       <h3>Cuándo vence</h3>
-      <p>Vale solo si se cumplen todas: dice <code>pass</code>, el HEAD es el mismo, la lista de tocados es la misma, el contenido de cada tocado es el mismo y tiene menos de 30 minutos. Cambias una coma en un archivo tocado y se vence. Haces un commit y se vence (cambió el HEAD).</p>
+      <p>Vale solo si se cumplen todas: dice <code>pass</code>, el HEAD es el mismo, la lista de tocados es la misma, y el contenido de cada tocado es el mismo; no vence por tiempo. Cambias una coma en un archivo tocado y se vence. Haces un commit y se vence (cambió el HEAD).</p>
       <p class="small">El <code>contentHash</code> entró en la fase 2b: la prueba manual mostró que editar un archivo ya tocado no vencía la bandera.</p>
       <h3>Por qué un commit sin bandera se niega</h3>
       <p>Porque es la única manera de que "verifiqué" no dependa de la palabra de Claude. El guardia de comandos, ante un <code>git commit</code>, consulta la bandera del workspace; si no está vigente, lo niega con el motivo y le dice que verifique con <code>/arnes:verify</code>. Por eso ship hace un solo commit por workspace: el primer commit cambia el HEAD y vence la bandera.</p>
@@ -1298,7 +1298,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
         <dt>Adoptado</dt><dd>Un repo con su propio manifiesto que cumple el mínimo de adopción que revisa <code>/arnes:init --check</code>.</dd>
         <dt>Agente / subagente</dt><dd>Un ayudante que Claude llama para un trabajo puntual, con su propio contexto, sus herramientas y su modelo. El arnés trae dev, test-writer y reviewer.</dd>
         <dt>Arnés</dt><dd>Lo que se le pone alrededor a Claude Code para que trabaje siempre igual: recetas, ayudantes, guardias y scripts.</dd>
-        <dt>Bandera</dt><dd>El archivo <code>.tmp/harness/gate/&lt;ws&gt;.json</code> que dice que un workspace, tal como está, pasó la verificación. Vence a los 30 minutos o con cualquier cambio. Sin ella no hay commit.</dd>
+        <dt>Bandera</dt><dd>El archivo <code>.tmp/harness/gate/&lt;ws&gt;.json</code> que dice que un workspace, tal como está, pasó la verificación. Vence con cualquier cambio, no por tiempo. Sin ella no hay commit.</dd>
         <dt>Bloqueante</dt><dd>Un hallazgo del revisor que cae en la lista cerrada de reglas. Con bloqueantes, ship no entrega.</dd>
         <dt>CI</dt><dd>El servidor (en GitLab, el pipeline) que vuelve a correr las comprobaciones cuando subes un cambio. Corre el mismo <code>ci-gate.js</code> que la sesión.</dd>
         <dt>Claude Code</dt><dd>Claude trabajando en tu terminal: lee, edita y corre comandos.</dd>

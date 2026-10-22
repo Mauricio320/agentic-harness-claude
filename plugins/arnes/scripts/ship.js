@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 // Lo determinista de /arnes:ship (docs/PLAN.md §6.3), sobre los workspaces adoptables con tocados
-// respecto de HEAD.
-//   check   por cada uno: bandera vigente (gate-flag), revisión hecha y sin bloqueantes (review.js)
-//           y ningún archivo que no deba entrar (.env, logs); del proyecto, ningún worktree abierto
-//           en worktree-ledger.js cuyo destino sea la rama del issue (la actual de cada workspace),
-//           con las mismas líneas que `pending --target`. Imprime además el orden de commit (los que
+// respecto de HEAD. ship se vale solo: resuelve lo que falta y se detiene solo por tres razones.
+//   check   clasifica lo que encuentra. Lo que ship resuelve solo ("resultado: FALTA RESOLVER", con una
+//           línea por cosa, en el orden en que se resuelven): integrar un worktree del registro del
+//           issue (worktree-ledger.js, con las líneas de `pending --target`), verificar un workspace
+//           sin bandera vigente o con una de otro HEAD o contenido, y revisar si la revisión falta o es
+//           de otro contenido. Lo que lo detiene ("resultado: SE DETIENE", y el bloque "para la
+//           persona" de lib/entrega.js, textual): el gate en rojo para el contenido de ahora (la
+//           última corrida de ci-gate, gate-flag.js readLast), una revisión de este contenido con
+//           bloqueantes, o riskPaths tocadas que irían a la rama por defecto sin MR
+//           (integration.merge "local") sin que una persona las haya revisado (/arnes:ship --revisado
+//           <nombre>, que anota UserPromptSubmit). Un archivo que no debe entrar (.env, logs) no frena:
+//           se queda fuera del commit. Sin nada que commitear, si la rama tiene commits sin subir,
+//           entregar es el push ("resultado: LISTO PARA SUBIR"). Imprime además el orden de commit (los que
 //           proveen contrato antes que los que lo consumen), el prefijo de rama del manifiesto y la
 //           rama propuesta, las riskPaths tocadas,
 //           si la línea base de tests cambia (entonces el asunto lleva gates:) y lo que el repo dice
@@ -14,31 +22,37 @@
 //   branch  crea o reutiliza <rama> en cada uno, en el orden de commit, con el prefijo delante si
 //           falta. Nunca mueve un HEAD: si <rama> ya existe en otro commit, se niega, porque
 //           cambiarse vencería la bandera
-//   stage   git add de los tocados y los borrados de <ws>, sin shell; se niega si hay un archivo
-//           que no debe entrar
+//   stage   git add de los tocados y los borrados de <ws>, sin shell; un archivo que no debe entrar se
+//           queda fuera, y lo dice
 //   committed  después del commit de <ws>: el blob de HEAD de cada archivo de la bandera que entró
 //           al commit es el que ella verificó. Un hook pre-commit que reescribe (eslint --fix de
 //           lint-staged) cambiaría lo commiteado sin que el arnés se entere: FALLA con los archivos,
-//           y decide la persona. Un tocado que quedó fuera del commit es una nota, nunca una falla
+//           y decide la persona. Un archivo que solo cambió sus fines de línea, como los normaliza git,
+//           no es falla. Un tocado que quedó fuera del commit es una nota, nunca una falla
 // Sin contract en ningún workspace, check avisa que el orden de commit es el del manifiesto.
 // Uso: node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
 //      node ship.js committed <ws>
-// Exit: 0 listo · 1 no listo, o committed: el commit no es lo verificado (motivos en stdout) ·
-//       2 uso inválido, sin manifiesto, sin bandera o git falló
+// Exit: 0 listo · 1 falta resolver (ship lo resuelve), nada que entregar, o committed: el commit no
+//       es lo verificado · 2 uso inválido, sin manifiesto, sin bandera o git falló · 3 se detiene: el
+//       gate en rojo, bloqueantes o una zona de riesgo sin revisión humana
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists } = require('./lib/branches.js');
 const { touched, deleted } = require('./touched-files.js');
-const { checkFlag, flagPath } = require('./gate-flag.js');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
+const { checkFlag, flagPath, readLast } = require('./gate-flag.js');
 const { checkReview, RISK } = require('./review.js');
+const { read } = require('./lib/timeline.js');
+const entrega = require('./lib/entrega.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const ledger = require('./worktree-ledger.js');
@@ -89,30 +103,66 @@ function convention(ws) {
   return { commitlint: found, claude: fs.existsSync(claude) ? claude : null, ref, subjects: lines(log.stdout) };
 }
 
+// Sin nada que commitear: los commits de la rama actual que no están en ningún remoto, por repo. Es
+// lo que queda cuando la persona commiteó a mano, o cuando ship ya commiteó y falta subir.
+function unpushed(project) {
+  const seen = new Set();
+  return project.workspaces
+    .filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))
+    .map((ws) => ({ ws, branch: branchOf(ws), n: Number(git(ws.gitRoot, ['rev-list', '--count', 'HEAD', '--not', '--remotes', '--']).stdout.trim()) || 0 }))
+    .filter((x) => x.n && x.branch && x.branch !== 'HEAD' && x.branch !== defaultOf(x.ws));
+}
+
+const mergeMode = (project) => (project.integration && project.integration.merge) || 'mr';
+
+// La revisión humana de una zona de riesgo, cuando la entrega va sin MR: la persona escribe
+// /arnes:ship --revisado <nombre> después de la última revisión, y UserPromptSubmit lo anota.
+function reviewedBy(project) {
+  let at = 0;
+  try {
+    at = Date.parse(JSON.parse(fs.readFileSync(path.join(harnessDir(project), 'review.json'), 'utf8')).at) || 0;
+  } catch {
+    /* sin revisión marcada */
+  }
+  const hit = read(project.root).filter((e) => e.stage === 'turno' && e.result === 'respuesta' && e.revisado && Date.parse(e.at) >= at).pop();
+  return hit ? hit.revisado : null;
+}
+
 function check(project) {
   const list = shipping(project);
   if (!list.length) {
-    console.log('ship: sin tocados en ningún workspace adoptable; nada que entregar');
-    return 1;
+    const up = unpushed(project);
+    if (!up.length) {
+      console.log('ship: sin tocados en ningún workspace adoptable; nada que entregar');
+      return 1;
+    }
+    for (const x of up) console.log(`- ${x.ws.name} · rama ${x.branch} · ${x.n} commit(s) sin subir`);
+    console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
+    return 0;
   }
   const reviews = new Map(checkReview(project).map((r) => [r.ws, r]));
-  const problems = [];
+  const fix = [];
+  const stops = [];
+  const local = mergeMode(project) === 'local';
+  const revisado = local ? reviewedBy(project) : null;
   console.log(`ship · ${project.name} · ${list.length} workspace(s) con cambios`);
   for (const { ws, files, gone } of list) {
     const flag = checkFlag(project, ws);
+    const last = flag.ok ? null : readLast(project, ws);
+    const red = last && last.current && last.result === 'fail';
     const rev = reviews.get(ws.name) || { ok: false, reason: 'sin revisión' };
     const bad = files.filter(suspicious);
     const risk = files.filter((f) => matchAny(ws.riskPaths, f));
     const baseline = files.includes(posix(path.relative(ws.dir, baselinePath(ws))));
     const conv = convention(ws);
-    if (!flag.ok) problems.push(`${ws.name}: bandera no vigente (${flag.reason || flag.error})`);
-    if (!rev.ok) problems.push(`${ws.name}: ${rev.reason}`);
-    if (bad.length) problems.push(`${ws.name}: archivos que no deben entrar: ${bad.join(', ')}`);
+    if (red) stops.push(entrega.gateStop(ws, last));
+    else if (!flag.ok) fix.push(`verificar ${ws.name}`);
+    if (risk.length && local && !revisado) stops.push(entrega.riskStop(ws, risk, defaultOf(ws)));
     console.log(`- ${ws.name} (${ws.dir}) · rama ${branchOf(ws) || '?'} · ${files.length} tocado(s), ${gone.length} borrado(s)`);
-    console.log(`    bandera: ${flag.ok ? 'vigente' : `FALTA: ${flag.reason || flag.error}`}`);
-    console.log(`    revisión: ${rev.ok ? rev.reason : `FALTA: ${rev.reason}`}`);
-    if (bad.length) console.log(`    no deben entrar: ${bad.join(', ')}`);
-    console.log(`    riskPaths tocadas: ${risk.length ? `${risk.join(', ')} → ${RISK} en el MR` : 'ninguna'}`);
+    console.log(`    bandera: ${flag.ok ? 'vigente' : red ? `la última verificación de este contenido quedó en rojo (${(last.first && last.first.step) || 'gate'})` : `falta: ${flag.reason || flag.error}`}`);
+    console.log(`    revisión: ${rev.ok ? rev.reason : `falta: ${rev.reason}`}`);
+    if (bad.length) console.log(`    se quedan fuera del commit: ${bad.join(', ')}`);
+    console.log(`    riskPaths tocadas: ${risk.length ? `${risk.join(', ')} → ${local ? (revisado ? `revisadas por ${revisado}` : 'sin revisión humana, y la entrega va sin MR') : `${RISK} en el MR`}` : 'ninguna'}`);
     console.log(`    línea base de tests: ${baseline ? 'cambia → el asunto del commit empieza con gates:' : 'no cambia'}`);
     console.log(`    convención: ${conv.commitlint.length ? `commitlint en ${conv.commitlint.join(', ')}` : 'sin commitlint'} · CLAUDE.md ${conv.claude || 'no hay'}`);
     console.log(`    últimos asuntos de ${conv.ref}:`);
@@ -121,7 +171,21 @@ function check(project) {
   // La rama del issue es la actual de cada workspace: los worktrees del registro apuntan a ella.
   const targets = [...new Set(list.map((x) => branchOf(x.ws)).filter((b) => b && b !== 'HEAD'))];
   const open = targets.flatMap((target) => ledger.pendingEntries(project, ledger.readLedger(project), { target }));
-  if (open.length) problems.push(`hay ${open.length} worktree(s) del issue sin integrar en ${targets.join(', ')}`);
+  const slugs = [...new Set(open.map((e) => e.branch.split('/').pop()))];
+  // La revisión es de todo el árbol: con bloqueantes de este contenido detiene; si falta o es de otro,
+  // se revisa después de verificar.
+  const blocked = [...reviews.values()].find((r) => !r.ok && /bloqueante/.test(r.reason));
+  if (blocked && !fix.some((f) => f.startsWith('verificar'))) {
+    let rv = { blockers: 0, round: 1 };
+    try {
+      rv = JSON.parse(fs.readFileSync(path.join(harnessDir(project), 'review.json'), 'utf8'));
+    } catch {
+      /* sin marca */
+    }
+    const rep = path.join(harnessDir(project), 'review', `ronda-${rv.round}.md`);
+    stops.push(entrega.blockersStop(rv, fs.existsSync(rep) ? fs.readFileSync(rep, 'utf8') : '', 3));
+  } else if ([...reviews.values()].some((r) => !r.ok)) fix.push('revisar');
+  const todo = [...slugs.map((s) => `integrar ${s}`), ...fix];
   console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);
   for (const p of open) console.log(`    ${ledger.describe(p)}`);
   const folder = project.kind === 'folder' ? nativeRoot(project) : null;
@@ -141,9 +205,17 @@ function check(project) {
   if (current.length === 1) console.log(`rama propuesta: ${current[0]} (la actual)`);
   else if (current.length) console.log(`rama propuesta: ninguna; los workspaces están en ramas distintas (${current.join(', ')}): elige una`);
   else console.log('rama propuesta: ninguna; nómbrala a partir del plan o del pedido');
-  if (problems.length) console.log(`resultado: NO LISTO\n${problems.map((p) => `  ${p}`).join('\n')}`);
-  else console.log('resultado: LISTO');
-  return problems.length ? 1 : 0;
+  if (stops.length) {
+    console.log('resultado: SE DETIENE\npara la persona:');
+    console.log(stops.map(entrega.forPerson).join('\n\n'));
+    return 3;
+  }
+  if (todo.length) {
+    console.log(`resultado: FALTA RESOLVER\n${todo.map((p) => `  ${p}`).join('\n')}`);
+    return 1;
+  }
+  console.log('resultado: LISTO');
+  return 0;
 }
 
 function branch(project, wanted) {
@@ -198,10 +270,12 @@ function stage(project, wsName) {
   const item = shipping(project).find((x) => x.ws.name === ws.name);
   if (!item) die(`ship: ${ws.name} no tiene cambios que commitear`, 1);
   const bad = item.files.filter(suspicious);
-  if (bad.length) die(`ship: se niega a agregar archivos que no deben entrar: ${bad.join(', ')}. Ignóralos o sácalos primero.`, 1);
+  const keep = item.files.filter((f) => !suspicious(f));
+  if (bad.length) console.log(`${ws.name}: se quedan fuera del commit, porque no deben entrar: ${bad.join(', ')}`);
+  if (!keep.length && !item.gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
   // Un borrado puede seguir en el índice o haber salido ya (git rm --cached): rm --ignore-unmatch
   // sirve para los dos, y git add fallaría en el segundo.
-  for (const [args, files] of [[['add', '--'], item.files], [['rm', '-q', '--cached', '--ignore-unmatch', '--'], item.gone]]) {
+  for (const [args, files] of [[['add', '--'], keep], [['rm', '-q', '--cached', '--ignore-unmatch', '--'], item.gone]]) {
     for (let i = 0; i < files.length; i += 200) {
       const r = git(ws.dir, [...args, ...files.slice(i, i + 200)]);
       if (r.status !== 0) die(`ship: git ${args[0]} falló en ${ws.name}: ${firstLine(r.stderr)}`);
@@ -234,9 +308,18 @@ function committed(project, wsName) {
   const head = git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim();
   const files = Object.keys(flag.blobs).filter((f) => entered.has(f));
   const left = Object.keys(flag.blobs).filter((f) => !entered.has(f));
-  const changed = files.filter((f) => inHead.get(f) !== flag.blobs[f]);
+  const differ = files.filter((f) => inHead.get(f) !== flag.blobs[f]);
+  // Lo que solo cambió los fines de línea, como los normaliza git al guardar un archivo de texto,
+  // es lo mismo que se verificó.
+  const eolOnly = differ.filter((f) => {
+    if (!flag.eol || !flag.eol[f] || !inHead.get(f)) return false;
+    const blob = spawnSync('git', ['cat-file', 'blob', inHead.get(f)], { cwd: ws.gitRoot, encoding: 'latin1', maxBuffer: 1 << 28 });
+    return blob.status === 0 && crypto.createHash('sha256').update(blob.stdout.replace(/\r\n/g, '\n')).digest('hex') === flag.eol[f];
+  });
+  const changed = differ.filter((f) => !eolOnly.includes(f));
   if (changed.length) console.log(`FALLA ${ws.name}: el commit ${head} no lleva el contenido que verificó la bandera. Cambió después de verificar, quizá por un hook pre-commit: ${changed.join(', ')}`);
   else console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
+  for (const f of eolOnly) console.log(`    nota: en ${f} solo cambiaron los fines de línea, como los normaliza git`);
   for (const f of left) console.log(`    nota: quedó sin commitear: ${f}`);
   return changed.length ? 1 : 0;
 }
