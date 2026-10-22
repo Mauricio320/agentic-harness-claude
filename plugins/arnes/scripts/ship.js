@@ -41,7 +41,7 @@ const { checkReview, RISK } = require('./review.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const ledger = require('./worktree-ledger.js');
-const { nativeWorktree } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
@@ -122,7 +122,9 @@ function check(project) {
   if (open.length) problems.push(`hay ${open.length} worktree(s) del issue sin integrar en ${targets.join(', ')}`);
   console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);
   for (const p of open) console.log(`    ${ledger.describe(p)}`);
-  for (const w of [...new Set(list.map((x) => x.ws.gitRoot))].map(nativeWorktree).filter(Boolean)) {
+  const folder = project.kind === 'folder' ? nativeRoot(project) : null;
+  if (folder) console.log(`worktree nativo ${folder.name} de la carpeta: cada repo commitea en su rama del issue (${list.map((x) => `${branchOf(x.ws)} en ${x.ws.name}`).join(', ')}), y entregar es el push y el MR, no un merge local`);
+  else for (const w of [...new Set(list.map((x) => x.ws.gitRoot))].map(nativeWorktree).filter(Boolean)) {
     console.log(`worktree nativo ${w.name}: la rama del issue es ${w.branch}; se commitea ahí, y entregar es el push y el MR, no un merge local`);
   }
   console.log(`orden de commit: ${list.map((x) => x.ws.name).join(' → ')}`);
@@ -152,9 +154,9 @@ function branch(project, wanted) {
     if (done.has(ws.gitRoot)) continue;
     done.add(ws.gitRoot);
     const say = (msg) => console.log(`${ws.name}: ${msg}`);
-    const native = nativeWorktree(ws.gitRoot);
+    const native = nativeWorktree(ws.gitRoot) || (project.kind === 'folder' && nativeRoot(project));
     if (native) {
-      say(`reutiliza ${native.branch}, la rama del worktree ${native.name}: ahí va el commit`);
+      say(`reutiliza ${branchOf(ws)}, la rama del worktree ${native.name}: ahí va el commit`);
       continue;
     }
     if (name === defaultOf(ws)) {

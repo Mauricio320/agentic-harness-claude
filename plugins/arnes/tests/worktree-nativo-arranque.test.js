@@ -39,7 +39,7 @@ test('enlaza node_modules del principal, desplaza una vez los puertos del .env y
   const wt = native(dir, 'talleres');
   let ctx = start(wt);
   assert.match(ctx, /^- api: enlacé las dependencias del checkout principal/m);
-  assert.match(ctx, /^- puertos de este worktree: api 3003 → 3013; la app se arranca desde aquí con ellos$/m);
+  assert.match(ctx, /^- puertos de este worktree: api 3003 → 3013; la app se levanta desde aquí con ellos: pide que la levanten y quedan en su entorno, por encima de cualquier \.env$/m);
   assert.ok(isLink(path.join(wt, 'node_modules')));
   assert.ok(fs.existsSync(path.join(wt, 'node_modules', 'paquete', 'index.js')));
   assert.equal(fs.readFileSync(path.join(wt, '.env'), 'utf8'), 'PORT=3013\nDB_PORT=3306\n', 'el puerto de la base no se mueve');

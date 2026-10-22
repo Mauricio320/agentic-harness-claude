@@ -1,6 +1,6 @@
 ---
 name: worktree
-description: Abrir, integrar o cerrar los worktrees de las tareas de un issue, en ramas wt/<rama-issue>/<slug> registradas en .tmp/harness/worktrees.json. Integrar es git merge --no-ff en la rama del issue, nunca squash.
+description: Dividir un mismo issue en tareas que chocarían en los mismos archivos, cada una en su worktree y su rama wt/<rama-issue>/<slug>, registradas en .tmp/harness/worktrees.json. Integrar es git merge --no-ff en la rama del issue, nunca squash. Para trabajar un issue no hace falta: eso es el worktree nativo de Claude Code.
 argument-hint: "open <slug> [--ws <workspace>]... [--issue <ref>] [--no-link] [--port-offset N] | integrate <slug> | close <slug> | list | pending"
 disable-model-invocation: true
 ---
@@ -15,8 +15,8 @@ Antes de nada, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start
 
 ## Cuál worktree
 
-- **En un repo solo:** la persona abre la sesión con `claude --worktree <nombre>`, o en el escritorio con worktree, y el arnés hace el resto al arrancar: enlaza las dependencias, mueve los puertos y toma la rama del worktree como la del issue. No hace falta esta skill.
-- **En una carpeta multi-repo:** `--worktree` no sirve, porque la raíz es el repo de carpeta y los repos anidados no entran en el worktree. Ahí es `/arnes:worktree open`, que abre un worktree por repo, y también para las tareas de un mismo issue.
+- **Para trabajar un issue**, en un repo solo y en una carpeta multi-repo: el worktree nativo de Claude Code. Plan mueve la sesión a uno al aprobar, o la persona abre la sesión con `claude --worktree <nombre>`, o el escritorio en modo worktree. El arnés hace el resto: en una carpeta trae adentro cada repo del plan en la rama del issue, desde main al día; enlaza las dependencias, corre los puertos, y la app se levanta desde ahí pidiéndolo. Al salir con "remove", quita primero los enlaces y el worktree de cada repo; las ramas del issue quedan. No hace falta esta skill.
+- **Esta skill** sirve solo para dividir un mismo issue en tareas que chocarían en los mismos archivos: un worktree por tarea, con su rama `wt/...`, que se integra en la rama del issue.
 
 ## Cuándo no hace falta
 
@@ -29,7 +29,7 @@ Si los agentes tocan archivos disjuntos, trabajan en el mismo árbol, uno detrá
    - El worktree nace usable: `node_modules` enlazado al del checkout principal y los `.env*` copiados, para que verify corra adentro y la persona pueda levantar la app ahí.
    - **`--no-link`** cuando el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma` (`prisma generate`): con el enlace, regenerar en el worktree pisaría el del principal. Instala las dependencias dentro del worktree y tarda; pídele el sí a la persona.
    - **Puertos:** el set toma un desplazamiento (10 el primero, 20 el segundo) y las copias de `.env` lo llevan, para que su app corra al lado de la del principal. `--port-offset N` lo elige la persona; `--port-offset 0` no toca nada.
-3. Di en pocas líneas la carpeta de cada worktree y el mapa de puertos (`set <slug>: api 3003 → 3013, …`): la app del worktree se arranca desde su carpeta con esos puertos. Si open avisó que Prisma carga el `.env` del principal, se arranca con el del worktree ya cargado: `node --env-file=.env <entrada>`. Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
+3. Di en pocas líneas la carpeta de cada worktree y el mapa de puertos (`set <slug>: api 3003 → 3013, …`). Quien trabaje ahí (un agente, u otra sesión con `cd` a esa ruta) commitea en su rama `wt/...`; nunca pushea ni mergea.
 4. El guard exige bandera vigente para commitear también dentro del worktree: allí se verifica antes de cada commit.
 
 ## integrate <slug>

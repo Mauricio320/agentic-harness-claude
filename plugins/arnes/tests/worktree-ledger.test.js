@@ -236,15 +236,14 @@ test('open deja el worktree usable: node_modules enlazado, los .env copiados y t
   assert.deepEqual(e.copies, [p('.env'), p('.env.local')], '.env.example no se copia: viene con el checkout');
   fs.writeFileSync(path.join(wt, '.env'), 'PORT=4000\n');
   assert.equal(fs.readFileSync(path.join(dir, '.env'), 'utf8'), 'PORT=3003\n', 'la copia es propia del worktree');
-  assert.doesNotMatch(r.stdout, /Prisma carga el \.env/, 'sin cliente de Prisma no hay aviso');
 });
 
-test('open avisa que el cliente de Prisma enlazado carga el .env del principal, y cómo arrancar la app', () => {
+test('open ya no manda a arrancar con node --env-file aunque el cliente de Prisma esté enlazado: la app la levanta build con los puertos en su entorno', () => {
   const dir = equipped();
   h.write(dir, 'node_modules/.prisma/client/index.js', 'module.exports = {};\n');
   const r = ledger(dir, 'open', 'prisma');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /api: aviso: Prisma carga el \.env del checkout principal desde node_modules enlazado, con sus puertos y su base\. Arranca la app del worktree con su \.env ya cargado: node --env-file=\.env <entrada>/);
+  assert.doesNotMatch(r.stdout, /env-file|Prisma carga/);
 });
 
 test('open sin node_modules en el principal lo dice y sigue; --no-link instala dentro del worktree', () => {

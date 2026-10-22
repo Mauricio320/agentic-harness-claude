@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Worktrees por tarea de un issue y su registro (docs/PLAN.md §7), en
-// <raíz del proyecto>/.tmp/harness/worktrees.json. Cada tarea va en la rama wt/<rama-issue>/<slug>,
+// <raíz del proyecto>/.tmp/harness/worktrees.json. No son el camino para trabajar un issue: eso es el
+// worktree nativo de Claude Code (lib/worktree-nativo.js, worktree-carpeta.js). Sirven para dividir un
+// mismo issue en tareas que chocan en los mismos archivos. Cada tarea va en la rama wt/<rama-issue>/<slug>,
 // creada desde la rama del issue (la del checkout principal del workspace), nunca desde la rama por
 // defecto. En una carpeta multi-repo, open abre un set: uno por workspace, con el mismo slug.
 // Integrar es git merge --no-ff en la rama del issue, borrar el worktree y la rama, y cerrar el
@@ -8,9 +10,9 @@
 //
 // open deja cada worktree usable: por cada workspace del repo enlaza node_modules del checkout
 // principal (junction en Windows, symlink en el resto, lib/links.js) y copia, no enlaza, cada .env*
-// de la raíz del workspace salvo .env.example. Si el node_modules enlazado trae el cliente generado de
-// Prisma, avisa que este carga el .env del principal y que la app se arranca con node --env-file=.env.
-// Con --no-link no enlaza y corre la instalación del
+// de la raíz del workspace salvo .env.example. La app del worktree la levanta build.js app, con los
+// puertos del worktree en el entorno del proceso, que ganan a cualquier .env (también al del principal
+// que carga el cliente de Prisma por el enlace). Con --no-link no enlaza y corre la instalación del
 // paso deps de setup.js dentro del worktree: para un issue que regenera algo dentro de node_modules,
 // como prisma/schema.prisma. Lo enlazado y lo copiado queda en el registro (links, copies), y
 // integrate y close lo deshacen antes de git worktree remove: un enlace se quita sin seguirlo.
@@ -40,7 +42,7 @@ const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
 const { DB_VAR } = require('./lib/database.js');
-const { nativeWorktree, nativeWorktrees } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeWorktrees, nativeRoot } = require('./lib/worktree-nativo.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -85,9 +87,13 @@ function writeLedger(project, entries) {
 
 // Proyecto del registro visto desde dir, o null sin manifiesto válido. Un worktree nativo de Claude
 // Code es una sesión con su propio plan y su propia timeline, no una tarea del issue del principal:
-// su proyecto es el suyo (lib/worktree-nativo.js).
+// su proyecto es el suyo (lib/worktree-nativo.js). Vale también para un repo materializado dentro del
+// worktree nativo de una carpeta, que es un worktree de git de ese repo pero vive en el proyecto del
+// worktree, no en el del checkout principal del repo.
 function projectFor(dir) {
   const d = path.resolve(dir);
+  const own = loadProject(d);
+  if (own && !own.errors.length && nativeRoot(own)) return own;
   const p = loadProject(nativeWorktree(d) ? d : mainCheckout(d));
   return p && !p.errors.length ? p : null;
 }
@@ -174,8 +180,11 @@ function targetOf(dir, { branch, wtPath } = {}) {
 
 // Los enlaces que open registró en el worktree de wtPath y siguen en disco: un git worktree remove o
 // un ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan). En un
-// worktree nativo, los node_modules que enlazó SessionStart (equipNative), que no van al registro.
+// worktree nativo, los node_modules que enlazó SessionStart (equipNative), que no van al registro; en
+// un repo materializado dentro del worktree nativo de una carpeta, los que anotó worktree-carpeta.js.
 function liveLinks(wtPath) {
+  const nested = require('./worktree-carpeta.js').nestedLinks(wtPath);
+  if (nested) return nested.filter(isLink);
   if (nativeWorktree(wtPath)) {
     const p = loadProject(wtPath);
     const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];
@@ -265,11 +274,6 @@ function equip(project, entries, e, noLink, say) {
         e.copiedDirs.push(posix(dst));
         say(`${ws.name}: node_modules copiado, no se pudo enlazar`);
       } else say(`${ws.name}: node_modules enlazado desde ${posix(nm)}`);
-      // El cliente generado de Prisma vive en node_modules/.prisma/client y carga el .env de la raíz
-      // desde su ruta real, que es la del principal; dotenv no pisa lo que ya está en el entorno.
-      if (fs.existsSync(path.join(nm, '.prisma', 'client'))) {
-        say(`${ws.name}: aviso: Prisma carga el .env del checkout principal desde node_modules enlazado, con sus puertos y su base. Arranca la app del worktree con su .env ya cargado: node --env-file=.env <entrada>, por ejemplo node --env-file=.env dist/main (o abre con --no-link)`);
-      }
     }
     for (const f of envFiles(ws.dir)) {
       const to = path.join(dir, f);
@@ -401,12 +405,14 @@ function usedOffsets(w) {
 // del checkout principal donde falta, con el mismo helper que open, y desplaza una sola vez los
 // puertos de los .env que copió .worktreeinclude, con un desplazamiento que no use otro set ni otro
 // worktree nativo; lo anota en <worktree>/.tmp/harness/puertos.json y después solo repite el mapa.
-// Sin .env no toca puertos. → { lines, links } con lo que pasó, en palabras, y lo enlazado
+// Sin .env no toca puertos. En el worktree nativo de una carpeta multi-repo, materializa adentro los
+// repos (worktree-carpeta.js). → { lines, links } con lo que pasó, en palabras, y lo enlazado
 function equipNative(dir) {
   const w = nativeWorktree(dir);
   if (!w) return { lines: [], links: [] };
   const project = loadProject(w.path);
   if (!project || project.errors.length) return { lines: [], links: [] };
+  if (project.kind === 'folder') return require('./worktree-carpeta.js').materialize(w.path);
   const wss = project.workspaces.filter((ws) => ws.adoptable && (norm(ws.dir) === norm(w.path) || norm(ws.dir).startsWith(norm(w.path) + path.sep)));
   const lines = [];
   const links = [];
@@ -423,7 +429,6 @@ function equipNative(dir) {
       links.push(posix(dst));
       lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
     }
-    if (fs.existsSync(path.join(src, '.prisma', 'client'))) lines.push(`${ws.name}: Prisma carga el .env del checkout principal desde las dependencias enlazadas; la app de este worktree se arranca con node --env-file=.env <entrada>`);
   }
   const state = path.join(harnessDir(project), NATIVE_PORTS);
   let ports = null;
@@ -440,9 +445,13 @@ function equipNative(dir) {
       fs.writeFileSync(state, JSON.stringify(ports, null, 2) + '\n');
     }
   }
-  if (ports && ports.map.length) lines.push(`puertos de este worktree: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}; la app se arranca desde aquí con ellos`);
+  if (ports && ports.map.length) lines.push(portsLine(ports));
   return { lines, links };
 }
+
+// La línea de los puertos de un worktree nativo: la app se levanta pidiéndola, y build la arranca
+// desde aquí con ellos en el entorno del proceso.
+const portsLine = (ports) => `puertos de este worktree: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}; la app se levanta desde aquí con ellos: pide que la levanten y quedan en su entorno, por encima de cualquier .env`;
 
 const portsText = (slug, ports) =>
   !ports ? '' : !ports.offset ? `set ${slug}: puertos como en el principal` : ports.map.length ? `set ${slug}: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}` : `set ${slug}: sin variables *PORT en los .env copiados (desplazamiento ${ports.offset})`;
@@ -587,6 +596,13 @@ module.exports = {
   projectFor,
   equipNative,
   pendingEntries,
+  envFiles,
+  shiftPorts,
+  usedOffsets,
+  portsLine,
+  dirtyIn,
+  present,
+  NATIVE_PORTS,
   nativePending,
   nativeWork,
   describeNative,

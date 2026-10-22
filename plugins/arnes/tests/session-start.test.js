@@ -131,7 +131,7 @@ test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un wor
   assert.ok(!Number.isNaN(Date.parse(lock.at)));
 
   const b = text(as(api, 'sesion-b', process.ppid));
-  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: en un repo solo, la persona abre la sesión con claude --worktree <nombre>; en una carpeta multi-repo, escribe \/arnes:worktree open <slug>\.$/m);
+  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: al aprobar el plan se mueve a uno, o la persona abre la sesión con claude --worktree <nombre>, también en una carpeta multi-repo\.$/m);
   assert.match(b, new RegExp(`^- una en ${path.basename(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} desde \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$`, 'm'));
   assert.ok(b.split('\n').length <= 40);
 

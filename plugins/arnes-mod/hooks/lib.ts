@@ -61,11 +61,13 @@ function entriesOf(timeline: string): Entry[] {
 }
 
 // La misma regla que planState de lib/timeline.js: hay plan en curso si hubo un start plan y después
-// no hubo un end ship ok.
+// no hubo un end ship ok, ni la nota con que el plan se llevó a un worktree nativo.
 export function planOpen(timeline: string): boolean {
   const entries = entriesOf(timeline)
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true)
-  return i >= 0 && !entries.slice(i + 1).some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')
+  const closed = (e: Entry) =>
+    (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && e.result === 'movido')
+  return i >= 0 && !entries.slice(i + 1).some(closed)
 }
 
 // La misma regla que prepOpen de lib/timeline.js: init o setup en curso, su último start sin un end

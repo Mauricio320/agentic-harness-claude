@@ -94,6 +94,17 @@
             "statusMessage": "arnes: lint del archivo editado"
           }
         ]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js\"",
+            "timeout": 120,
+            "statusMessage": "arnes: preparando el worktree"
+          }
+        ]
       }
     ],
     "SubagentStart": [

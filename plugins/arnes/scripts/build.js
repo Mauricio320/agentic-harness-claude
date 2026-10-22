@@ -24,6 +24,15 @@
 //          en un worktree con node_modules enlazado al del principal, quita el enlace sin seguirlo e
 //          instala las dependencias adentro, para un issue que regenera algo en node_modules
 //          (regeneratesNodeModules); input lo avisa cuando el plan toca esas rutas
+//   app --ws <ws> [--dry]
+//          levanta la app del workspace para que la persona la pruebe, desde su carpeta y en segundo
+//          plano, con su salida en .tmp/harness/app/<ws>.log: commands.app, o el script start:dev, dev
+//          o start del package.json con el gestor de su lockfile. En un worktree nativo, con las
+//          variables de puerto del worktree (puertos.json) en el entorno del proceso: las *PORT de la
+//          app y las que apuntan a localhost:<puerto> del worktree, leídas de sus .env. En el entorno
+//          ganan a cualquier .env, porque dotenv, ConfigModule o el cliente de Prisma enlazado (que
+//          carga el .env del principal) no pisan lo que ya está ahí; sirven con nest --watch, next dev
+//          o lo que sea. Nunca la para: el arnés no mata procesos. Con --dry dice qué correría
 // Exit: 0 escrita, o after con algo que correr o nada declarado (con aviso en stderr si falta el
 //       contrato de un consumidor) · 1 after con la base del .env que no es la local · 2 uso inválido,
 //       sin manifiesto o workspace desconocido
@@ -36,7 +45,8 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { help, die } = require('./lib/exec.js');
 const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
-const { localDb } = require('./lib/database.js');
+const { spawn } = require('child_process');
+const { localDb, parseEnv, DB_VAR } = require('./lib/database.js');
 const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
 
@@ -230,14 +240,76 @@ function deps(project, wsName, write) {
   return installIn(ws.dir, ws.forbidden || [], true, say) ? 1 : 0;
 }
 
-module.exports = { planFor, planned, specOf, after, regenerates };
+// El comando que levanta la app: commands.app, o start:dev, dev o start del package.json.
+function appCommand(ws) {
+  if (ws.commands.app) return ws.commands.app;
+  let pkg = null;
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(ws.dir, 'package.json'), 'utf8'));
+  } catch {
+    return null;
+  }
+  const script = ['start:dev', 'dev', 'start'].find((k) => pkg.scripts && pkg.scripts[k]);
+  if (!script) return null;
+  const pm = fs.existsSync(path.join(ws.dir, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(ws.dir, 'yarn.lock')) ? 'yarn' : 'npm';
+  return pm === 'npm' ? `npm run ${script}` : `${pm} ${script}`;
+}
+
+// Las variables de puerto del worktree nativo para el entorno del proceso: las *PORT de la app (no
+// las de una base) que ya llevan el puerto corrido, y las que apuntan a localhost:<puerto corrido>.
+// Fuera de un worktree nativo, ninguna: la app usa su .env.
+function portEnv(project, ws) {
+  const { envFiles, NATIVE_PORTS } = require('./worktree-ledger.js');
+  let ports = null;
+  try {
+    ports = JSON.parse(fs.readFileSync(path.join(harnessDir(project), NATIVE_PORTS), 'utf8'));
+  } catch {
+    return {};
+  }
+  const moved = new Set((ports.map || []).map((m) => m.to));
+  const env = {};
+  for (const name of envFiles(ws.dir)) {
+    for (const { key, value } of parseEnv(fs.readFileSync(path.join(ws.dir, name), 'utf8'))) {
+      const local = [...value.matchAll(/\b(?:localhost|127\.0\.0\.1):(\d+)/g)].some((m) => moved.has(Number(m[1])));
+      if ((/PORT$/i.test(key) && !DB_VAR.test(key) && /^\d+$/.test(value) && moved.has(Number(value))) || local) env[key] = value;
+    }
+  }
+  return env;
+}
+
+function app(project, wsName, dry) {
+  const [ws] = selectWorkspaces(project, [wsName]);
+  const cmd = appCommand(ws);
+  if (!cmd) {
+    console.log(`${ws.name}: no sé cómo se levanta: su package.json no trae start:dev, dev ni start; decláralo en commands.app`);
+    return 1;
+  }
+  const env = portEnv(project, ws);
+  const vars = Object.entries(env).map(([k, v]) => `${k}=${v}`).join(', ');
+  const dir = path.join(harnessDir(project), 'app');
+  const log = path.join(dir, `${ws.name}.log`);
+  if (dry) {
+    console.log(`${ws.name}: levantaría ${cmd} desde ${posix(ws.dir)}${vars ? `, con ${vars} en su entorno` : ''}`);
+    return 0;
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  const fd = fs.openSync(log, 'w');
+  const child = spawn(cmd, { cwd: ws.dir, shell: true, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
+  child.unref();
+  fs.closeSync(fd);
+  fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
+  console.log(`${ws.name}: la levanté desde ${posix(ws.dir)} con ${cmd}${vars ? `, con ${vars} en su entorno` : ''}; su salida va a ${posix(log)}. Para pararla, ciérrala tú (proceso ${child.pid}): el arnés no mata procesos`);
+  return 0;
+}
+
+module.exports = { planFor, planned, specOf, after, regenerates, appCommand, portEnv };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`build: ${e.message}`);
@@ -246,7 +318,12 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write]';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry]';
+  if (mode === 'app') {
+    if (!o.ws || o.para || o.contrato || o.write || files.length) die(usage);
+    process.exit(app(requireProject(), o.ws, o.dry));
+  }
+  if (o.dry) die(usage);
   if (mode === 'deps') {
     if (!o.ws || o.para || o.contrato || files.length) die(usage);
     process.exit(deps(requireProject(), o.ws, o.write));

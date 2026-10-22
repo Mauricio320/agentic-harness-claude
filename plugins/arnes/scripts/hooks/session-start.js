@@ -7,7 +7,10 @@
 // y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada.
 // En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
 // (worktree-ledger.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
-// los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa.
+// los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa. En el de una
+// carpeta multi-repo, además trae adentro los repos (worktree-carpeta.js). Lo mismo hace después de
+// EnterWorktree, como PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta.
+// En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco.
 // Sesión concurrente: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
 // pid (CLAUDE_PID, el proceso de Claude Code) y fecha, y lo borra en SessionEnd. Un lock cuyo pid ya
 // no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha.
@@ -22,6 +25,8 @@ const { loadProject, harnessDir, posix } = require('../lib/manifest.js');
 const { git } = require('../lib/exec.js');
 const { touched } = require('../touched-files.js');
 const ledger = require('../worktree-ledger.js');
+const carpeta = require('../worktree-carpeta.js');
+const { nativeRoot } = require('../lib/worktree-nativo.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -180,7 +185,7 @@ const stamp = (iso) => {
 function concurrentLines(others) {
   if (!others.length) return [];
   return [
-    `Aviso: hay ${others.length === 1 ? 'otra sesión' : `${others.length} sesiones más`} de Claude activa(s) en este proyecto. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: en un repo solo, la persona abre la sesión con claude --worktree <nombre>; en una carpeta multi-repo, escribe /arnes:worktree open <slug>.`,
+    `Aviso: hay ${others.length === 1 ? 'otra sesión' : `${others.length} sesiones más`} de Claude activa(s) en este proyecto. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: al aprobar el plan se mueve a uno, o la persona abre la sesión con claude --worktree <nombre>, también en una carpeta multi-repo.`,
     ...others.slice(0, 3).map((o) => `- una en ${path.basename(String(o.cwd || '')) || 'esta carpeta'} desde ${stamp(o.at)}`),
   ];
 }
@@ -189,7 +194,7 @@ function concurrentLines(others) {
 
 function sessionStart(input, now = new Date()) {
   const cwd = path.resolve(input.cwd || process.cwd());
-  const project = loadProject(cwd);
+  let project = loadProject(cwd);
   if (!project) {
     return [
       'arnes: este proyecto todavía no tiene la configuración del arnés. Aquí no verifica ni bloquea nada, salvo git destructivo y la lectura de secretos.',
@@ -201,7 +206,12 @@ function sessionStart(input, now = new Date()) {
   }
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
   const native = ledger.equipNative(cwd).lines;
-  const head = [`arnes · ${project.name} · ${kind}`, ...native.map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
+  const w = nativeRoot(project);
+  const pruned = carpeta.pruneOrphans(w ? loadProject(w.main) : project);
+  // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
+  if (native.length) project = loadProject(cwd);
+  const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`] : [];
+  const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
   const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
@@ -210,10 +220,23 @@ function sessionStart(input, now = new Date()) {
   return [...head, ...shown, ...tailLines].join('\n');
 }
 
-module.exports = { MAX_LINES, PROTOCOL, sessionStart, lockSession, unlockSession };
+// PostToolUse de EnterWorktree: la sesión ya está en el worktree (el cwd de la entrada es su raíz) y
+// SessionStart no vuelve a correr. Lo deja usable como al arrancar y lo dice.
+function entered(input) {
+  const cwd = path.resolve(input.cwd || process.cwd());
+  const project = loadProject(cwd);
+  if (!project || project.errors.length) return null;
+  const native = ledger.equipNative(cwd).lines;
+  const w = nativeRoot(project);
+  if (!w) return null;
+  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...native.map((l) => `- ${l}`)].join('\n');
+}
+
+module.exports = { MAX_LINES, PROTOCOL, sessionStart, entered, lockSession, unlockSession };
 
 if (require.main === module) {
   run('session-start', (input) => {
+    if (input.hook_event_name === 'PostToolUse') return context('PostToolUse', entered(input));
     if (input.hook_event_name !== 'SessionEnd') return context('SessionStart', sessionStart(input));
     unlockSession(input);
     return null;

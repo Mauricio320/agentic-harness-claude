@@ -9,7 +9,12 @@
 // los de git.
 //
 // En un worktree nativo de Claude Code solo niega con commits sin subir o cambios sin commitear:
-// Claude Code quita solo los enlaces al borrarlo.
+// Claude Code quita solo los enlaces al borrarlo. En el de una carpeta multi-repo, antes de dejarlo
+// borrar quita lo que trajo adentro (worktree-carpeta.js): los enlaces, sin seguirlos, y el worktree
+// de cada repo, con git worktree remove desde su repo; las ramas del issue quedan en los repos. Con un
+// repo con cambios sin commitear no quita nada y niega, porque Claude Code no los ve: los repos están
+// ignorados en el repo de carpeta. No hay hook WorktreeRemove: ese evento solo corre para worktrees
+// que creó un hook WorktreeCreate, y los nativos los borra git.
 // Vale haya o no manifiesto; sin manifiesto, la rama por defecto es la de origin/HEAD, o main o master.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
@@ -22,6 +27,7 @@ const { git } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
+const carpeta = require('../worktree-carpeta.js');
 
 // Un worktree nativo de Claude Code: Claude Code lo borra quitando solo los enlaces (desde la 2.1.205),
 // así que el enlace de node_modules no es el riesgo; lo es el trabajo sin subir, que se perdería.
@@ -46,8 +52,18 @@ function targetsOf(dir, branch) {
   return mergeTargets(dir, hit && hit.ws.defaultBranch);
 }
 
+// El worktree de una carpeta: lo de su repo de carpeta como cualquier nativo, y después lo que trajo.
+function judgeFolder(dir) {
+  const own = judgeNative(dir);
+  if (own) return own;
+  const r = carpeta.dematerialize(dir);
+  if (!r.refused.length) return null;
+  return `no borro este worktree: ${r.refused.join('; ')}, y se perderían. Commitéalos con /arnes:ship --solo-commit, o sal con action "keep".`;
+}
+
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
+  if (carpeta.folderWorktree(dir)) return judgeFolder(dir);
   if (nativeWorktree(dir)) return judgeNative(dir);
   const links = liveLinks(git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir);
   if (links.length) return `este worktree tiene enlaces del arnés (${links.join(', ')}) que borrarlo seguiría. Ciérralo con /arnes:worktree integrate o close, que los quita primero, o sal con action "keep".`;

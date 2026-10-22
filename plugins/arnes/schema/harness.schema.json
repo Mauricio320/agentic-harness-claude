@@ -100,7 +100,8 @@
         "lint": { "$ref": "#/$defs/command" },
         "test": { "$ref": "#/$defs/command" },
         "testAll": { "$ref": "#/$defs/command" },
-        "build": { "$ref": "#/$defs/command" }
+        "build": { "$ref": "#/$defs/command" },
+        "app": { "description": "Lo que levanta la app para probarla (build.js app). Sin él, el script start:dev, dev o start del package.json.", "$ref": "#/$defs/command" }
       }
     },
     "specPattern": {
@@ -134,7 +135,8 @@
       "additionalProperties": false,
       "properties": {
         "branchPrefix": { "type": "string" },
-        "sameBranchAcrossWorkspaces": { "type": "boolean" }
+        "sameBranchAcrossWorkspaces": { "type": "boolean" },
+        "workInPlace": { "description": "Al aprobar el plan, crear la rama del issue en el checkout de cada repo en vez de mover la sesión a un worktree nativo de Claude Code.", "type": "boolean" }
       }
     },
     "memory": {

@@ -70,13 +70,15 @@ function duration(ms) {
 }
 
 // El plan de la corrida en curso: el último start de plan sin un end ship ok después. Está aprobado
-// si después de ese start hay una nota "aprobado", que solo escribe plan-state.js. Lo leen el guard
-// de Edit y Write (plan-guard) y UserPromptSubmit. → { open, approved, written, at? }
+// si después de ese start hay una nota "aprobado", que solo escribe plan-state.js. Un plan que se
+// llevó a un worktree nativo (nota "movido", issue-branch.js) ya no está en curso en este checkout.
+// Lo leen el guard de Edit y Write (plan-guard) y UserPromptSubmit. → { open, approved, written, at? }
 function planState(entries) {
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
   if (i < 0) return { open: false, approved: false, written: false };
   const after = entries.slice(i + 1);
-  if (after.some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')) return { open: false, approved: false, written: false };
+  const closed = (e) => (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && e.result === 'movido');
+  if (after.some(closed)) return { open: false, approved: false, written: false };
   const is = (e, event, result) => e.stage === 'plan' && e.event === event && (!result || e.result === result);
   return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
 }
