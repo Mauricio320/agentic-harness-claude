@@ -27,6 +27,7 @@ test('plan referencias junta las de la composición y las de cada repo, sin repe
     'decide: referencia · decide según la referencia y deja cada decisión escrita con su porqué; pregunta solo lo que ninguna resuelve',
     `- Siigo: ${SIIGO.url}`,
     '- SII · la normativa de facturación electrónica',
+    'ambientes de prueba: ninguno declarado; la prueba manual va en local',
     '',
   ].join('\n'));
 });
@@ -43,4 +44,22 @@ test('el schema exige nombre y url o nota en cada referencia, y decide es refere
   assert.match(validate(m({ references: [{ name: 'Siigo' }] })).join('\n'), /necesita al menos uno de url, note/);
   assert.match(validate(m({ references: [{ name: 'Siigo', url: 'siigo.com' }] })).join('\n'), /no cumple \^https\?:\/\//);
   assert.match(validate(m({ decide: 'siempre' })).join('\n'), /"siempre" no cumple/);
+});
+
+test('los ambientes de prueba manual salen con las referencias; sin ninguno, la prueba va en local', () => {
+  const root = folder();
+  const m = JSON.parse(require('fs').readFileSync(path.join(root, '.claude', 'harness.json'), 'utf8'));
+  h.write(root, '.claude/harness.json', h.manifestJson({ ...m, testEnvironments: [{ name: 'QA', note: 'qa.renova.cl, usuarios de prueba en 1Password' }] }));
+  assert.match(refs(root).stdout, /^ambientes de prueba: QA \(qa\.renova\.cl, usuarios de prueba en 1Password\)$/m);
+  assert.match(refs(folder()).stdout, /^ambientes de prueba: ninguno declarado; la prueba manual va en local$/m);
+  assert.match(validate({ version: 1, name: 'c', repos: [{ path: 'api' }], testEnvironments: [{ note: 'sin nombre' }] }).join('\n'), /falta "name"/);
+});
+
+test('ship cuenta los pasos de la prueba manual del plan, que van al cuerpo del MR', () => {
+  const root = folder();
+  h.write(root, 'api/src/a.ts', 'nuevo\n');
+  h.write(root, '.tmp/harness/plan.md', '# Plan: Centros de costo\n\n## Prueba manual\n1. (C1) En QA, entra como contador y crea un centro de costo.\n2. (C2) Entra como vendedor: no ve el menú.\n\n## Fuera de alcance\n- nada\n');
+  assert.match(h.run('ship.js', ['check'], { cwd: root }).stdout, /^prueba manual: 2 paso\(s\) en el plan; van textuales al cuerpo del MR$/m);
+  h.write(root, '.tmp/harness/plan.md', '# Plan: Centros de costo\n');
+  assert.match(h.run('ship.js', ['check'], { cwd: root }).stdout, /^prueba manual: el plan no trae$/m);
 });

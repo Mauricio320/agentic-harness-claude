@@ -9,7 +9,8 @@
 //           rama propuesta, las riskPaths tocadas,
 //           si la línea base de tests cambia (entonces el asunto lleva gates:) y lo que el repo dice
 //           de su convención de commits: archivos de commitlint, CLAUDE.md y los últimos asuntos de
-//           la rama por defecto
+//           la rama por defecto, y cuántos pasos trae la prueba manual del plan (## Prueba manual),
+//           que van al cuerpo del MR
 //   branch  crea o reutiliza <rama> en cada uno, en el orden de commit, con el prefijo delante si
 //           falta. Nunca mueve un HEAD: si <rama> ya existe en otro commit, se niega, porque
 //           cambiarse vencería la bandera
@@ -42,6 +43,7 @@ const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const ledger = require('./worktree-ledger.js');
 const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
+const { readPlan, section } = require('./lib/plan.js');
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
@@ -131,6 +133,8 @@ function check(project) {
   if (list.length > 1 && !project.workspaces.some((w) => w.contract && (w.contract.provides || w.contract.consumes))) {
     console.log('    aviso: ningún workspace declara contract (provides o consumes); el orden es el del manifiesto, no back → front');
   }
+  const manual = section(readPlan(project) || '', /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
+  console.log(`prueba manual: ${manual.length ? `${manual.length} paso(s) en el plan; van textuales al cuerpo del MR` : 'el plan no trae'}`);
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);
   const current = [...new Set(list.map((x) => branchOf(x.ws)).filter((b, k) => b && b !== 'HEAD' && b !== defaultOf(list[k].ws)))];

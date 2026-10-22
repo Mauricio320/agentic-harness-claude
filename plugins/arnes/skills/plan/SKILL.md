@@ -35,6 +35,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - `## Archivos previstos`: los archivos que se crean o se modifican, por workspace.
    - `## Zonas de riesgo`: coteja cada archivo previsto con los globs de `riskPaths` de su workspace y lista los que caen, con el glob. Si cae alguno, escribe `REVISIÓN HUMANA OBLIGATORIA`. Si el workspace no declara `riskPaths`, dilo, y marca igual lo que toque migraciones, autenticación o permisos.
    - `## Preguntas`: solo cerradas (sí o no, o elegir una opción). Cada una lleva `Recomendación:` con su motivo, y `Alternativa:` real, con lo que cuesta o lo que cambia. Nada de preguntas abiertas.
+   - `## Prueba manual`, si algún criterio involucra roles, permisos o pantalla: los pasos que la persona da para comprobarlo, numerados, al menos uno por criterio (`1. (C2) En QA, entra como contador@… y …; tiene que ver …`), en el ambiente que diga `plan-state.js referencias` (sin ambientes, en local) y con el rol o el usuario con que probar. Ship los repite en el MR.
    - `## Fuera de alcance`: lo que el issue no pide y no se hace.
 6. Con el plan escrito, cierra la etapa: `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" end plan --result ok --detail "plan escrito"`. Desde aquí el tiempo es de la persona, no del plan: el Stop anota que el turno cerró, y su respuesta cierra la espera.
 7. Dónde se construye: corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/issue-branch.js" check`.

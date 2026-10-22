@@ -192,6 +192,7 @@ function fromRepo(m) {
     integration: m.data.integration,
     memory: m.data.memory,
     plan: m.data.plan,
+    testEnvironments: m.data.testEnvironments,
     workspaces: m.data.workspaces.map((ws) => resolvedWorkspace(root, root, m.file, ws)),
     errors: [],
   };
@@ -207,7 +208,9 @@ function fromFolder(m) {
     integration: m.data.integration,
     memory: m.data.memory,
     plan: m.data.plan,
+    testEnvironments: m.data.testEnvironments,
     repoPlans: [],
+    repoEnvironments: [],
     workspaces: [],
     errors: [],
   };
@@ -228,6 +231,7 @@ function fromFolder(m) {
       continue;
     }
     if (rm.data.plan) project.repoPlans.push(rm.data.plan);
+    if (rm.data.testEnvironments) project.repoEnvironments.push(...rm.data.testEnvironments);
     for (const ws of rm.data.workspaces) {
       if (entry.contract && ws.contract) project.errors.push(`${file}: contract de "${ws.name}" declarado también en la composición`);
       project.workspaces.push(resolvedWorkspace(root, repoDir, file, ws, entry.contract));
@@ -259,13 +263,18 @@ function loadProject(startDir = process.cwd()) {
 }
 
 // Cómo planifica el proyecto: las referencias de negocio de la composición y de cada repo, sin
-// repetir nombres, y decide (el de la composición, o el de un repo, o preguntar).
+// repetir nombres, decide (el de la composición, o el de un repo, o preguntar) y los ambientes de
+// prueba manual (los de la composición, o los de los repos).
 function planConfig(project) {
   const all = [project.plan || {}, ...(project.repoPlans || [])];
-  const seen = new Set();
-  const references = all.flatMap((p) => p.references || []).filter((r) => !seen.has(r.name.toLowerCase()) && seen.add(r.name.toLowerCase()));
+  const unique = (list) => {
+    const seen = new Set();
+    return list.filter((r) => !seen.has(r.name.toLowerCase()) && seen.add(r.name.toLowerCase()));
+  };
+  const references = unique(all.flatMap((p) => p.references || []));
   const decide = (all.find((p) => p.decide) || {}).decide || 'preguntar';
-  return { references, decide };
+  const environments = unique([...(project.testEnvironments || []), ...(project.repoEnvironments || [])]);
+  return { references, decide, environments };
 }
 
 function harnessDir(project) {

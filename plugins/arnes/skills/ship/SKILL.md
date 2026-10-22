@@ -59,6 +59,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Cuerpo de cada MR:**
      - qué cambia;
      - los criterios del plan, si existe;
+     - la prueba manual del plan, si el check dice que la trae: sus pasos numerados, textuales;
      - el resultado de verify, con la frase de abajo;
      - la revisión, con sus bloqueantes en 0;
      - los enlaces a los MR de los otros repos.

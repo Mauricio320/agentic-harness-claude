@@ -15,7 +15,8 @@
         "workspaces": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/workspace" } },
         "integration": { "$ref": "#/$defs/integration" },
         "memory": { "$ref": "#/$defs/memory" },
-        "plan": { "$ref": "#/$defs/planConfig" }
+        "plan": { "$ref": "#/$defs/planConfig" },
+        "testEnvironments": { "$ref": "#/$defs/testEnvironments" }
       }
     },
     "folderManifest": {
@@ -29,7 +30,8 @@
         "repos": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/repoRef" } },
         "integration": { "$ref": "#/$defs/integration" },
         "memory": { "$ref": "#/$defs/memory" },
-        "plan": { "$ref": "#/$defs/planConfig" }
+        "plan": { "$ref": "#/$defs/planConfig" },
+        "testEnvironments": { "$ref": "#/$defs/testEnvironments" }
       }
     },
     "repoRef": {
@@ -148,6 +150,16 @@
       "properties": {
         "references": { "type": "array", "items": { "$ref": "#/$defs/reference" } },
         "decide": { "type": "string", "pattern": "^(referencia|preguntar)$" }
+      }
+    },
+    "testEnvironments": {
+      "description": "Los ambientes donde la persona prueba a mano lo que el plan pide (la sección Prueba manual del plan), por ejemplo QA, con una nota de cómo entrar o con qué usuarios.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": { "name": { "type": "string", "minLength": 1 }, "note": { "type": "string", "minLength": 1 } }
       }
     },
     "reference": {

@@ -16,7 +16,8 @@
 //   referencias
 //            cómo planificar un concepto de negocio que el repo no tiene: las referencias de negocio
 //            del manifiesto (plan.references, de la composición y de cada repo) y si plan decide según
-//            ellas (decide: referencia) o pregunta (decide: preguntar, por defecto)
+//            ellas (decide: referencia) o pregunta (decide: preguntar, por defecto); y los ambientes de
+//            prueba manual (testEnvironments), donde la persona prueba lo que pide el plan
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
@@ -124,10 +125,12 @@ function tareas(project, anota) {
 }
 
 function referencias(project) {
-  const { references, decide } = planConfig(project);
+  const { references, decide, environments } = planConfig(project);
   console.log(`decide: ${decide} · ${decide === 'referencia' ? 'decide según la referencia y deja cada decisión escrita con su porqué; pregunta solo lo que ninguna resuelve' : 'pregunta cada decisión con su recomendación'}`);
   if (!references.length) console.log('sin referencias de negocio declaradas: investiga con WebSearch si el concepto lo pide, y dilo');
   for (const r of references) console.log(`- ${r.name}${r.url ? `: ${r.url}` : ''}${r.note ? ` · ${r.note}` : ''}`);
+  if (!environments.length) console.log('ambientes de prueba: ninguno declarado; la prueba manual va en local');
+  else console.log(`ambientes de prueba: ${environments.map((e) => `${e.name}${e.note ? ` (${e.note})` : ''}`).join(', ')}`);
   return 0;
 }
 
