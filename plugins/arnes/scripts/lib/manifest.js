@@ -191,6 +191,7 @@ function fromRepo(m) {
     name: m.data.name,
     integration: m.data.integration,
     memory: m.data.memory,
+    plan: m.data.plan,
     workspaces: m.data.workspaces.map((ws) => resolvedWorkspace(root, root, m.file, ws)),
     errors: [],
   };
@@ -205,6 +206,8 @@ function fromFolder(m) {
     name: m.data.name,
     integration: m.data.integration,
     memory: m.data.memory,
+    plan: m.data.plan,
+    repoPlans: [],
     workspaces: [],
     errors: [],
   };
@@ -224,6 +227,7 @@ function fromFolder(m) {
       project.errors.push(`${file}: un repo listado en la composición no puede ser otra composición`);
       continue;
     }
+    if (rm.data.plan) project.repoPlans.push(rm.data.plan);
     for (const ws of rm.data.workspaces) {
       if (entry.contract && ws.contract) project.errors.push(`${file}: contract de "${ws.name}" declarado también en la composición`);
       project.workspaces.push(resolvedWorkspace(root, repoDir, file, ws, entry.contract));
@@ -252,6 +256,16 @@ function loadProject(startDir = process.cwd()) {
     if (fm.data.repos.some((r) => samePath(path.resolve(rootOf(above), r.path), repoDir))) return fromFolder(fm);
   }
   return fromRepo(m);
+}
+
+// Cómo planifica el proyecto: las referencias de negocio de la composición y de cada repo, sin
+// repetir nombres, y decide (el de la composición, o el de un repo, o preguntar).
+function planConfig(project) {
+  const all = [project.plan || {}, ...(project.repoPlans || [])];
+  const seen = new Set();
+  const references = all.flatMap((p) => p.references || []).filter((r) => !seen.has(r.name.toLowerCase()) && seen.add(r.name.toLowerCase()));
+  const decide = (all.find((p) => p.decide) || {}).decide || 'preguntar';
+  return { references, decide };
 }
 
 function harnessDir(project) {
@@ -306,6 +320,7 @@ module.exports = {
   requireProject,
   selectWorkspaces,
   resolveWorkspace,
+  planConfig,
   harnessDir,
   kebab,
   posix,

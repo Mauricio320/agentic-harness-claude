@@ -13,12 +13,17 @@
 //            estado según la timeline, como JSON para TodoWrite. Con --anota la deja en la timeline (nota
 //            "tareas" de plan) si la corrida no la tiene, y desde ahí timeline.js la reimprime en cada
 //            start y end
+//   referencias
+//            cómo planificar un concepto de negocio que el repo no tiene: las referencias de negocio
+//            del manifiesto (plan.references, de la composición y de cada repo) y si plan decide según
+//            ellas (decide: referencia) o pregunta (decide: preguntar, por defecto)
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
 // Uso: node plan-state.js status
 //      node plan-state.js approve [--detail <texto>]
 //      node plan-state.js tareas [--anota]
+//      node plan-state.js referencias
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
 // Exit: 0 aprobado, o status con plan aprobado · 1 status sin plan aprobado, o approve/trivial
 //       negados (el motivo en stderr) · 2 uso inválido o sin manifiesto
@@ -28,7 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, harnessDir } = require('./lib/manifest.js');
+const { requireProject, harnessDir, planConfig } = require('./lib/manifest.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt } = require('./lib/plan.js');
 const { help, die } = require('./lib/exec.js');
@@ -118,7 +123,15 @@ function tareas(project, anota) {
   return 0;
 }
 
-module.exports = { status, approve, trivial, tareas };
+function referencias(project) {
+  const { references, decide } = planConfig(project);
+  console.log(`decide: ${decide} · ${decide === 'referencia' ? 'decide según la referencia y deja cada decisión escrita con su porqué; pregunta solo lo que ninguna resuelve' : 'pregunta cada decisión con su recomendación'}`);
+  if (!references.length) console.log('sin referencias de negocio declaradas: investiga con WebSearch si el concepto lo pide, y dilo');
+  for (const r of references) console.log(`- ${r.name}${r.url ? `: ${r.url}` : ''}${r.note ? ` · ${r.note}` : ''}`);
+  return 0;
+}
+
+module.exports = { status, approve, trivial, tareas, referencias };
 
 function main() {
   let args;
@@ -133,13 +146,14 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota]';
-  if (extra || !['status', 'approve', 'trivial', 'tareas'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota] | referencias';
+  if (extra || !['status', 'approve', 'trivial', 'tareas', 'referencias'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
   if (mode !== 'trivial' && (o.pedido || o.criterio)) die(usage);
   const project = requireProject();
   if (mode === 'status') process.exit(status(project));
   if (mode === 'tareas') process.exit(tareas(project, o.anota));
+  if (mode === 'referencias') process.exit(referencias(project));
   process.exit(mode === 'approve' ? approve(project, o.detail) : trivial(project, o.pedido, o.criterio));
 }
 
