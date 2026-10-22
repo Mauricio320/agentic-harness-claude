@@ -142,10 +142,24 @@ test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un wor
   assert.doesNotMatch(text(as(api, 'sesion-b', process.ppid)), /Aviso/, 'sin la otra sesión, sin aviso');
 });
 
+// Un pid sin proceso, probado como lo prueba SessionStart (process.kill(pid, 0) con ESRCH). El pid de
+// un hijo que ya salió no sirve: Windows lo reusa enseguida, y el test fallaba de vez en cuando. Se
+// busca desde arriba, donde no llegan los pids de una máquina normal.
+function deadPid() {
+  for (let pid = 4194300; pid > 4096; pid -= 4) {
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      if (e.code === 'ESRCH') return pid;
+    }
+  }
+  throw new Error('no encontré un pid sin proceso');
+}
+
 test('un lock de un proceso que ya no existe, o de más de 24 h, se borra sin avisar; sin pid vale por su fecha', () => {
   const dir = h.tmp('start-lock');
   h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api') });
-  const dead = require('child_process').spawnSync(process.execPath, ['-e', '']).pid;
+  const dead = deadPid();
   const at = new Date().toISOString();
   h.write(dir, '.tmp/harness/sessions/muerta.json', JSON.stringify({ pid: dead, cwd: 'x', at }));
   h.write(dir, '.tmp/harness/sessions/vieja.json', JSON.stringify({ pid: process.pid, cwd: 'x', at: '2020-01-01T00:00:00.000Z' }));
