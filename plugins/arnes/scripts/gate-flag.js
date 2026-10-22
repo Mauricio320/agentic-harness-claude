@@ -182,6 +182,7 @@ function main() {
     const r = writeFlag(project, ws, args.values.result, new Date(), args.values.base || 'HEAD');
     if (r.error) die(`gate-flag: ${r.error}`);
     console.log(`bandera ${r.flag.result} para ${ws.name} en ${r.file}${r.flag.base !== 'HEAD' ? ` · contra ${r.flag.base.slice(0, 10)}` : ''}`);
+    if (r.flag.result === 'pass') require('./lib/issues.js').setState(project, 'verificado', ws.name);
     process.exit(0);
   }
   const r = checkFlag(project, ws);

@@ -14,6 +14,16 @@
 //                   hasta que su MR esté mergeado. Nada que no esté en el registro se toca
 //   unknown         lo que hay en .tmp y en las carpetas de worktrees que ningún registro conoce: solo
 //                   lo nombra, para que decida la persona
+//   state <slug>|--actual <estado> [--mr <número o url>] [--repo <ruta>]
+//                   el ciclo del issue: planeado, construido, verificado, revisado, entregado, subido,
+//                   mergeado, cerrado. Los cinco primeros y entregado los anotan los scripts al pasar;
+//                   subido lo anota ship con el MR, en el repo de --repo (por defecto, el de la sesión)
+//   merged          consulta con glab o gh los MR de los issues subidos, y los mergeados pasan a mergeado
+//   close <slug> [--write]
+//                   cierra un issue mergeado (su MR, o el merge local): trae la rama por defecto de cada
+//                   repo con fast-forward, borra la rama del issue local y remota, borra lo registrado
+//                   como clean, y lo marca cerrado. Sin --write dice qué haría. Nunca desde dentro del
+//                   worktree del issue: se cierra desde el checkout principal
 // --actual es el issue del plan de la corrida.
 // Exit: 0 hecho · 1 algo se queda o no se pudo (dice qué) · 2 uso inválido, sin manifiesto o sin issue
 
@@ -179,6 +189,79 @@ function unknown(project) {
   return out.filter((p) => !known.has(key(p)));
 }
 
+// Cierra un issue mergeado, desde el checkout principal.
+function close(project, slug, write) {
+  const r = I.readIssue(project, slug);
+  if (!r) die(`issues: no hay registro del issue ${slug}`);
+  if (r.state === 'cerrado') {
+    console.log(`${slug} ya está cerrado`);
+    return 0;
+  }
+  if (r.worktree && exists(r.worktree.path) && here(r.worktree.path)) {
+    console.log(`${slug}: esta sesión está dentro de su worktree; se cierra desde el checkout principal: sal con ExitWorktree y action "remove", y vuelve a pedirlo`);
+    return 1;
+  }
+  let merged = r.state === 'mergeado';
+  if (!merged && (r.mr || []).length) {
+    const states = r.mr.map(I.mrState);
+    merged = states.every((s) => s === 'merged');
+    if (merged) I.setState(project, 'mergeado', 'MR mergeado', slug);
+    else console.log(`${slug}: el MR ${r.mr.map((m) => m.ref).join(', ')} no está mergeado (${states.map((s) => s || 'no se pudo consultar').join(', ')}); no lo cierro`);
+  } else if (!merged) console.log(`${slug}: no tiene un MR registrado ni un merge local; no lo cierro`);
+  if (!merged) return 1;
+  const main = loadProject(I.mainRoot(project)) || project;
+  const steps = [];
+  for (const b of r.branches || []) {
+    const ws = main.workspaces.find((w) => key(w.gitRoot) === key(b.repo));
+    const def = (ws && ws.defaultBranch) || mergeTargets(b.repo).branch;
+    const name = path.basename(b.repo);
+    const remote = Boolean(git(b.repo, ['remote']).stdout.trim());
+    steps.push({ label: `${name}: ${def} al día con origin`, run: () => {
+      if (!remote) return { status: 0 };
+      git(b.repo, ['fetch', '--quiet', 'origin']);
+      const at = worktreeList(b.repo).find((x) => x.branch === def);
+      return at ? git(at.path, ['merge', '--ff-only', '--quiet', `origin/${def}`]) : git(b.repo, ['fetch', '--quiet', 'origin', `${def}:${def}`]);
+    } });
+    if (refExists(b.repo, `refs/heads/${b.branch}`)) {
+      steps.push({ label: `${name}: borro la rama ${b.branch}`, run: () => {
+        const at = worktreeList(b.repo).find((x) => x.branch === b.branch);
+        if (at && key(at.path) === key(b.repo)) {
+          const sw = git(b.repo, ['switch', '-q', def]);
+          if (sw.status !== 0) return sw;
+        } else if (at) return { status: 1, stderr: `está abierta en ${posix(at.path)}` };
+        return git(b.repo, ['branch', '-D', b.branch]);
+      } });
+    }
+    if (remote && git(b.repo, ['ls-remote', '--exit-code', '--heads', 'origin', b.branch]).status === 0) {
+      steps.push({ label: `${name}: borro la rama ${b.branch} de origin`, run: () => git(b.repo, ['push', '--quiet', 'origin', '--delete', b.branch]) });
+    }
+  }
+  const items = plan(project, r).filter((i) => i.what !== 'rama' || !(r.branches || []).some((b) => i.label.startsWith(`${b.branch} `)));
+  if (!write) {
+    console.log(`${slug} · mergeado: al cerrar`);
+    for (const s of steps) console.log(`- ${s.label}`);
+    show(items);
+    return 0;
+  }
+  let failed = false;
+  for (const i of items.filter((x) => x.run)) {
+    const res = i.run();
+    const ok = !res || Array.isArray(res) || res.status === 0 || res.status === undefined;
+    failed = failed || !ok;
+    console.log(`${ok ? 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine((res && (res.stderr || res.stdout)) || '')}`}`);
+  }
+  for (const s of steps) {
+    const res = s.run();
+    const ok = res.status === 0;
+    failed = failed || !ok;
+    console.log(`${ok ? 'hecho' : 'no se pudo'} · ${s.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
+  }
+  if (failed) return 1;
+  I.setState(project, 'cerrado', null, slug);
+  console.log(`${slug}: cerrado`);
+  return 0;
+}
+
 function listAll(project, json) {
   const all = I.list(project).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   if (json) return console.log(JSON.stringify(all, null, 2));
@@ -190,22 +273,43 @@ function listAll(project, json) {
   }
 }
 
-module.exports = { plan, clean, unknown };
+module.exports = { plan, clean, close, unknown };
 
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, mr: { type: 'string' }, repo: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`issues: ${e.message}`);
   }
   const o = args.values;
   if (o.help) help(__filename);
-  const [mode, arg, extra] = args.positionals;
-  const usage = 'uso: issues.js list [--json] | clean <slug>|--actual [--write] | unknown';
-  if (extra || !['list', 'clean', 'unknown'].includes(mode) || (mode === 'clean') === !(arg || o.actual) || (arg && o.actual)) die(usage);
-  if ((o.write && mode !== 'clean') || (o.json && mode !== 'list')) die(usage);
+  const usage = 'uso: issues.js list [--json] | clean <slug>|--actual [--write] | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
+  const [mode, ...pos] = args.positionals;
   const project = requireProject();
+  if (mode === 'state') {
+    const [slugArg, state, extra2] = o.actual ? [null, ...pos] : pos;
+    if (extra2 || !state || !I.STATES.includes(state) || (!slugArg && !o.actual)) die(`${usage}\n  estados: ${I.STATES.join(', ')}`);
+    const slug = slugArg || (I.current(project) || {}).slug;
+    if (!slug) die('issues: no hay plan en la corrida; nombra el issue');
+    if (o.mr) I.record(project, { mr: [{ repo: posix(path.resolve(o.repo || process.cwd())), ref: o.mr }] }, slug);
+    const r = I.setState(project, state, o.mr ? `MR ${o.mr}` : null, slug);
+    console.log(`${slug}: ${r ? r.state : 'sin registro'}`);
+    return;
+  }
+  if (mode === 'merged') {
+    const n = I.refreshMerged(project, { force: true, max: 50 });
+    for (const r of I.list(project).filter((x) => ['subido', 'mergeado'].includes(x.state))) console.log(I.describe(r) || r.slug);
+    if (!n) console.log('ningún MR por consultar');
+    return;
+  }
+  if (mode === 'close') {
+    if (pos.length !== 1 || o.actual) die(usage);
+    process.exit(close(project, pos[0], o.write));
+  }
+  const [arg, extra] = pos;
+  if (extra || !['list', 'clean', 'unknown'].includes(mode) || (mode === 'clean') === !(arg || o.actual) || (arg && o.actual)) die(usage);
+  if ((o.write && mode !== 'clean') || (o.json && mode !== 'list') || o.mr || o.repo) die(usage);
   if (mode === 'list') return listAll(project, o.json);
   if (mode === 'unknown') {
     const u = unknown(project);

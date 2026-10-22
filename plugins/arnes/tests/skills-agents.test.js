@@ -27,9 +27,9 @@ test('presupuesto de §2: ninguna skill pasa de 80 líneas y ningún agente de 1
   for (const a of agents) assert.ok(frontmatter(path.join(PLUGIN, 'agents', a)).lines <= 120, `agente ${a}`);
 });
 
-test('política de invocación de §4: init, setup, ship, worktree, sync y limpiar solo por la persona; el resto también por el modelo', () => {
+test('política de invocación de §4: init, setup, ship, worktree, sync, limpiar y cerrar solo por la persona; el resto también por el modelo', () => {
   const dmi = (s) => frontmatter(path.join(PLUGIN, 'skills', s, 'SKILL.md')).fm['disable-model-invocation'] === 'true';
-  const person = ['init', 'setup', 'ship', 'worktree', 'sync', 'limpiar'];
+  const person = ['init', 'setup', 'ship', 'worktree', 'sync', 'limpiar', 'cerrar'];
   const model = ['plan', 'build', 'verify', 'review', 'memory', 'timeline'];
   assert.deepEqual([...person, ...model].sort(), [...skills].sort(), 'cada skill está en una de las dos listas');
   for (const s of person) assert.ok(dmi(s), `${s} debe llevar disable-model-invocation: true`);

@@ -122,6 +122,18 @@ function nativeLines(cwd, now) {
 // Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.
 const STALE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Los issues abiertos con su estado y su edad; antes, los subidos cuyo MR se mergeó pasan a mergeado.
+function openIssues(project, now) {
+  try {
+    issues.refreshMerged(project, { now });
+  } catch {
+    /* sin red o sin glab ni gh: queda para la próxima */
+  }
+  const open = issues.list(project).filter((r) => r.state && r.state !== 'cerrado').map((r) => issues.describe(r, now)).filter(Boolean);
+  if (!open.length) return [];
+  return [`Issues abiertos (${open.length}):`, ...open.slice(0, 5).map((l) => `- ${l}`), ...(open.length > 5 ? [`- … y ${open.length - 5} más`] : [])];
+}
+
 function leftovers(project, now) {
   const live = (r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : []), ...(r.files || [])].filter((p) => fs.existsSync(p));
   const old = issues.list(project).filter((r) => issues.DONE.includes(r.state) && r.shippedAt && now - new Date(r.shippedAt) > STALE_DAYS * DAY_MS && live(r).length);
@@ -226,7 +238,7 @@ function sessionStart(input, now = new Date()) {
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`] : [];
   const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
-  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
+  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
   const wsLines = project.workspaces.map((ws) => workspaceLine(project, ws));
   const shown = wsLines.length > room ? [...wsLines.slice(0, room - 1), `- … y ${wsLines.length - room + 1} workspace(s) más`] : wsLines;

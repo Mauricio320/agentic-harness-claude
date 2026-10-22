@@ -29,11 +29,20 @@
 //           lint-staged) cambiaría lo commiteado sin que el arnés se entere: FALLA con los archivos,
 //           y decide la persona. Un archivo que solo cambió sus fines de línea, como los normaliza git,
 //           no es falla. Un tocado que quedó fuera del commit es una nota, nunca una falla
+//   merge start|finish|abort
+//           con integration.merge "local", para quien trabaja solo y sin QA: sin MR. start, en cada repo
+//           cuya rama del issue tiene commits fuera de la por defecto, se para en la por defecto sin
+//           moverla (HEAD suelto) y mergea la rama del issue con --no-ff; el merge se verifica con el
+//           base en su primer padre (HEAD^1). finish adelanta la rama por defecto a ese merge (con
+//           fast-forward en el checkout que la tiene, o moviendo su ref si nadie la tiene) y vuelve a
+//           la rama del issue; abort vuelve sin tocar nada. Un conflicto deja todo como estaba y lo
+//           dice como una persona. El push de la rama por defecto lo hace la skill, con un sí
 // Sin contract en ningún workspace, check avisa que el orden de commit es el del manifiesto.
 // Uso: node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
 //      node ship.js committed <ws>
+//      node ship.js merge start|finish|abort
 // Exit: 0 listo · 1 falta resolver (ship lo resuelve), nada que entregar, o committed: el commit no
 //       es lo verificado · 2 uso inválido, sin manifiesto, sin bandera o git falló · 3 se detiene: el
 //       gate en rojo, bloqueantes o una zona de riesgo sin revisión humana
@@ -45,7 +54,8 @@ const path = require('path');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
-const { refExists } = require('./lib/branches.js');
+const { refExists, unmerged } = require('./lib/branches.js');
+const { list: worktreeList } = require('./lib/worktree-nativo.js');
 const { touched, deleted } = require('./touched-files.js');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
@@ -132,12 +142,15 @@ function check(project) {
   const list = shipping(project);
   if (!list.length) {
     const up = unpushed(project);
+    const toMerge = mergeMode(project) === 'local' ? up.filter((x) => (unmerged(x.ws.gitRoot, x.branch, [defaultOf(x.ws)]) || []).length) : [];
     if (!up.length) {
       console.log('ship: sin tocados en ningún workspace adoptable; nada que entregar');
       return 1;
     }
     for (const x of up) console.log(`- ${x.ws.name} · rama ${x.branch} · ${x.n} commit(s) sin subir`);
-    console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
+    console.log(`entrega: ${mergeMode(project) === 'local' ? 'merge local en la rama por defecto, sin MR (integration.merge)' : 'push y MR'}`);
+    if (toMerge.length) console.log('resultado: LISTO PARA MERGEAR\n  no hay nada que commitear: entregar es el merge local en la rama por defecto');
+    else console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
     return 0;
   }
   const reviews = new Map(checkReview(project).map((r) => [r.ws, r]));
@@ -199,6 +212,7 @@ function check(project) {
   }
   const manual = section(readPlan(project) || '', /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
   console.log(`prueba manual: ${manual.length ? `${manual.length} paso(s) en el plan; van textuales al cuerpo del MR` : 'el plan no trae'}`);
+  console.log(`entrega: ${local ? `merge local en la rama por defecto, sin MR (integration.merge)` : 'push y MR'}`);
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);
   const current = [...new Set(list.map((x) => branchOf(x.ws)).filter((b, k) => b && b !== 'HEAD' && b !== defaultOf(list[k].ws)))];
@@ -321,7 +335,72 @@ function committed(project, wsName) {
   else console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
   for (const f of eolOnly) console.log(`    nota: en ${f} solo cambiaron los fines de línea, como los normaliza git`);
   for (const f of left) console.log(`    nota: quedó sin commitear: ${f}`);
+  if (!changed.length) require('./lib/issues.js').setState(project, 'entregado', `${ws.name} ${head}`);
   return changed.length ? 1 : 0;
+}
+
+// ---------- merge local (integration.merge: "local") ----------
+
+const mergeFile = (project) => path.join(harnessDir(project), 'merge.json');
+
+function mergeStart(project) {
+  const seen = new Set();
+  const done = [];
+  for (const ws of project.workspaces.filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
+    const issue = branchOf(ws);
+    const def = defaultOf(ws);
+    if (!issue || issue === 'HEAD' || issue === def || !(unmerged(ws.gitRoot, issue, [def]) || []).length) continue;
+    if (lines(git(ws.gitRoot, ['status', '--porcelain', '--untracked-files=no']).stdout).length) die(`ship: ${ws.name} tiene cambios sin commitear; commitéalos antes de mergear`, 1);
+    const before = git(ws.gitRoot, ['rev-parse', def]).stdout.trim();
+    const sw = git(ws.gitRoot, ['switch', '-q', '--detach', def]);
+    if (sw.status !== 0) die(`ship: no pude pararme en ${def} en ${ws.name}: ${firstLine(sw.stderr)}`);
+    const m = git(ws.gitRoot, ['merge', '--no-ff', '--no-edit', '-m', `Merge branch '${issue}'`, issue]);
+    if (m.status !== 0) {
+      const conflicts = lines(git(ws.gitRoot, ['diff', '--name-only', '--diff-filter=U']).stdout);
+      git(ws.gitRoot, ['merge', '--abort']);
+      git(ws.gitRoot, ['switch', '-q', issue]);
+      for (const d of done) git(d.gitRoot, ['switch', '-q', d.issue]);
+      console.log(`resultado: SE DETIENE\npara la persona:\nNo pude mergear ${issue} en ${def} porque choca con lo que entró a ${def} después${conflicts.length ? `, en ${conflicts.join(', ')}` : ''}.\n1. Trae ${def} a tu rama: escribe \`/arnes:sync\`, que lo hace con un respaldo, y resuelve los choques.\n2. Después escribe \`/arnes:ship\` otra vez.`);
+      return 3;
+    }
+    const merge = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
+    done.push({ ws: ws.name, gitRoot: posix(ws.gitRoot), issue, def, before, merge });
+    console.log(`${ws.name}: ${issue} mergeada sobre ${def} (${merge.slice(0, 7)}), sin mover ${def} todavía`);
+  }
+  if (!done.length) {
+    console.log('nada que mergear: la rama del issue no tiene commits fuera de la por defecto');
+    return 1;
+  }
+  fs.mkdirSync(harnessDir(project), { recursive: true });
+  fs.writeFileSync(mergeFile(project), JSON.stringify({ at: new Date().toISOString(), repos: done }, null, 2) + '\n');
+  console.log('verifica el merge con --base HEAD^1, su primer padre; en verde, merge finish; en rojo, merge abort');
+  return 0;
+}
+
+function mergeEnd(project, finish) {
+  let st;
+  try {
+    st = JSON.parse(fs.readFileSync(mergeFile(project), 'utf8'));
+  } catch {
+    die('ship: no hay un merge local empezado');
+  }
+  for (const r of st.repos) {
+    if (finish) {
+      const head = git(r.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
+      const at = worktreeList(r.gitRoot).find((x) => x.branch === r.def);
+      const up = at ? git(at.path, ['merge', '--ff-only', '--quiet', head]) : git(r.gitRoot, ['update-ref', `refs/heads/${r.def}`, head, r.before]);
+      if (up.status !== 0) {
+        console.log(`resultado: SE DETIENE\npara la persona:\nNo pude adelantar ${r.def} al merge de ${r.issue}${at ? ` porque el checkout de ${posix(at.path)} tiene cambios que chocan con él` : ''}.\n1. ${at ? `Commitea o guarda (git stash) esos cambios en ${posix(at.path)}` : `Revisa que nadie haya movido ${r.def}`}.\n2. Después escribe \`/arnes:ship\` otra vez.`);
+        return 3;
+      }
+      console.log(`${r.ws}: ${r.def} avanzó a ${head.slice(0, 7)}, el merge de ${r.issue}`);
+    }
+    git(r.gitRoot, ['switch', '-q', r.issue]);
+    if (!finish) console.log(`${r.ws}: de vuelta en ${r.issue}; ${r.def} no se movió`);
+  }
+  fs.rmSync(mergeFile(project), { force: true });
+  if (finish) require('./lib/issues.js').setState(project, 'mergeado', 'merge local');
+  return 0;
 }
 
 module.exports = { shipping };
@@ -330,7 +409,12 @@ function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) help(__filename);
   const [mode, arg, extra] = argv;
-  const usage = 'uso: ship.js check | branch <rama> | stage <ws> | committed <ws>';
+  const usage = 'uso: ship.js check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
+  if (mode === 'merge') {
+    if (extra || !['start', 'finish', 'abort'].includes(arg)) die(usage);
+    const project = requireProject();
+    process.exit(arg === 'start' ? mergeStart(project) : mergeEnd(project, arg === 'finish'));
+  }
   if (extra || !['check', 'branch', 'stage', 'committed'].includes(mode) || (mode === 'check') === Boolean(arg)) die(usage);
   const project = requireProject();
   if (mode === 'check') process.exit(check(project));

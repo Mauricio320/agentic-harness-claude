@@ -12,7 +12,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { posix } = require('./manifest.js');
+const { git } = require('./exec.js');
 const { nativeRoot } = require('./worktree-nativo.js');
 const { readPlan, slugOf } = require('./plan.js');
 
@@ -111,6 +113,58 @@ function sizeOf(p) {
   return total;
 }
 
+// El estado de un MR según glab (GitLab) o gh (GitHub), si están: 'merged', 'open', 'closed' o null
+// si no se pudo saber. m = { repo, ref }, con ref el número o la url del MR.
+function mrState(m) {
+  const remote = git(m.repo, ['remote', 'get-url', 'origin']).stdout;
+  const ref = String(m.ref).replace(/^[!#]/, '');
+  const [cmd, args] = /github/i.test(remote) || /github/i.test(ref) ? ['gh', ['pr', 'view', ref, '--json', 'state']] : ['glab', ['mr', 'view', ref, '--output', 'json']];
+  const r = spawnSync(cmd, args, { cwd: m.repo, encoding: 'utf8', timeout: 5000, shell: process.platform === 'win32' });
+  if (r.status !== 0) return null;
+  try {
+    const s = String(JSON.parse(r.stdout).state || '').toLowerCase();
+    return s === 'merged' ? 'merged' : s === 'opened' || s === 'open' ? 'open' : s === 'closed' ? 'closed' : null;
+  } catch {
+    return null;
+  }
+}
+
+// Los issues subidos cuyo MR ya se mergeó pasan a mergeado. Cada uno se consulta cada seis horas como
+// mucho, salvo con force, y a lo sumo max por llamada: SessionStart no puede esperar a la red.
+const CHECK_MS = 6 * 60 * 60 * 1000;
+function refreshMerged(project, { force = false, max = 3, now = new Date() } = {}) {
+  const due = list(project).filter((r) => r.state === 'subido' && (r.mr || []).length && (force || !r.checkedAt || now - new Date(r.checkedAt) > CHECK_MS)).slice(0, max);
+  for (const r of due) {
+    const states = r.mr.map(mrState);
+    const fresh = readIssue(project, r.slug);
+    fresh.checkedAt = now.toISOString();
+    fresh.mrStates = states;
+    fs.writeFileSync(fileOf(project, r.slug), JSON.stringify(fresh, null, 2) + '\n');
+    if (states.length && states.every((s) => s === 'merged')) setState(project, 'mergeado', 'MR mergeado', r.slug, now);
+  }
+  return due.length;
+}
+
+const ago = (ms) => (ms < 3600000 ? `${Math.max(1, Math.round(ms / 60000))} min` : ms < 172800000 ? `${Math.round(ms / 3600000)} h` : `${Math.round(ms / 86400000)} días`);
+const refs = (r) => (r.mr || []).map((m) => (/^\d+$/.test(String(m.ref)) ? `!${m.ref}` : m.ref)).join(', ');
+
+// Una línea por issue abierto, con su estado en palabras y desde cuándo.
+function describe(r, now = new Date()) {
+  const since = (r.states || []).length ? r.states[r.states.length - 1].at : r.updatedAt || r.createdAt;
+  const age = `desde hace ${ago(now - new Date(since))}`;
+  const local = (r.states || []).some((s) => s.state === 'mergeado' && /local/.test(s.detail || ''));
+  const text = {
+    planeado: `plan aprobado, sin construir, ${age}`,
+    construido: `construido, falta verificar, ${age}`,
+    verificado: `verificado, falta revisar, ${age}`,
+    revisado: `revisado y listo para /arnes:ship, ${age}`,
+    entregado: `commiteado y sin subir, ${age}`,
+    subido: `MR ${refs(r) || 'sin número'} esperando aprobación ${age}`,
+    mergeado: `${local ? 'mergeado en la rama por defecto' : `el MR ${refs(r)} ya está mergeado`}: la persona lo cierra con /arnes:cerrar ${r.slug}`,
+  }[r.state];
+  return text ? `${r.slug}: ${text}` : null;
+}
+
 const human = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
-module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, setState, sizeOf, human };
+module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, setState, sizeOf, human, mrState, refreshMerged, describe };

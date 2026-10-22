@@ -15,7 +15,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 1. Anota el inicio: `node "S/lib/timeline.js" start ship`.
 2. Corre `node "S/ship.js" check`. Su salida va al informe de ship (abajo); en el chat, una línea.
-   - **`LISTO`:** sigue con la rama. **`LISTO PARA SUBIR`:** no hay nada que commitear y la rama tiene commits sin subir: ve a la sección 4.
+   - **`LISTO`:** sigue con la rama. **`LISTO PARA SUBIR`** o **`LISTO PARA MERGEAR`:** no hay nada que commitear y la rama tiene commits sin entregar: ve a la entrega (el merge local, o la sección 4).
    - **`FALTA RESOLVER`:** resuelve cada línea, en su orden y sin preguntar, y vuelve a correr check:
      - `integrar <slug>`: `node "S/worktree-ledger.js" integrate <slug>`, y después la skill verify con `--base` en el primer padre del merge (`git -C "<carpeta>" rev-parse HEAD^1`).
      - `verificar <ws>`: carga la skill verify. Es barata si el contenido no cambió: reutiliza la foto del base, y los specs ya existen.
@@ -39,6 +39,8 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 **Con `--solo-commit`:** anota `end ship --result ok --detail "solo commit"`, di los commits en una línea por repo y termina.
 
+**Con merge local** (el check dice `entrega: merge local`, para quien trabaja solo y sin QA), en vez de la sección 4: `node "S/ship.js" merge start` mergea la rama del issue sobre la por defecto sin moverla; carga verify con `--base HEAD^1`. En verde, `merge finish` adelanta la rama por defecto; en rojo, `merge abort` y para con el bloque de la persona. Si start o finish dicen `SE DETIENE`, copia su bloque y termina. Después, con un sí explícito, `git -C "<carpeta>" push origin <rama por defecto>`; sigue en el paso 5.
+
 ## 4. Push y MR, solo con un sí explícito
 
 1. **Pide confirmación** en un mensaje, antes de cualquier push o MR: la rama y, por repo, el commit y el remoto (`git -C <carpeta> remote get-url origin`); el título y el cuerpo de cada MR.
@@ -50,7 +52,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Cuerpo de cada MR:** qué cambia; los criterios del plan, si existe; la prueba manual del plan, si el check dice que la trae, con sus pasos numerados textuales; el resultado de verify, con la frase de abajo; la revisión, con sus bloqueantes en 0; los enlaces a los MR de los otros repos.
    - **Zona de riesgo:** si el check listó riskPaths tocadas, la primera línea del cuerpo es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`.
    - **Sin glab ni gh:** muestra el enlace que imprimió el push y el cuerpo listo para pegar.
-5. **Anota el fin:** `node "S/lib/timeline.js" end ship --result ok --detail "<MR o commits>"`.
+5. **Anota el fin:** por cada MR, `node "S/issues.js" state --actual subido --mr <número o url> --repo "<carpeta>"`, que deja el issue esperando su merge; y `node "S/lib/timeline.js" end ship --result ok --detail "<MR o commits>"`. Cuando el MR se mergee, la persona lo cierra con `/arnes:cerrar <issue>`.
 6. **Lo que se creó para el issue:** `node "S/issues.js" clean --actual` lista las carpetas, las ramas y los archivos registrados, con su tamaño. Pregunta en una línea: "¿Borro lo que creé para este issue, o lo dejo?", con esa lista. Con el sí, `clean --actual --write`: borra solo lo registrado, en orden seguro, y deja la rama del issue hasta que el MR esté mergeado; si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`. Con "lo dejo", queda, y `/arnes:limpiar` lo hace después.
 
 ## Reporte

@@ -204,6 +204,8 @@ function main() {
   });
   const list = event === 'note' ? null : tasks(read(root));
   if (list) console.log(`tareas: ${JSON.stringify(list)}`);
+  // El estado del issue (lib/issues.js): un build que cerró bien lo deja construido.
+  if (event === 'end' && stage === 'build' && args.values.result === 'ok') require('./issues.js').setState(requireProject(dir), 'construido', args.values.ws);
 }
 
 if (require.main === module) main();

@@ -70,6 +70,7 @@ function approve(project, detail) {
     die('plan-state: la aprobación tiene que venir de la persona. Termina el turno mostrando el plan, sin la herramienta de preguntas, y espera su respuesta.', 1);
   }
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });
+  require('./lib/issues.js').setState(project, 'planeado');
   console.log('plan aprobado por la persona');
   return 0;
 }
@@ -100,6 +101,7 @@ function trivial(project, pedido, criterio) {
   append(project.root, { event: 'start', stage: 'plan', detail: 'trivial' });
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan trivial escrito' });
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'trivial, pedido por la persona' });
+  require('./lib/issues.js').setState(project, 'planeado');
   console.log(`plan trivial aprobado en ${file}`);
   return 0;
 }
