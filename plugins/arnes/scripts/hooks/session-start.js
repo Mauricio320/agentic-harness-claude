@@ -116,7 +116,19 @@ function nativeLines(cwd, now) {
   if (!list.length) return [];
   const shown = list.slice(0, WORKTREES).map((n) => `- ${ledger.describeNative(n, now)}`);
   if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
-  return [`Worktrees con trabajo sin subir o sin commitear (${list.length}): nunca se borran solos. Se entregan con /arnes:ship desde su sesión, y los que quedaron sin su carpeta los ofrece /arnes:limpiar.`, ...shown];
+  return [`Worktrees con trabajo sin subir o sin commitear (${list.length}): nunca se borran solos; se entregan con /arnes:ship desde su sesión.`, ...shown];
+}
+
+// Los rescates de los repos que quedaron sin su worktree: el worktree de una carpeta se borró sin pasar
+// por el arnés con trabajo sin commitear adentro (lib/rescate.js).
+function rescueLines(cwd, now) {
+  const project = ledger.projectFor(cwd);
+  if (!project) return [];
+  const list = ledger.rescuePending(project);
+  if (!list.length) return [];
+  const shown = list.slice(0, WORKTREES).map((x) => `- ${ledger.describeRescue(x, now)}`);
+  if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
+  return [`Trabajo sin commitear que quedó sin su worktree (${list.length}): está guardado en su repo y nunca se borra solo; /arnes:limpiar lo recupera en un worktree nuevo o lo descarta.`, ...shown];
 }
 
 // Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.
@@ -232,13 +244,14 @@ function sessionStart(input, now = new Date()) {
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
   const native = ledger.equipNative(cwd).lines;
   const w = nativeRoot(project);
+  if (w && project.kind === 'folder') carpeta.protect(cwd);
   const pruned = carpeta.pruneOrphans(w ? loadProject(w.main) : project);
   // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
   if (native.length) project = loadProject(cwd);
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`] : [];
   const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
-  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
+  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...rescueLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
   const wsLines = project.workspaces.map((ws) => workspaceLine(project, ws));
   const shown = wsLines.length > room ? [...wsLines.slice(0, room - 1), `- … y ${wsLines.length - room + 1} workspace(s) más`] : wsLines;

@@ -25,7 +25,8 @@
 // Sin --ws, open abre uno por cada workspace adoptable (uno por repo) e integrate y close actúan
 // sobre todo el set del slug. pending lista los abiertos, con sus commits sin integrar, y sin
 // --target también los worktrees nativos de Claude Code del repo (.claude/worktrees) con commits sin
-// subir o cambios sin commitear, con su rama y su antigüedad; nunca los borra.
+// subir o cambios sin commitear, con su rama y su antigüedad, y los rescates de trabajo sin commitear
+// que quedaron sin su worktree (lib/rescate.js); nunca borra ninguno.
 // Registro: { ws, path, branch, target, issue, openedAt, status: abierto|integrado|cerrado,
 //             links, copies, copiedDirs, closedAt?, merge? } · worktrees en
 //             <raíz>/.tmp/harness/worktrees/<ws>/<slug>
@@ -43,6 +44,7 @@ const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
 const { DB_VAR } = require('./lib/database.js');
 const { nativeWorktree, nativeWorktrees, nativeRoot } = require('./lib/worktree-nativo.js');
+const rescate = require('./lib/rescate.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -132,20 +134,35 @@ function pendingEntries(project, entries, { target } = {}) {
 // Los worktrees nativos de Claude Code de los repos del proyecto con trabajo sin subir (§7): commits
 // que no están en ningún remoto ni en la rama por defecto local, o cambios sin commitear sin contar
 // los enlaces del arnés. → [{ path, name, branch, unpushed, dirty, created, last }]
-// En una carpeta, los worktrees de cada repo que trajo el worktree nativo de la carpeta viven en
-// <repo>/.claude/worktrees/<nombre>: se dicen con su repo, y como de un issue cerrado si ya no existe el
-// worktree de carpeta con ese nombre (Claude Code lo borró y quitó solo el enlace). Los de la propia
-// sesión no se listan.
 function nativePending(project, now = new Date()) {
   const roots = [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.gitRoot))];
-  const own = nativeRoot(project);
-  const folder = project.kind === 'folder' ? (own ? own.main : project.root) : null;
-  return roots.flatMap((r) => {
+  return roots.flatMap((r) => nativeWork(r, (project.workspaces.find((x) => x.gitRoot === r) || {}).defaultBranch, now));
+}
+
+// Los rescates de los repos del proyecto cuyo worktree ya no existe: lo que quedaba sin commitear en un
+// repo traído al worktree de una carpeta que se borró sin pasar por el arnés.
+// → [{ repo, main, name, ref, at, worktree, branch, issue, files, count }]
+function rescuePending(project) {
+  const roots = [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.gitRoot))];
+  const seen = new Set();
+  const out = [];
+  for (const r of roots) {
     const ws = project.workspaces.find((x) => x.gitRoot === r) || {};
-    return nativeWork(r, ws.defaultBranch, now)
-      .filter((n) => !(own && project.kind === 'folder' && n.name === own.name))
-      .map((n) => (folder ? { ...n, repo: ws.name, orphan: !fs.existsSync(path.join(folder, '.claude', 'worktrees', n.name)) } : n));
-  });
+    for (const x of rescate.orphans(r)) {
+      const id = `${ws.name}|${x.ref}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ ...x, repo: ws.name || path.basename(r), main: posix(r) });
+    }
+  }
+  return out;
+}
+
+// Una línea por rescate sin worktree.
+function describeRescue(x, now = new Date()) {
+  const days = Math.floor((now - x.at) / DAY_MS);
+  const files = x.files.slice(0, 3).join(', ') + (x.count > 3 ? ', …' : '');
+  return `rescate ${x.name} de ${x.repo}: ${x.count} archivo(s) sin commitear (${files}) que quedaron sin su worktree (rama ${x.branch}, guardado ${days ? `hace ${days} día(s)` : 'hoy'}); nunca se borra solo: /arnes:limpiar lo recupera en un worktree nuevo o lo descarta`;
 }
 
 // Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.
@@ -159,7 +176,7 @@ function nativeWork(dir, defaultBranch, now = new Date()) {
       const def = mergeTargets(w.main, defaultBranch).branch;
       const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
       const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
-      const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
+      const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
       if (!unpushed && !dirty) continue;
       let created = now;
       try {
@@ -178,9 +195,7 @@ function nativeWork(dir, defaultBranch, now = new Date()) {
 function describeNative(p, now = new Date()) {
   const what = [p.unpushed && `${p.unpushed} commit(s) sin subir`, p.dirty && `${p.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
   const days = Math.floor((now - p.created) / DAY_MS);
-  const when = `creado ${days ? `hace ${days} día(s)` : 'hoy'}`;
-  if (p.repo) return `worktree ${p.name} de ${p.repo}${p.orphan ? ', de un issue cerrado' : ''}, con ${what} (rama ${p.branch || 'sin rama'}) · ${when}; nunca se borra solo${p.orphan ? ': /arnes:limpiar lo ofrece' : ''}`;
-  return `worktree ${p.name} (rama ${p.branch || 'sin rama'}) · ${what} · ${when}; nunca se borra solo`;
+  return `worktree ${p.name} (rama ${p.branch || 'sin rama'}) · ${what} · creado ${days ? `hace ${days} día(s)` : 'hoy'}; nunca se borra solo`;
 }
 
 // Destino registrado de una rama o de una carpeta de worktree abierta, o null si no está en el registro.
@@ -494,7 +509,7 @@ function dirtyIn(dir, own = []) {
   const mine = new Set(own.map((p) => posix(path.relative(dir, p))));
   return lines(r.stdout)
     .map((l) => l.slice(3).replace(/^"|"$/g, '').replace(/\/$/, ''))
-    .filter((f) => !f.startsWith('.tmp/harness/') && !mine.has(f) && ![...mine].some((m) => f.startsWith(`${m}/`)));
+    .filter((f) => f !== rescate.MARKER && !f.startsWith('.tmp/harness/') && !mine.has(f) && ![...mine].some((m) => f.startsWith(`${m}/`)));
 }
 
 const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDirs || [])];
@@ -627,6 +642,8 @@ module.exports = {
   present,
   NATIVE_PORTS,
   nativePending,
+  rescuePending,
+  describeRescue,
   nativeWork,
   describeNative,
   targetOf,
@@ -692,14 +709,16 @@ function main() {
   }
   const pending = pendingEntries(project, entries, { target: o.target });
   const natives = o.target ? [] : nativePending(project);
+  const rescues = o.target ? [] : rescuePending(project);
   if (o.json) {
     console.log(JSON.stringify([
       ...pending.map(({ workspace, ahead, last, ...e }) => ({ ...e, ahead: ahead && ahead.length, lastActivity: last.toISOString() })),
       ...natives.map((n) => ({ nativo: true, ...n, created: n.created.toISOString(), last: n.last.toISOString() })),
+      ...rescues.map((x) => ({ rescate: true, ...x, at: x.at.toISOString() })),
     ], null, 2));
-  } else if (pending.length || natives.length) console.log([...pending.map((p) => describe(p)), ...natives.map((n) => describeNative(n))].join('\n'));
+  } else if (pending.length || natives.length || rescues.length) console.log([...pending.map((p) => describe(p)), ...natives.map((n) => describeNative(n)), ...rescues.map((x) => describeRescue(x))].join('\n'));
   else console.log(`nada sin integrar${o.target ? ` en ${o.target}` : ' ni sin subir'}`);
-  process.exit(pending.length || natives.length ? 1 : 0);
+  process.exit(pending.length || natives.length || rescues.length ? 1 : 0);
 }
 
 if (require.main === module) main();

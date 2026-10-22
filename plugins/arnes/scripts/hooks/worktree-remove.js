@@ -11,9 +11,10 @@
 // En un worktree nativo de Claude Code solo niega con commits sin subir o cambios sin commitear:
 // Claude Code quita solo los enlaces al borrarlo. En el de una carpeta multi-repo, antes de dejarlo
 // borrar quita lo que trajo adentro (worktree-carpeta.js): los enlaces, sin seguirlos, y el worktree
-// de cada repo, con git worktree remove desde su repo; las ramas del issue quedan en los repos. Con un
-// repo con cambios sin commitear no quita nada y niega, porque Claude Code no los ve: los repos están
-// ignorados en el repo de carpeta. No hay hook WorktreeRemove: ese evento solo corre para worktrees
+// de cada repo, con git worktree remove desde su repo, con su rescate y al final el marcador; las
+// ramas del issue quedan en los repos. Con un repo con cambios sin commitear no quita nada y niega,
+// porque Claude Code no los ve: los repos están ignorados en el repo de carpeta. El marcador no cuenta
+// como trabajo del repo de carpeta. No hay hook WorktreeRemove: ese evento solo corre para worktrees
 // que creó un hook WorktreeCreate, y los nativos los borra git.
 // Vale haya o no manifiesto; sin manifiesto, la rama por defecto es la de origin/HEAD, o main o master.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.

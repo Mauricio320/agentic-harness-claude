@@ -147,25 +147,6 @@ function real(p) {
   }
 }
 
-// Un repo traído al worktree nativo de una carpeta vive en <repo>/.claude/worktrees/<nombre>, y la
-// carpeta lo ve por un enlace <carpeta>/.claude/worktrees/<nombre>/<ruta del repo>. Desde su ruta
-// real, su proyecto es el del worktree de la carpeta. → el manifiesto de esa composición, o null
-function viaFolderLink(repoDir) {
-  const parts = path.resolve(repoDir).split(path.sep);
-  const i = parts.length - 2;
-  if (i < 2 || parts[i] !== 'worktrees' || parts[i - 1] !== '.claude') return null;
-  const mainRepo = parts.slice(0, i - 1).join(path.sep);
-  for (let above = findUp(path.dirname(mainRepo)); above; above = findUp(path.dirname(rootOf(above)))) {
-    const fm = read(above);
-    if (fm.errors.length || !fm.data.repos) continue;
-    const entry = fm.data.repos.find((r) => samePath(path.resolve(rootOf(above), r.path), mainRepo));
-    if (!entry) continue;
-    const folderWt = path.join(rootOf(above), '.claude', 'worktrees', parts[i + 1]);
-    const file = path.join(folderWt, MANIFEST);
-    return fs.existsSync(file) && samePath(real(path.join(folderWt, entry.path)), real(repoDir)) ? file : null;
-  }
-  return null;
-}
 
 function posix(p) {
   return p.split(path.sep).join('/');
@@ -288,11 +269,6 @@ function loadProject(startDir = process.cwd()) {
     if (fm.errors.length || !fm.data.repos) continue;
     if (fm.data.repos.some((r) => samePath(path.resolve(rootOf(above), r.path), repoDir))) return fromFolder(fm);
   }
-  const via = viaFolderLink(repoDir);
-  if (via) {
-    const fm = read(via);
-    if (!fm.errors.length && fm.data.repos) return fromFolder(fm);
-  }
   return fromRepo(m);
 }
 
@@ -316,7 +292,8 @@ function harnessDir(project) {
 }
 
 // Workspace que contiene la ruta (absoluta o relativa al cwd): el de carpeta más larga. Se compara por
-// la ruta real, para que dé lo mismo llegar por el enlace de un repo traído o por su ruta de verdad.
+// la ruta real, para que dé lo mismo llegar por un enlace, o con un nombre corto de Windows, que por la
+// ruta de verdad.
 function realParent(p) {
   for (let d = p, rest = ''; ; rest = path.join(path.basename(d), rest), d = path.dirname(d)) {
     if (fs.existsSync(d)) return path.join(real(d), rest);

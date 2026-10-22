@@ -17,6 +17,9 @@
 // marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
 // registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
 // hay nada en marcha.
+// En el worktree de una carpeta, antes de juzgar, guarda el rescate de lo que quedó sin commitear en
+// cada repo de adentro y pone o quita el marcador (worktree-carpeta.js protect): Claude Code puede
+// borrar ese worktree al cerrar la sesión, sin pasar por el arnés.
 // Salida: JSON con decision/reason, o con systemMessage, o nada. Siempre exit 0.
 
 'use strict';
@@ -31,6 +34,7 @@ const { touched } = require('../touched-files.js');
 const { checkFlag, turnChanged, turnPath } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
+const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
@@ -130,6 +134,11 @@ function stopGate(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
+  try {
+    if (project.kind === 'folder') carpeta.protect(cwd);
+  } catch {
+    /* el rescate nunca frena el cierre del turno */
+  }
   const code = unverified(project);
   const wts = pendingWorktrees(cwd, turnStart(project));
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
