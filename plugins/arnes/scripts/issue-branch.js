@@ -14,8 +14,9 @@
 //           rama, imprime la pregunta con recomendación que plan pone en el mensaje de aprobación
 //   create [--nombre <slug>] [--desde-otra]
 //           dentro de un worktree nativo: trae el plan aprobado del checkout principal si el worktree
-//           no tiene uno, materializa los repos del plan si es el de una carpeta (worktree-carpeta.js)
-//           y anota la rama del worktree; no crea otra.
+//           no tiene uno, materializa los repos del plan si es el de una carpeta (worktree-carpeta.js),
+//           en un repo solo renombra worktree-<nombre> a la rama del issue si no se subió (renameNative,
+//           que también corre plan-state.js al aprobar) y anota la rama del worktree; no crea otra.
 //           En el checkout, en la rama por defecto: la adelanta a origin/<defaultBranch> solo con el
 //           árbol limpio y si el avance es fast-forward, y crea la rama del issue; con cambios sin
 //           commitear la crea igual, porque git se los lleva, pero no adelanta la por defecto y lo dice.
@@ -51,12 +52,39 @@ const issues = require('./lib/issues.js');
 
 const branchOf = (ws) => git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
 
-// En un worktree nativo de Claude Code, la rama del issue es la del worktree (worktree-<nombre>, o la
-// de cada repo traído al de una carpeta): plan no crea otra ni pregunta, solo lo dice. → la línea, o
-// null fuera de uno
+// La rama del issue para el worktree nativo w de un repo solo, si todavía tiene la que le pone Claude
+// Code (worktree-<nombre>): el prefijo de integration y el nombre del worktree, como en una carpeta
+// (worktree-carpeta.js branchName). → el nombre, o null si no hay que renombrar
+const renameTarget = (project, w) =>
+  project.kind !== 'folder' && w && w.branch && w.branch.startsWith('worktree-') ? `${(project.integration && project.integration.branchPrefix) || ''}${w.name}` : null;
+
+// En un worktree nativo de Claude Code, la rama del issue es la del worktree (en un repo solo, con el
+// nombre del issue desde que se aprueba el plan; en una carpeta, la de cada repo traído): plan no crea
+// otra ni pregunta, solo lo dice. → la línea, o null fuera de uno
 function nativeLine(project, ws) {
   const w = nativeRoot(project) || nativeWorktree(ws.gitRoot);
-  return w ? `${ws.name}: estás en el worktree ${w.name}, en la rama ${branchOf(ws)}: esa es la rama del issue; no creo otra` : null;
+  if (!w) return null;
+  const to = renameTarget(project, w);
+  return `${ws.name}: estás en el worktree ${w.name}, en la rama ${branchOf(ws)}${to ? `; al aprobar pasa a ${to}, que es la rama del issue` : ': esa es la rama del issue'}; no creo otra`;
+}
+
+// Al aprobar, en un repo solo: la rama worktree-<nombre> pasa a la del issue con git branch -m, y el
+// registro del issue la sigue. Solo antes de subirla: si ya está en origin o tiene upstream, no se
+// renombra; tampoco si la otra ya existe. → la línea que lo dice, o null si no había nada que hacer
+function renameNative(project, w = nativeRoot(project)) {
+  const to = renameTarget(project, w);
+  if (!to || to === w.branch) return null;
+  const from = w.branch;
+  if (git(w.path, ['check-ref-format', '--branch', to]).status !== 0) return `la rama ${from} se queda: "${to}" no es un nombre de rama válido`;
+  if (refExists(w.path, `refs/remotes/origin/${from}`) || git(w.path, ['rev-parse', '--abbrev-ref', `${from}@{upstream}`]).status === 0) {
+    return `la rama ${from} ya está en origin; no la renombro a ${to}, para no dejar colgada la que se subió`;
+  }
+  if (refExists(w.path, `refs/heads/${to}`)) return `la rama ${from} se queda: ${to} ya existe en el repo`;
+  const r = git(w.path, ['branch', '-m', from, to]);
+  if (r.status !== 0) return `la rama ${from} se queda: git no la renombró (${firstLine(r.stderr)})`;
+  w.branch = to;
+  issues.renameBranch(project, from, to);
+  return `la rama del worktree pasa de ${from} a ${to}, la rama del issue; todavía no se subió`;
 }
 
 function readPlan(project) {
@@ -113,20 +141,21 @@ function check(project) {
   const plan = readPlan(project);
   const name = nameOf(project, plan);
   const wss = workspaces(project, plan);
-  if (nativeRoot(project)) {
+  const w = nativeRoot(project);
+  if (w) {
     for (const ws of wss) console.log(nativeLine(project, ws));
-    console.log(`rama del issue: ${wss.map(branchOf).filter((b, i, a) => a.indexOf(b) === i).join(', ')}`);
+    console.log(`rama del issue: ${wss.map((ws) => renameTarget(project, w) || branchOf(ws)).filter((b, i, a) => a.indexOf(b) === i).join(', ')}`);
     return 0;
   }
   const route = worktreeRoute(project);
   if (route.ok) {
     const slug = slugOf(plan);
     const existing = path.join(project.root, DIR, slug);
-    const where = project.kind === 'folder' ? `con ${repoList(wss)} en ${name}` : `en la rama worktree-${slug}`;
+    const where = project.kind === 'folder' ? `con ${repoList(wss)} en ${name}` : `en la rama ${name}`;
     console.log(`worktree: ${slug}${fs.existsSync(existing) ? ` (ya existe en ${existing}: entro a él)` : ''}`);
     console.log(`al aprobar: muevo esta sesión a un worktree nuevo, ${slug}, ${where}, desde ${route.base} al día; tus checkouts no se tocan, tengan cambios o vayan atrás.`);
     console.log(`alternativa: crear ${name} aquí mismo, en el checkout de cada repo.`);
-    console.log(`rama del issue: ${project.kind === 'folder' ? name : `worktree-${slug}`}`);
+    console.log(`rama del issue: ${name}`);
     return 0;
   }
   console.log(`en el checkout: ${route.why}`);
@@ -173,6 +202,8 @@ function carry(project, w) {
 function enterNative(project, w) {
   const carried = carry(project, w);
   if (carried) console.log(carried);
+  const renamed = renameNative(project, w);
+  if (renamed) console.log(renamed);
   let failed = false;
   if (project.kind === 'folder') {
     const want = (() => {
@@ -314,7 +345,7 @@ function behind(project) {
   return late ? 1 : 0;
 }
 
-module.exports = { slugOf, worktreeRoute };
+module.exports = { slugOf, worktreeRoute, renameNative };
 
 function main() {
   let args;

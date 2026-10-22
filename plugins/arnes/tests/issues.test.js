@@ -107,7 +107,7 @@ test('el worktree nativo registrado se borra quitando antes sus enlaces; el de l
   assert.match(r.stdout, /borrado carpeta .*cobros/, r.stdout + r.stderr);
   assert.ok(!fs.existsSync(wt));
   assert.ok(sentinel(dir), 'el node_modules del principal sigue');
-  assert.match(h.git(dir, 'branch', '--list', 'worktree-cobros'), /worktree-cobros/, 'la rama del issue se queda hasta el merge');
+  assert.match(h.git(dir, 'branch', '--list', 'cobros'), /cobros/, 'la rama del issue, con el nombre que le dio create, se queda hasta el merge');
 });
 
 test('un plan trivial dentro de un worktree nativo deja registrado el worktree y su rama, sin pasar por la rama del issue', () => {

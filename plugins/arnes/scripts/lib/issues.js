@@ -105,6 +105,21 @@ function record(project, add = {}, slug = null, now = new Date()) {
   }
 }
 
+// La rama del worktree nativo cambió de nombre al aprobar (issue-branch.js renameNative): el registro
+// del issue en curso sigue a la nueva. → el registro, o null
+function renameBranch(project, from, to) {
+  try {
+    const r = record(project);
+    if (!r) return null;
+    r.branches = union([], r.branches.map((b) => (b.branch === from ? { ...b, branch: to } : b)));
+    if (r.worktree && r.worktree.branch === from) r.worktree = { ...r.worktree, branch: to };
+    fs.writeFileSync(fileOf(project, r.slug), JSON.stringify(r, null, 2) + '\n');
+    return r;
+  } catch {
+    return null;
+  }
+}
+
 // Avanza el estado del issue, nunca hacia atrás salvo a cerrado. → el registro, o null
 function setState(project, state, detail, slug = null, now = new Date()) {
   const r = record(project, {}, slug, now);
@@ -187,4 +202,4 @@ function describe(r, now = new Date()) {
 
 const human = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
-module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, setState, sizeOf, human, mrState, refreshMerged, describe };
+module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, renameBranch, setState, sizeOf, human, mrState, refreshMerged, describe };

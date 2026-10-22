@@ -72,7 +72,14 @@ function approve(project, detail) {
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });
   require('./lib/issues.js').setState(project, 'planeado');
   console.log('plan aprobado por la persona');
+  renamed(project);
   return 0;
+}
+
+// En el worktree nativo de un repo solo, la rama pasa al nombre del issue al aprobar.
+function renamed(project) {
+  const line = require('./issue-branch.js').renameNative(project);
+  if (line) console.log(line);
 }
 
 function trivial(project, pedido, criterio) {
@@ -103,6 +110,7 @@ function trivial(project, pedido, criterio) {
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'trivial, pedido por la persona' });
   require('./lib/issues.js').setState(project, 'planeado');
   console.log(`plan trivial aprobado en ${file}`);
+  renamed(project);
   return 0;
 }
 
