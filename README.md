@@ -2,12 +2,12 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.6, sin etiquetar, en la rama `feature/cierre-nativos`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta, y los worktrees que nacen usables. Para probarla, `docs/PROBADORES.md`. Ya existen:
+Estado: fase 3 cerrada con el tag `v0.5.0`; su prueba manual está en `docs/PRUEBA-FASE-3.md`. La versión en curso es 0.6.7, sin etiquetar, en la rama `feature/plan-escritorio`: después de tres rondas de correcciones antes del piloto (fase 4), la fase de setup, que deja un proyecto listo desde cero con `/arnes:setup` a partir de su repo de carpeta, los worktrees nativos como camino de cada issue, y el plan y la entrega al estilo del escritorio. Para probarla, `docs/PROBADORES.md`. Ya existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo;
 - los scripts deterministas y los hooks clásicos;
-- las once skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync` y `timeline`;
+- las trece skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync`, `timeline`, `limpiar` y `cerrar`;
 - los tres agentes: `dev`, `reviewer` y `test-writer`;
-- los worktrees por issue con su registro, la línea base de tests commiteada y el aviso de sesión concurrente;
+- cada issue en un worktree nativo de Claude Code, también en una carpeta multi-repo, con su registro de lo creado y su ciclo hasta main; la línea base de tests commiteada y el aviso de sesión concurrente;
 - el mod `arnes-ui`;
 - el mod `arnes-mod`, por ahora con una sola pieza: la cuarta capa del plan obligatorio, que adjunta a un pedido de código sin plan en curso la instrucción de cargar `arnes:plan`.
 
@@ -143,3 +143,4 @@ CLI y arnés se suben juntos, nunca uno solo. El CI valida contra la versión de
 | v0.6.4 (sin etiquetar) | 2.1.306 | 24 | init con una sola ronda de preguntas y sin preguntar lo que sabe solo, afterBuild contra la base local, plan avisa si la rama va atrás, la ronda acotada cubre los archivos nuevos, la voz corta de las skills y dos correcciones de worktrees |
 | v0.6.5 (sin etiquetar) | 2.1.306 | 24 | El arnés sobre los worktrees nativos de Claude Code en un repo solo (node_modules, puertos, rama del issue, pendientes sin subir), init con el grafo, la voz en SessionStart y el Stop, y verify contra el primer padre de un merge |
 | v0.6.6 (sin etiquetar) | 2.1.306 | 24 | El reporte del reviewer lo guarda el hilo principal, y ExitWorktree en un worktree nativo manda a subir la rama |
+| v0.6.7 (sin etiquetar) | 2.1.308 | 24 | El issue en un worktree nativo también en una carpeta, con la app levantada desde ahí; la lista de tareas para el escritorio; referencias, decisiones, prueba manual y mapa del grafo en el plan; ship que resuelve solo y habla como una persona; el registro por issue, su limpieza y su cierre en main |

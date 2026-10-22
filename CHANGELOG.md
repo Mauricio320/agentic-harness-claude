@@ -2,6 +2,35 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.7] - sin etiquetar
+
+Ronda de plan al estilo del escritorio: el flujo que la persona vio en una sesión del escritorio sin el arnés, y los remates de la prueba de init (`docs/PLAN.md` §6.3, §7 y §8). Rama `feature/plan-escritorio`, probada con Claude Code 2.1.308 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre una carpeta de prueba con dos repos.
+
+### Añadido
+- El issue se trabaja en un worktree nativo de Claude Code, siempre desde main al día, también en una carpeta multi-repo: al aprobar, plan mueve la sesión con EnterWorktree y lo dice en la pregunta de aprobación; la rama en el checkout queda como alternativa, o por defecto con `integration.workInPlace`. En el worktree de una carpeta, el arnés trae cada repo del plan como worktree de git en `feature/<nombre>`, con `node_modules` enlazado, `.env` copiados y puertos corridos (`worktree-carpeta.js`), al arrancar y en un PostToolUse nuevo de EnterWorktree; al salir con ExitWorktree quita enlaces y worktrees antes de borrar, y las ramas quedan. SessionStart limpia el registro de worktrees huérfanos.
+- "Inicia la app": `build.js app` la levanta desde el worktree con los puertos en el entorno del proceso, que ganan a cualquier `.env`; `commands.app` en el schema.
+- La lista de tareas de la sesión para el escritorio: una por etapa y por workspace, en la timeline, con su estado sacado de los start y end (`plan-state.js tareas`), y cada etapa se la pasa a TodoWrite.
+- Investigar y decidir antes del plan: el bloque `plan` del manifiesto (`references`, `decide`), las secciones Referencias y Decisiones, escritas para quien aprueba el negocio.
+- La prueba manual en el plan, con `testEnvironments` en el manifiesto, y repetida en el MR.
+- La evidencia del grafo: el guard anota cada consulta, el plan suma Mapa consultado, y la banda dice `Planeando · grafo 3 consultas` o marca el grafo sin consultar. Los worktrees enlazan el grafo del principal.
+- El registro de lo creado por issue (`.tmp/harness/issues/<slug>.json`) y su limpieza segura: `issues.js clean`, la pregunta al final de ship y la skill `/arnes:limpiar`, que nombra sin tocar lo que no conoce.
+- El ciclo del issue hasta main: estados de planeado a cerrado anotados por los scripts, SessionStart con los issues abiertos y su edad, `/arnes:cerrar` cuando glab o gh dicen que el MR se mergeó, y `integration.merge: "local"` con merge `--no-ff` verificado contra su primer padre.
+
+### Cambiado
+- ship se vale solo: resuelve integrar, verificar y revisar, y se detiene solo con el gate en rojo, bloqueantes o una zona de riesgo sin revisión humana, con un bloque para la persona con la causa y los pasos. Un `.env` se queda fuera del commit en vez de frenar; sin nada que commitear entrega el push.
+- La bandera de verificación no vence por tiempo, y guarda la huella con los fines de línea normalizados: un commit que solo cambió CRLF no es falla.
+- El grafo, `.tmp` y `node_modules` nunca cuentan como código; init ofrece `graphify-out/` en el `.gitignore` de cada repo.
+- init pregunta con recomendación cuando una rama remota trae la configuración (`adopt.js switch`), pone el flag del comando de test en su ronda (`probe --write`) y, con el árbol sucio, dice qué estorba a la línea base y la corre sola con `/arnes:init --baseline`.
+- El ledger de worktrees queda para dividir un mismo issue en tareas que chocan; se quitó el parche de `node --env-file`.
+
+### Corregido
+Lo que salió de la prueba de punta a punta, dos sesiones y trece turnos, US$7,02 (`docs/PLAN.md` §7):
+- La app no arrancaba desde `claude -p` en Windows: un `cmd.exe` separado y sin consola se colgaba. `build.js app` lanza un node separado que corre el comando con shell.
+- La timeline de un worktree nativo vuelve al checkout principal antes de borrarlo, para que la corrida del issue no se pierda con la carpeta.
+- El nombre corto del plan deja fuera las palabras vacías (`centros-costo-lineas-asiento`).
+- La nota de una consulta al grafo no guarda las redirecciones.
+- El registro del issue anota el worktree nativo en que corre aunque el plan sea trivial.
+
 ## [0.6.6] - sin etiquetar
 
 Ronda corta de cierre antes de publicar (`docs/PLAN.md` §6.4 y §7). Rama `feature/cierre-nativos`, probada con Claude Code 2.1.306 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y una corrida con `claude -p --worktree` sobre un clon de api-academico con un bloqueante de revisión.
