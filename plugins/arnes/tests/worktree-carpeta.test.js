@@ -26,6 +26,7 @@ function folder({ deps = true, composition = {} } = {}) {
       '.gitignore': '.tmp/\nnode_modules\n.env\napp-entorno.txt\ngraphify-out/\n',
       'src/a.ts': 'a\n',
       'app.js': APP,
+      'package.json': JSON.stringify({ name, scripts: { 'start:dev': 'node app.js' } }),
     });
     const bare = path.join(remotes, `${name}.git`);
     h.git(remotes, 'clone', '-q', '--bare', seed, bare);
@@ -89,6 +90,14 @@ test('la app del worktree arranca con los puertos en el entorno del proceso, que
   const root = folder();
   const wt = h.nativeWorktree(root, 'app');
   start(wt);
+  const viaNpm = path.join(wt, 'api', 'app-entorno.txt');
+  const m = JSON.parse(fs.readFileSync(path.join(wt, 'api', '.claude', 'harness.json'), 'utf8'));
+  delete m.workspaces[0].commands.app;
+  fs.writeFileSync(path.join(wt, 'api', '.claude', 'harness.json'), JSON.stringify(m));
+  const n = h.run('build.js', ['app', '--ws', 'api'], { cwd: wt });
+  assert.match(n.stdout, /api: la levanté desde .*\/api con npm run start:dev, con PORT=3013 en su entorno/, 'sin commands.app, el start:dev del package.json');
+  for (let i = 0; i < 150 && !fs.existsSync(viaNpm); i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.match(fs.readFileSync(viaNpm, 'utf8'), /^PORT=3013 /, 'npm, que corre con shell, también arranca y ve el puerto');
   const out = path.join(wt, 'web', 'app-entorno.txt');
   const r = h.run('build.js', ['app', '--ws', 'web'], { cwd: wt });
   assert.equal(r.status, 0, r.stdout + r.stderr);

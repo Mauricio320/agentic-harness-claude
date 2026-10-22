@@ -277,6 +277,11 @@ function portEnv(project, ws) {
   return env;
 }
 
+// Un node separado del padre corre el comando con shell, sin separarlo, y le pasa su salida. En
+// Windows, un cmd.exe lanzado separado y sin consola se cuelga antes de correr nada (se vio con
+// npm run start:dev); un node separado no, y el shell que lanza hereda su salida.
+const LAUNCH = "const c = require('child_process').spawn(process.argv[1], { shell: true, stdio: 'inherit', windowsHide: true }); c.on('exit', (code) => process.exit(code == null ? 1 : code)); c.on('error', (e) => { console.error(e.message); process.exit(1); });";
+
 function app(project, wsName, dry) {
   const [ws] = selectWorkspaces(project, [wsName]);
   const cmd = appCommand(ws);
@@ -294,7 +299,7 @@ function app(project, wsName, dry) {
   }
   fs.mkdirSync(dir, { recursive: true });
   const fd = fs.openSync(log, 'w');
-  const child = spawn(cmd, { cwd: ws.dir, shell: true, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
+  const child = spawn(process.execPath, ['-e', LAUNCH, cmd], { cwd: ws.dir, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
   child.unref();
   fs.closeSync(fd);
   fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
