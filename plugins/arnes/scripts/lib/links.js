@@ -55,4 +55,36 @@ function unlink(p) {
   return `no se pudo quitar el enlace ${p}: ${last.message}`;
 }
 
-module.exports = { link, unlink, isLink };
+// Los enlaces que hay dentro de dir, hasta depth niveles, sin entrar en ellos ni en .git. Antes de un
+// git worktree remove --force tiene que dar vacío: git para Windows sigue las junctions al borrar
+// (probado con 2.53, docs/PLAN.md §7) y se llevaría lo que hay detrás.
+function linksUnder(dir, depth = 3) {
+  let names = [];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names.flatMap((n) => {
+    const p = require('path').join(dir, n);
+    if (isLink(p)) return [p];
+    let isDir = false;
+    try {
+      isDir = fs.lstatSync(p).isDirectory();
+    } catch {
+      /* desapareció */
+    }
+    return depth > 1 && n !== '.git' && isDir ? linksUnder(p, depth - 1) : [];
+  });
+}
+
+// La ruta real de p, sin enlaces: git devuelve la real, y el cwd puede traer la de un enlace.
+function real(p) {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return require('path').resolve(p);
+  }
+}
+
+module.exports = { link, unlink, isLink, linksUnder, real };

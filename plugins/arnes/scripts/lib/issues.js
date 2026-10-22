@@ -67,11 +67,15 @@ function nativeOf(project) {
   if (!w) return {};
   let repos = [];
   try {
-    repos = JSON.parse(fs.readFileSync(path.join(project.root, '.tmp', 'harness', 'materializado.json'), 'utf8')).repos.filter((r) => r.status === 'vivo').map((r) => ({ repo: r.main, branch: r.branch }));
+    repos = JSON.parse(fs.readFileSync(path.join(project.root, '.tmp', 'harness', 'materializado.json'), 'utf8')).repos.filter((r) => r.status !== 'quitado');
   } catch {
     /* un repo solo */
   }
-  return { worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch }, branches: project.kind === 'folder' ? repos : [{ repo: posix(w.main), branch: w.branch }] };
+  return {
+    worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch },
+    branches: project.kind === 'folder' ? repos.map((r) => ({ repo: r.main, branch: r.branch })) : [{ repo: posix(w.main), branch: w.branch }],
+    nested: repos.map((r) => ({ repo: r.main, path: r.path, branch: r.branch })),
+  };
 }
 
 // Agrega lo que se creó para el issue de la corrida (o el de slug). Nunca falla hacia afuera: el
@@ -81,7 +85,7 @@ function record(project, add = {}, slug = null, now = new Date()) {
     const cur = slug ? { slug, title: slug } : current(project);
     if (!cur) return null;
     const old = readIssue(project, cur.slug) || { version: 1, slug: cur.slug, title: cur.title, createdAt: now.toISOString(), state: null, states: [], branches: [], worktree: null, sets: [], files: [], mr: [] };
-    const native = old.worktree ? {} : nativeOf(project);
+    const native = old.worktree && project.kind !== 'folder' ? {} : nativeOf(project);
     const next = {
       ...old,
       title: old.title || cur.title,
@@ -91,6 +95,7 @@ function record(project, add = {}, slug = null, now = new Date()) {
       files: union(old.files, (add.files || []).map(posix), key),
       mr: union(old.mr, add.mr, (m) => `${m.repo}|${m.ref}`),
       worktree: add.worktree || old.worktree || native.worktree || null,
+      nested: union(old.nested, native.nested, (n) => key(n.path)),
     };
     fs.mkdirSync(issuesDir(project), { recursive: true });
     fs.writeFileSync(fileOf(project, cur.slug), JSON.stringify(next, null, 2) + '\n');

@@ -132,9 +132,20 @@ function pendingEntries(project, entries, { target } = {}) {
 // Los worktrees nativos de Claude Code de los repos del proyecto con trabajo sin subir (§7): commits
 // que no están en ningún remoto ni en la rama por defecto local, o cambios sin commitear sin contar
 // los enlaces del arnés. → [{ path, name, branch, unpushed, dirty, created, last }]
+// En una carpeta, los worktrees de cada repo que trajo el worktree nativo de la carpeta viven en
+// <repo>/.claude/worktrees/<nombre>: se dicen con su repo, y como de un issue cerrado si ya no existe el
+// worktree de carpeta con ese nombre (Claude Code lo borró y quitó solo el enlace). Los de la propia
+// sesión no se listan.
 function nativePending(project, now = new Date()) {
   const roots = [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.gitRoot))];
-  return roots.flatMap((r) => nativeWork(r, (project.workspaces.find((x) => x.gitRoot === r) || {}).defaultBranch, now));
+  const own = nativeRoot(project);
+  const folder = project.kind === 'folder' ? (own ? own.main : project.root) : null;
+  return roots.flatMap((r) => {
+    const ws = project.workspaces.find((x) => x.gitRoot === r) || {};
+    return nativeWork(r, ws.defaultBranch, now)
+      .filter((n) => !(own && project.kind === 'folder' && n.name === own.name))
+      .map((n) => (folder ? { ...n, repo: ws.name, orphan: !fs.existsSync(path.join(folder, '.claude', 'worktrees', n.name)) } : n));
+  });
 }
 
 // Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.
@@ -167,7 +178,9 @@ function nativeWork(dir, defaultBranch, now = new Date()) {
 function describeNative(p, now = new Date()) {
   const what = [p.unpushed && `${p.unpushed} commit(s) sin subir`, p.dirty && `${p.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
   const days = Math.floor((now - p.created) / DAY_MS);
-  return `worktree ${p.name} (rama ${p.branch || 'sin rama'}) · ${what} · creado ${days ? `hace ${days} día(s)` : 'hoy'}; nunca se borra solo`;
+  const when = `creado ${days ? `hace ${days} día(s)` : 'hoy'}`;
+  if (p.repo) return `worktree ${p.name} de ${p.repo}${p.orphan ? ', de un issue cerrado' : ''}, con ${what} (rama ${p.branch || 'sin rama'}) · ${when}; nunca se borra solo${p.orphan ? ': /arnes:limpiar lo ofrece' : ''}`;
+  return `worktree ${p.name} (rama ${p.branch || 'sin rama'}) · ${what} · ${when}; nunca se borra solo`;
 }
 
 // Destino registrado de una rama o de una carpeta de worktree abierta, o null si no está en el registro.
@@ -183,8 +196,11 @@ function targetOf(dir, { branch, wtPath } = {}) {
 // worktree nativo, los node_modules que enlazó SessionStart (equipNative), que no van al registro; en
 // un repo materializado dentro del worktree nativo de una carpeta, los que anotó worktree-carpeta.js.
 function liveLinks(wtPath) {
-  const nested = require('./worktree-carpeta.js').nestedLinks(wtPath);
+  const carpeta = require('./worktree-carpeta.js');
+  const nested = carpeta.nestedLinks(wtPath);
   if (nested) return nested.filter(isLink);
+  const folder = carpeta.folderWorktree(wtPath);
+  if (folder) return carpeta.folderLinks(carpeta.readState(folder.project)).map(posix);
   if (nativeWorktree(wtPath)) {
     const p = loadProject(wtPath);
     const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];

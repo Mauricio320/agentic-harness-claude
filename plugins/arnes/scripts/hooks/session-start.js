@@ -116,7 +116,7 @@ function nativeLines(cwd, now) {
   if (!list.length) return [];
   const shown = list.slice(0, WORKTREES).map((n) => `- ${ledger.describeNative(n, now)}`);
   if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
-  return [`Worktrees de Claude Code con trabajo sin subir (${list.length}): se entregan con /arnes:ship desde su sesión, o se borran a mano si no sirven.`, ...shown];
+  return [`Worktrees con trabajo sin subir o sin commitear (${list.length}): nunca se borran solos. Se entregan con /arnes:ship desde su sesión, y los que quedaron sin su carpeta los ofrece /arnes:limpiar.`, ...shown];
 }
 
 // Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.

@@ -2,7 +2,7 @@
 // Lo que el arnés creó para cada issue y su limpieza (docs/PLAN.md §7), sobre el registro de
 // lib/issues.js en <checkout principal>/.tmp/harness/issues/<slug>.json.
 //   list [--json]   los issues registrados, con su estado y lo que sigue en disco, con su tamaño
-//   clean <slug>|--actual [--write]
+//   clean <slug>|--actual [--write] [--con-cambios]
 //                   lo registrado para el issue: los worktrees del set y sus ramas wt/, el worktree
 //                   nativo, la rama del issue y los archivos (plan, informes, fotos de typecheck,
 //                   reportes de review, salida de la app), con su tamaño, y qué se borra o por qué se
@@ -11,7 +11,10 @@
 //                   commits sin integrar; las ramas wt/ solo si están integradas; el worktree nativo
 //                   después de quitar sus enlaces y los repos que trajo, y nunca el de la sesión en
 //                   curso, que se borra saliendo de él; y los archivos. La rama del issue se queda
-//                   hasta que su MR esté mergeado. Nada que no esté en el registro se toca
+//                   hasta que su MR esté mergeado. Nada que no esté en el registro se toca. En una
+//                   carpeta, el worktree de cada repo vive fuera de la del worktree de carpeta: si tiene
+//                   cambios sin commitear se queda, aunque la carpeta se borre, salvo con --con-cambios;
+//                   los que quedaron sin su carpeta se listan aparte, con lo que tienen
 //   unknown         lo que hay en .tmp y en las carpetas de worktrees que ningún registro conoce: solo
 //                   lo nombra, para que decida la persona
 //   state <slug>|--actual <estado> [--mr <número o url>] [--repo <ruta>]
@@ -35,7 +38,7 @@ const { parseArgs } = require('util');
 const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
-const { unlink, isLink } = require('./lib/links.js');
+const { unlink, isLink, linksUnder } = require('./lib/links.js');
 const { nativeWorktree, list: worktreeList, key, inside } = require('./lib/worktree-nativo.js');
 const I = require('./lib/issues.js');
 
@@ -54,8 +57,9 @@ const exists = (p) => {
 // ¿La sesión está dentro de esa carpeta? Entonces no se borra desde aquí: se sale con ExitWorktree.
 const here = (p) => key(process.cwd()) === key(p) || inside(process.cwd(), p);
 
-// Lo que se haría con cada cosa registrada. → [{ what, label, size, action, why, run }]
-function plan(project, r) {
+// Lo que se haría con cada cosa registrada. Con conCambios, también lo que tiene cambios sin commitear
+// en el worktree de un repo traído a una carpeta. → [{ what, label, size, action, why, run }]
+function plan(project, r, conCambios = false) {
   const main = loadProject(I.mainRoot(project)) || project;
   const items = [];
   for (const s of r.sets || []) {
@@ -79,10 +83,22 @@ function plan(project, r) {
   if (w && exists(w.path)) {
     const size = I.sizeOf(w.path);
     const nested = (carpeta().readState(loadProject(w.path) || { root: w.path }).repos || []).filter((x) => x.status === 'vivo' && exists(x.path));
-    const dirty = [w.path, ...nested.map((x) => x.path)].flatMap((d) => ledger().dirtyIn(d, ledger().liveLinks(d)).map((f) => `${path.basename(d)}/${f}`));
+    const own = ledger().dirtyIn(w.path, ledger().liveLinks(w.path));
+    const kept = nested.map((x) => [x, ledger().dirtyIn(x.path, ledger().liveLinks(x.path))]).filter(([, d]) => d.length);
+    const keeps = kept.length && !conCambios ? `; el worktree de ${kept.map(([x, d]) => `${path.basename(x.repo)} (${d.length} archivo(s) sin commitear)`).join(' y ')} se queda con sus cambios` : kept.length ? `, con los cambios sin commitear de ${kept.map(([x]) => path.basename(x.repo)).join(' y ')}` : '';
     if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, size, action: 'se borra saliendo de él', exit: true });
-    else if (dirty.length) items.push({ what: 'carpeta', label: posix(w.path), size, why: `tiene cambios sin commitear (${dirty.slice(0, 3).join(', ')})` });
-    else items.push({ what: 'carpeta', label: posix(w.path), size, action: 'se borra', run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch)) });
+    else if (own.length) items.push({ what: 'carpeta', label: posix(w.path), size, why: `tiene cambios sin commitear (${own.slice(0, 3).join(', ')})` });
+    else items.push({ what: 'carpeta', label: posix(w.path), size, action: `se borra${keeps}`, run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
+  }
+  // Los worktrees de repo que quedaron sin su carpeta: Claude Code borró el worktree de carpeta y
+  // quitó solo los enlaces. Con cambios sin commitear se quedan, salvo con conCambios.
+  for (const n of r.nested || []) {
+    if ((w && exists(w.path)) || !exists(n.path) || !worktreeList(n.repo).some((x) => key(x.path) === key(n.path))) continue;
+    const dirty = ledger().dirtyIn(n.path, linksUnder(n.path));
+    const label = `${posix(n.path)} (el worktree de ${path.basename(n.repo)}, rama ${n.branch})`;
+    const size = I.sizeOf(n.path);
+    if (dirty.length && !conCambios) items.push({ what: 'carpeta', label, size, why: `tiene ${dirty.length} archivo(s) sin commitear (${dirty.slice(0, 3).join(', ')}); se borra solo si dices que esos cambios se pierden`, dirty: true });
+    else items.push({ what: 'carpeta', label, size, action: dirty.length ? `se borra con sus ${dirty.length} archivo(s) sin commitear` : 'se borra; la rama queda', run: () => removeLoose(n, dirty.length > 0) });
   }
   for (const b of r.branches || []) {
     if (refExists(b.repo, `refs/heads/${b.branch}`)) items.push({ what: 'rama', label: `${b.branch} en ${path.basename(b.repo)}`, size: 0, why: 'es la rama del issue: se borra al cerrar, cuando su MR esté mergeado' });
@@ -113,8 +129,8 @@ function linksIn(dir, depth = 3) {
 // Un worktree nativo que no es el de esta sesión: primero los repos que trajo y los enlaces, sin
 // seguirlos; si queda un enlace que nadie registró, no se borra. Después git worktree remove desde su
 // checkout principal y, si su rama no es la del issue y no tiene commits propios, la rama.
-function removeNative(w, isIssueBranch) {
-  const r = carpeta().dematerialize(w.path);
+function removeNative(w, isIssueBranch, conCambios = false) {
+  const r = carpeta().dematerialize(w.path, { keep: !conCambios, force: conCambios });
   if (r.refused.length) return { status: 1, stderr: r.refused.join('; ') };
   for (const l of ledger().liveLinks(w.path)) {
     const why = unlink(l);
@@ -138,10 +154,16 @@ function show(items) {
   console.log(`se liberan ${I.human(total)}`);
 }
 
-function clean(project, slug, write) {
+// El worktree de un repo que quedó sin su carpeta: sus enlaces primero, y nunca --force sin el sí.
+function removeLoose(n, withChanges) {
+  const why = carpeta().removeLoose(n, withChanges);
+  return why ? { status: 1, stderr: why } : { status: 0 };
+}
+
+function clean(project, slug, write, conCambios = false) {
   const r = I.readIssue(project, slug);
   if (!r) die(`issues: no hay registro del issue ${slug}`);
-  const items = plan(project, r);
+  const items = plan(project, r, conCambios);
   console.log(`${slug} · ${r.state || 'sin estado'}`);
   if (!items.length) {
     console.log('no queda nada registrado en disco');
@@ -177,7 +199,7 @@ function clean(project, slug, write) {
 function unknown(project) {
   const root = I.mainRoot(project);
   const all = I.list(project);
-  const known = new Set(all.flatMap((r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : [])]).map(key));
+  const known = new Set(all.flatMap((r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : []), ...(r.nested || []).map((n) => n.path)]).map(key));
   const main = loadProject(root) || project;
   for (const e of ledger().readLedger(main)) if (e.status === 'abierto') known.add(key(e.path));
   const out = [];
@@ -279,13 +301,13 @@ module.exports = { plan, clean, close, unknown };
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, mr: { type: 'string' }, repo: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, mr: { type: 'string' }, repo: { type: 'string' }, 'con-cambios': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`issues: ${e.message}`);
   }
   const o = args.values;
   if (o.help) help(__filename);
-  const usage = 'uso: issues.js list [--json] | clean <slug>|--actual [--write] | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
+  const usage = 'uso: issues.js list [--json] | clean <slug>|--actual [--write] [--con-cambios] | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
   const [mode, ...pos] = args.positionals;
   const project = requireProject();
   if (mode === 'state') {
@@ -320,7 +342,8 @@ function main() {
   }
   const slug = arg || (I.current(project) || {}).slug;
   if (!slug) die('issues: no hay plan en la corrida; nombra el issue');
-  process.exit(clean(project, slug, o.write));
+  if (o['con-cambios'] && mode !== 'clean') die(usage);
+  process.exit(clean(project, slug, o.write, o['con-cambios']));
 }
 
 if (require.main === module) main();

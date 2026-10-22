@@ -7,7 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { isLink } = require('../scripts/lib/links.js');
+const { isLink, unlink, linksUnder } = require('../scripts/lib/links.js');
 const { loadProject } = require('../scripts/lib/manifest.js');
 const tl = require('../scripts/lib/timeline.js');
 const h = require('./helpers.js');
@@ -63,7 +63,10 @@ test('al arrancar en el worktree de la carpeta trae cada repo en la rama del iss
   assert.match(ctx, /^- esta sesión trabaja en el worktree talleres, en su propia copia de los repos; el checkout principal no se toca$/m);
   for (const name of ['api', 'web']) {
     const dir = path.join(wt, name);
-    assert.match(ctx, new RegExp(`^- ${name}: lo traje a este worktree en la rama feature/talleres, desde origin/main al día`, 'm'));
+    assert.match(ctx, new RegExp(`^- ${name}: lo traje a este worktree, en la rama feature/talleres, desde origin/main al día \\(\\w+\\); vive en ${name}/\\.claude/worktrees/talleres, y aquí lo ve un enlace$`, 'm'));
+    assert.ok(isLink(dir), `${name}: dentro de la carpeta es un enlace`);
+    assert.equal(fs.realpathSync.native(dir), fs.realpathSync.native(path.join(root, name, '.claude', 'worktrees', 'talleres')), `${name}: el worktree vive en su repo`);
+    assert.equal(h.git(path.join(root, name), 'status', '--porcelain'), '', `${name}: el checkout principal no ve sus worktrees como cambios`);
     assert.equal(h.git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/talleres');
     assert.equal(head(dir), head(path.join(root, name), 'origin/main'), 'nace de origin/main, no del main local que va atrás');
     assert.notEqual(head(dir), head(path.join(root, name), 'main'));
@@ -177,14 +180,106 @@ test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nad
   assert.ok(fs.existsSync(path.join(root, 'api', 'node_modules', 'paquete', 'centinela.js')));
 });
 
-test('SessionStart limpia el registro de los repos traídos a un worktree que se borró sin pasar por ExitWorktree', () => {
+// Lo que hace Claude Code al borrar un worktree, desde la 2.1.205: quita los enlaces que hay adentro, sin
+// seguirlos, y después el worktree. git solo no sirve para simularlo: en Windows sigue las junctions.
+function asClaudeCode(main, wt) {
+  for (const l of linksUnder(wt, 8)) unlink(l);
+  h.git(main, 'worktree', 'remove', '--force', wt);
+}
+
+test('si Claude Code borra el worktree de carpeta por su cuenta, el worktree de cada repo sobrevive con sus cambios, SessionStart lo avisa y limpiar lo ofrece', () => {
+  const root = folder();
+  const wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Talleres\n');
+  assert.equal(h.run('informe.js', ['path', 'build'], { cwd: wt }).status, 0, 'cualquier anotación deja el registro del issue');
+  h.write(wt, 'api/src/a.ts', 'a medias\n');
+  asClaudeCode(root, wt);
+  const apiWt = path.join(root, 'api', '.claude', 'worktrees', 'talleres');
+  const webWt = path.join(root, 'web', '.claude', 'worktrees', 'talleres');
+  assert.ok(!fs.existsSync(wt), 'la carpeta se fue');
+  assert.equal(fs.readFileSync(path.join(apiWt, 'src', 'a.ts'), 'utf8'), 'a medias\n', 'el cambio sin commitear sigue en el worktree de api');
+  assert.ok(fs.existsSync(webWt));
+  for (const name of ['api', 'web']) assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue`);
+  const ctx = start(root);
+  assert.match(ctx, /^- worktree talleres de api, de un issue cerrado, con 1 archivo\(s\) sin commitear \(rama feature\/talleres\) · creado hoy; nunca se borra solo: \/arnes:limpiar lo ofrece$/m);
+  assert.doesNotMatch(ctx, /worktree talleres de web/, 'el de web no tiene nada sin subir ni sin commitear');
+  assert.match(h.run('worktree-ledger.js', ['pending'], { cwd: root }).stdout, /worktree talleres de api, de un issue cerrado, con 1 archivo\(s\) sin commitear/);
+  let r = h.run('issues.js', ['clean', 'talleres'], { cwd: root });
+  assert.match(r.stdout, /^- carpeta .*\/api\/\.claude\/worktrees\/talleres \(el worktree de api, rama feature\/talleres\) · .* · se queda: tiene 1 archivo\(s\) sin commitear \(src\/a\.ts\); se borra solo si dices que esos cambios se pierden$/m);
+  assert.match(r.stdout, /^- carpeta .*\/web\/\.claude\/worktrees\/talleres \(el worktree de web, rama feature\/talleres\) · .* · se borra; la rama queda$/m);
+  r = h.run('issues.js', ['clean', 'talleres', '--write'], { cwd: root });
+  assert.ok(!fs.existsSync(webWt) && fs.existsSync(apiWt), 'sin el sí a perder cambios, solo el limpio');
+  r = h.run('issues.js', ['clean', 'talleres', '--write', '--con-cambios'], { cwd: root });
+  assert.match(r.stdout, /borrado carpeta .*\/api\/\.claude\/worktrees\/talleres/, r.stdout + r.stderr);
+  assert.ok(!fs.existsSync(apiWt));
+  assert.doesNotMatch(worktrees(path.join(root, 'api')), /talleres/);
+  for (const name of ['api', 'web']) {
+    assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue después de limpiar`);
+    assert.match(h.git(path.join(root, name), 'branch', '--list', 'feature/talleres'), /feature\/talleres/, `${name}: la rama queda`);
+  }
+});
+
+test('un worktree de carpeta con el mismo nombre retoma el worktree del repo que sobrevivió, con sus cambios', () => {
+  const root = folder({ deps: false });
+  let wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  h.write(wt, 'api/src/a.ts', 'a medias\n');
+  asClaudeCode(root, wt);
+  h.git(root, 'branch', '-D', 'worktree-talleres');
+  wt = h.nativeWorktree(root, 'talleres');
+  const ctx = start(wt);
+  assert.match(ctx, /^- api: lo traje a este worktree, retomé su worktree, que seguía en .*\/api\/\.claude\/worktrees\/talleres con 1 archivo\(s\) sin commitear;/m);
+  assert.equal(fs.readFileSync(path.join(wt, 'api', 'src', 'a.ts'), 'utf8'), 'a medias\n');
+});
+
+test('el guard niega un git worktree remove del worktree de carpeta mientras tenga los enlaces de los repos: git los seguiría', () => {
+  const root = folder();
+  const wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove --force ${wt}` }, cwd: root }) });
+  assert.match(g.stdout, /enlace/);
+  assert.match(g.stdout, /api/);
+});
+
+test('SessionStart limpia el registro de un worktree de repo que desapareció del disco; la rama queda', () => {
   const root = folder({ deps: false });
   const wt = h.nativeWorktree(root, 'viejo');
   start(wt);
-  h.git(root, 'worktree', 'remove', '--force', wt);
-  assert.match(worktrees(path.join(root, 'api')), /prunable/);
+  const webWt = path.join(root, 'web', '.claude', 'worktrees', 'viejo');
+  for (const l of linksUnder(webWt)) unlink(l);
+  fs.rmSync(webWt, { recursive: true, force: true });
+  assert.match(worktrees(path.join(root, 'web')), /prunable/);
   const ctx = start(root);
-  assert.match(ctx, /^- api: limpié el registro de 1 worktree\(s\) que ya no existían en disco; sus ramas siguen en el repo$/m);
-  assert.doesNotMatch(worktrees(path.join(root, 'api')), /viejo/);
-  assert.ok(h.git(path.join(root, 'api'), 'branch', '--list', 'feature/viejo'));
+  assert.match(ctx, /^- web: limpié el registro de 1 worktree\(s\) que ya no existían en disco; sus ramas siguen en el repo$/m);
+  assert.doesNotMatch(worktrees(path.join(root, 'web')), /viejo/);
+  assert.ok(h.git(path.join(root, 'web'), 'branch', '--list', 'feature/viejo'));
+});
+
+test('verify, review, ship y plan-guard funcionan a través del enlace, y también por la ruta real del repo', () => {
+  const root = folder();
+  const wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Talleres\n\n## Workspaces y orden\n1. api\n');
+  for (const [event, stage, result] of [['start', 'plan'], ['end', 'plan', 'ok'], ['note', 'turno', 'respuesta'], ['note', 'plan', 'aprobado']]) tl.append(wt, { event, stage, result });
+  const realApi = path.join(root, 'api', '.claude', 'worktrees', 'talleres');
+  const viaReal = loadProject(path.join(realApi, 'src'));
+  assert.equal(viaReal.root, wt, 'por la ruta real, el proyecto es el del worktree de carpeta');
+  const edit = (file) => h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: file }, cwd: wt });
+  assert.equal(edit(path.join(realApi, 'src', 'a.ts')).out, null, 'por la ruta real, el plan aprobado del worktree vale');
+  assert.equal(edit(path.join(wt, 'api', 'src', 'a.ts')).out, null, 'y por el enlace');
+  h.write(wt, 'api/src/a.ts', 'cambio\n');
+  const env = h.withPath(h.fakeBin(h.tmp('bin-tsc-enlace'), 'tsc', h.FAKE_TSC));
+  const gate = h.run('ci-gate.js', ['--ws', 'api', '--base', 'HEAD'], { cwd: wt, env });
+  assert.equal(gate.status, 0, gate.stdout + gate.stderr);
+  assert.equal(h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: wt }).status, 0);
+  assert.equal(h.run('gate-flag.js', ['check', 'api'], { cwd: realApi }).status, 0, 'la bandera vale desde la ruta real');
+  const guard = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: 'git commit -m x' }, cwd: realApi }) });
+  assert.equal(guard.stdout, '', 'el guard deja commitear por la ruta real con la bandera vigente');
+  assert.equal(h.run('review.js', ['input'], { cwd: wt }).status, 0);
+  h.write(wt, '.tmp/harness/review/report.md', 'Sin hallazgos.\n\nBLOQUEANTES: 0\n');
+  assert.equal(h.run('review.js', ['mark', '--blockers', '0'], { cwd: wt }).status, 0);
+  const c = h.run('ship.js', ['check'], { cwd: wt });
+  assert.equal(c.status, 0, c.stdout);
+  assert.match(c.stdout, /^- api \(.*\) · rama feature\/talleres · 1 tocado\(s\)/m);
 });
