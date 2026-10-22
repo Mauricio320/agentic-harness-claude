@@ -122,6 +122,7 @@ function removeNative(w, isIssueBranch) {
   }
   const left = linksIn(w.path);
   if (left.length) return { status: 1, stderr: `hay un enlace en ${posix(left[0])} que no registró el arnés; no borro la carpeta` };
+  require('./lib/timeline.js').bringBack(w.path, w.main);
   fs.rmSync(path.join(w.path, '.tmp', 'harness'), { recursive: true, force: true });
   const rm = git(w.main, ['worktree', 'remove', '--force', w.path]);
   if (rm.status === 0 && w.branch && !isIssueBranch && refExists(w.main, `refs/heads/${w.branch}`)) {

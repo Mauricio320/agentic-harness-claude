@@ -260,7 +260,8 @@ function noteGraph(cmd, dir) {
   if (cmd.exe !== 'graphify' || !GRAPH_QUERIES.has(cmd.args[0])) return;
   try {
     const project = projectAt(dir);
-    if (project) append(project.root, { event: 'note', stage: 'grafo', result: 'consulta', detail: [cmd.args[0], ...cmd.args.slice(1)].join(' ').slice(0, 160) });
+    const words = cmd.args.filter((a) => !/^\d?>>?(&\d)?$|^[<>|&]|^\d?>&/.test(a));
+    if (project) append(project.root, { event: 'note', stage: 'grafo', result: 'consulta', detail: words.join(' ').slice(0, 160) });
   } catch {
     /* la medición no frena el guard */
   }

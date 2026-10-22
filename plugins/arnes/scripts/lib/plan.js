@@ -27,12 +27,17 @@ const mentionAt = (text, name) => {
   return m ? m.index : Infinity;
 };
 
-// El nombre corto del título del plan: sin tildes, en kebab-case, hasta cinco palabras. Es el de la
-// rama del issue y el del worktree que plan abre al aprobar.
+// Las palabras que no dicen nada en un nombre corto: "centros de costo en las líneas" es
+// centros-costo-lineas, no centros-de-costo-en-las.
+const EMPTY = new Set(['a', 'al', 'con', 'de', 'del', 'el', 'en', 'la', 'las', 'lo', 'los', 'mas', 'o', 'para', 'por', 'que', 'se', 'sin', 'su', 'sus', 'un', 'una', 'unas', 'unos', 'y']);
+
+// El nombre corto del título del plan: sin tildes, en kebab-case, hasta cuatro palabras que digan
+// algo. Es el de la rama del issue y el del worktree que plan abre al aprobar.
 function slugOf(plan) {
   const title = ((plan.match(/^#\s*(?:Plan:\s*)?(.+)$/m) || [])[1] || 'issue').trim();
   const words = title.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
-  return words.slice(0, 5).join('-').slice(0, 40).replace(/-+$/, '') || 'issue';
+  const meaningful = words.filter((w) => !EMPTY.has(w));
+  return (meaningful.length ? meaningful : words).slice(0, 4).join('-').slice(0, 40).replace(/-+$/, '') || 'issue';
 }
 
 // El cuerpo de la sección "## <título>" cuyo título empieza como `re`, o '' si no está.

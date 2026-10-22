@@ -21,7 +21,7 @@ test('el guard anota cada graphify query, explain o path, sin juzgarlo; lo demá
   const dir = repo();
   assert.equal(guard(dir, 'graphify query "dónde se crean los talleres"').out, null, 'no niega nada');
   guard(dir, 'cd src && graphify explain Taller');
-  guard(dir, 'graphify path TallerController TallerRepository');
+  guard(dir, 'graphify path TallerController TallerRepository 2>&1');
   guard(dir, 'graphify update .');
   guard(dir, 'git status');
   const notes = tl.read(dir).filter((e) => e.stage === 'grafo');

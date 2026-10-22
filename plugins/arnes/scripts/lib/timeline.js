@@ -168,7 +168,19 @@ function format(entries) {
   return out;
 }
 
-module.exports = { FILE, PREP, append, read, format, planState, prepOpen, tasks };
+// Antes de borrar un worktree nativo, lo que su timeline anotó vuelve a la del checkout principal: la
+// corrida del issue (la lista de tareas, build, verify, review, ship) no se pierde con la carpeta.
+// Solo las entradas que el principal no tiene, en su orden. → cuántas volvieron
+function bringBack(fromRoot, toRoot) {
+  const have = new Set(read(toRoot).map((e) => JSON.stringify(e)));
+  const back = read(fromRoot).filter((e) => !have.has(JSON.stringify(e)));
+  if (!back.length) return 0;
+  fs.mkdirSync(path.join(toRoot, '.tmp', 'harness'), { recursive: true });
+  fs.appendFileSync(path.join(toRoot, '.tmp', 'harness', FILE), back.map((e) => `${JSON.stringify(e)}\n`).join(''));
+  return back.length;
+}
+
+module.exports = { FILE, PREP, append, read, format, planState, prepOpen, tasks, bringBack };
 
 function main() {
   let args;

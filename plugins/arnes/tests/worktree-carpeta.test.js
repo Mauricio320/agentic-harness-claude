@@ -158,8 +158,13 @@ test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nad
   const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove ${path.join(wt, 'api')}` }, cwd: path.join(root, 'api') }) });
   assert.match(g.stdout, /enlaces del arnés|enlace/, 'a mano, el guard niega borrar un repo traído con su enlace vivo');
   const commit = h.commitAll(path.join(wt, 'api'), 'feat: cambio');
+  tl.append(wt, { event: 'note', stage: 'plan', result: 'tareas', detail: 'Construir api · Verificar · Revisar · Entregar' });
+  tl.append(wt, { event: 'end', stage: 'ship', result: 'ok', detail: 'commit' });
   r = exit(wt);
   assert.equal(r.out, null, JSON.stringify(r.out));
+  assert.deepEqual(tl.read(root).slice(-2).map((e) => e.result), ['tareas', 'ok'], 'la timeline del worktree vuelve al principal antes de borrarlo');
+  assert.equal(exit(wt).out, null);
+  assert.equal(tl.read(root).filter((e) => e.result === 'tareas').length, 1, 'sin duplicar');
   for (const name of ['api', 'web']) {
     assert.ok(!fs.existsSync(path.join(wt, name)), `${name}: su worktree se fue`);
     assert.doesNotMatch(worktrees(path.join(root, name)), /talleres/);

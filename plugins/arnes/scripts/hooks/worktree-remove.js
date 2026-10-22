@@ -28,6 +28,7 @@ const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
+const { bringBack } = require('../lib/timeline.js');
 
 // Un worktree nativo de Claude Code: Claude Code lo borra quitando solo los enlaces (desde la 2.1.205),
 // así que el enlace de node_modules no es el riesgo; lo es el trabajo sin subir, que se perdería.
@@ -61,10 +62,17 @@ function judgeFolder(dir) {
   return `no borro este worktree: ${r.refused.join('; ')}, y se perderían. Commitéalos con /arnes:ship --solo-commit, o sal con action "keep".`;
 }
 
+// Un worktree nativo que se va a borrar devuelve su timeline al checkout principal.
+function keepTimeline(dir, why) {
+  const w = nativeWorktree(dir);
+  if (!why && w) bringBack(w.path, w.main);
+  return why;
+}
+
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
-  if (carpeta.folderWorktree(dir)) return judgeFolder(dir);
-  if (nativeWorktree(dir)) return judgeNative(dir);
+  if (carpeta.folderWorktree(dir)) return keepTimeline(dir, judgeFolder(dir));
+  if (nativeWorktree(dir)) return keepTimeline(dir, judgeNative(dir));
   const links = liveLinks(git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir);
   if (links.length) return `este worktree tiene enlaces del arnés (${links.join(', ')}) que borrarlo seguiría. Ciérralo con /arnes:worktree integrate o close, que los quita primero, o sal con action "keep".`;
   const name = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();

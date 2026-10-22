@@ -35,10 +35,12 @@ const ib = (root, ...args) => h.run('issue-branch.js', args, { cwd: root });
 const at = (root, ws, ...args) => h.git(path.join(root, ws), ...args);
 const branch = (root, ws) => at(root, ws, 'rev-parse', '--abbrev-ref', 'HEAD');
 const plan = (root) => fs.readFileSync(path.join(root, '.tmp', 'harness', 'plan.md'), 'utf8');
-const NAME = 'feature/crud-de-talleres-con-inscripcion';
+const NAME = 'feature/crud-talleres-inscripcion';
 
-test('el nombre sale del título del plan: sin tildes, en kebab-case, hasta cinco palabras', () => {
-  assert.equal(slugOf('# Plan: CRUD de Talleres con inscripción y más cosas\n'), 'crud-de-talleres-con-inscripcion');
+test('el nombre sale del título del plan: sin tildes, en kebab-case, hasta cuatro palabras que digan algo', () => {
+  assert.equal(slugOf('# Plan: CRUD de Talleres con inscripción y más cosas\n'), 'crud-talleres-inscripcion-cosas');
+  assert.equal(slugOf('# Plan: centros de costo en las líneas de asiento\n'), 'centros-costo-lineas-asiento');
+  assert.equal(slugOf('# Plan: de la\n'), 'de-la', 'si no queda ninguna, las que haya');
   assert.equal(slugOf('sin título'), 'issue');
 });
 
@@ -52,11 +54,11 @@ test('en main limpio: fetch, main adelantado a origin/main y la misma rama del i
     assert.equal(at(root, ws, 'rev-parse', 'main'), at(root, ws, 'rev-parse', 'origin/main'), 'main al día');
     assert.equal(at(root, ws, 'rev-parse', 'HEAD'), at(root, ws, 'rev-parse', 'origin/main'), 'la rama nace de main fresco');
   }
-  assert.match(r.stdout, /api: main adelantada 1 commit\(s\) hasta origin\/main\napi: crea feature\/crud-de-talleres-con-inscripcion desde main/);
-  assert.match(plan(root), /^# Plan: CRUD de Talleres con inscripción\nRama: feature\/crud-de-talleres-con-inscripcion, creada al aprobar el plan en api, front\n/);
+  assert.match(r.stdout, /api: main adelantada 1 commit\(s\) hasta origin\/main\napi: crea feature\/crud-talleres-inscripcion desde main/);
+  assert.match(plan(root), /^# Plan: CRUD de Talleres con inscripción\nRama: feature\/crud-talleres-inscripcion, creada al aprobar el plan en api, front\n/);
   const note = tl.read(root).find((e) => e.result === 'rama');
   assert.deepEqual([note.stage, note.detail], ['plan', `${NAME} en api, front`]);
-  assert.match(ib(root, 'create').stdout, /api: reutiliza feature\/crud-de-talleres-con-inscripcion \(ya es la actual\)/);
+  assert.match(ib(root, 'create').stdout, /api: reutiliza feature\/crud-talleres-inscripcion \(ya es la actual\)/);
 });
 
 test('en main con cambios sin commitear: crea la rama igual, con los cambios, pero no adelanta main', () => {
@@ -77,7 +79,7 @@ test('en otra rama: check hace la pregunta con recomendación y create no la mue
   at(root, 'api', 'switch', '-q', '-c', 'feature/x');
   let r = ib(root, 'check');
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /pregunta: Estás en feature\/x\. Recomiendo crear feature\/crud-de-talleres-con-inscripcion desde main actualizado para este issue; la alternativa es construirlo aquí mismo, en feature\/x, si este pedido es continuación de ese trabajo\./);
+  assert.match(r.stdout, /pregunta: Estás en feature\/x\. Recomiendo crear feature\/crud-talleres-inscripcion desde main actualizado para este issue; la alternativa es construirlo aquí mismo, en feature\/x, si este pedido es continuación de ese trabajo\./);
   r = ib(root, 'create');
   assert.equal(r.status, 1);
   assert.match(r.stdout, /api: está en feature\/x, no en main: no la muevo sin el sí de la persona/);
@@ -98,7 +100,7 @@ test('con el sí a la recomendación: desde otra rama limpia, rama nueva desde m
   assert.equal(branch(root, 'api'), NAME);
   assert.equal(at(root, 'api', 'rev-parse', 'HEAD'), at(root, 'api', 'rev-parse', 'origin/main'));
   assert.equal(at(root, 'api', 'rev-parse', 'main'), at(root, 'api', 'rev-parse', 'origin/main'), 'main local al día');
-  assert.match(r.stdout, /api: main local al día con origin\/main\napi: crea feature\/crud-de-talleres-con-inscripcion desde origin\/main/);
+  assert.match(r.stdout, /api: main local al día con origin\/main\napi: crea feature\/crud-talleres-inscripcion desde origin\/main/);
   assert.equal(at(root, 'api', 'rev-parse', 'feature/x'), at(root, 'api', 'rev-parse', 'main~1'), 'feature/x queda como estaba');
 });
 
