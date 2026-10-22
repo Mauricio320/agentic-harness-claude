@@ -110,6 +110,18 @@ test('el worktree nativo registrado se borra quitando antes sus enlaces; el de l
   assert.match(h.git(dir, 'branch', '--list', 'worktree-cobros'), /worktree-cobros/, 'la rama del issue se queda hasta el merge');
 });
 
+test('un plan trivial dentro de un worktree nativo deja registrado el worktree y su rama, sin pasar por la rama del issue', () => {
+  const dir = h.tmp('issues-trivial');
+  h.repo(dir, { '.gitignore': '.tmp/\nnode_modules\n.claude/worktrees/\n', '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', defaultBranch: 'main' })), 'src/a.ts': 'a\n' });
+  const wt = h.nativeWorktree(dir, 'salud');
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Salud\n');
+  assert.equal(h.run('informe.js', ['path', 'verify'], { cwd: wt }).status, 0);
+  const r = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'issues', 'salud.json'), 'utf8'));
+  assert.equal(r.worktree.name, 'salud');
+  assert.deepEqual(r.branches.map((b) => b.branch), ['worktree-salud']);
+  assert.match(issues(dir, 'clean', 'salud').stdout, /^- carpeta .*\/\.claude\/worktrees\/salud · .* · se borra$/m);
+});
+
 test('SessionStart avisa de los issues entregados hace más de siete días con algo en disco', () => {
   const dir = repo();
   const f = path.join(dir, '.tmp', 'harness', 'issues', 'cobros.json');
