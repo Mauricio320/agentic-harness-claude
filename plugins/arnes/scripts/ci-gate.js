@@ -148,6 +148,7 @@ function stepTypecheck(project, ws, base) {
   if (!cached) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, `${before.out}BASELINE: ${base.hash}\nTYPECHECK_EXIT: ${before.exit}\n`);
+    require('./lib/issues.js').record(project, { files: [file] });
   }
   const photo = `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
   const now = tb.runTypecheck(cmds, ws.dir);

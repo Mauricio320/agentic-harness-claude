@@ -10,7 +10,9 @@
 // los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa. En el de una
 // carpeta multi-repo, además trae adentro los repos (worktree-carpeta.js). Lo mismo hace después de
 // EnterWorktree, como PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta.
-// En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco.
+// En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco. Avisa de
+// los issues entregados hace más de 7 días que todavía tienen carpetas o archivos en disco
+// (lib/issues.js), y sugiere /arnes:limpiar.
 // Sesión concurrente: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
 // pid (CLAUDE_PID, el proceso de Claude Code) y fecha, y lo borra en SessionEnd. Un lock cuyo pid ya
 // no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha.
@@ -27,6 +29,7 @@ const { touched } = require('../touched-files.js');
 const ledger = require('../worktree-ledger.js');
 const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
+const issues = require('../lib/issues.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -114,6 +117,16 @@ function nativeLines(cwd, now) {
   const shown = list.slice(0, WORKTREES).map((n) => `- ${ledger.describeNative(n, now)}`);
   if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
   return [`Worktrees de Claude Code con trabajo sin subir (${list.length}): se entregan con /arnes:ship desde su sesión, o se borran a mano si no sirven.`, ...shown];
+}
+
+// Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.
+const STALE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+function leftovers(project, now) {
+  const live = (r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : []), ...(r.files || [])].filter((p) => fs.existsSync(p));
+  const old = issues.list(project).filter((r) => issues.DONE.includes(r.state) && r.shippedAt && now - new Date(r.shippedAt) > STALE_DAYS * DAY_MS && live(r).length);
+  if (!old.length) return [];
+  return [`Hay ${old.length} issue(s) entregado(s) hace más de ${STALE_DAYS} días con carpetas o archivos todavía en disco (${old.map((r) => r.slug).slice(0, 3).join(', ')}${old.length > 3 ? ', …' : ''}): la persona los revisa y borra lo que marque con /arnes:limpiar.`];
 }
 
 // ---------- lock de sesión ----------
@@ -213,7 +226,7 @@ function sessionStart(input, now = new Date()) {
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`] : [];
   const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
-  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
+  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
   const wsLines = project.workspaces.map((ws) => workspaceLine(project, ws));
   const shown = wsLines.length > room ? [...wsLines.slice(0, room - 1), `- … y ${wsLines.length - room + 1} workspace(s) más`] : wsLines;

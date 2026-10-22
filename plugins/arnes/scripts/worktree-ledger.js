@@ -314,6 +314,7 @@ function open(project, slug, { ws: names, issue, 'no-link': noLink, 'port-offset
     entries.push(e);
     writeLedger(project, entries);
     out.push(`abierto ${e.ws}: ${e.path} en ${e.branch} (desde ${e.target})`);
+    require('./lib/issues.js').record(project, { sets: [{ ws: e.ws, path: e.path, branch: e.branch }] });
     equip(project, entries, e, noLink, (m) => out.push(`  ${m}`));
   }
   const set = entries.filter((e) => e.status === 'abierto' && slugOf(e) === slug);

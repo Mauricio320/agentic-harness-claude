@@ -407,6 +407,7 @@ function mark(project, blockers, clean = false) {
   const [round, mode] = [inp.round || 1, inp.mode || 'completa'];
   fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces }, null, 2) + '\n');
   fs.renameSync(rep, roundReport(project, round));
+  require('./lib/issues.js').record(project, { files: [roundReport(project, round), path.join(reviewDir(project), 'input.md')] });
   console.log(`revisión marcada en ${reviewFile(project)}: ${blockers} bloqueante(s) · ronda ${round} de ${MAX_ROUNDS}, ${mode}`);
   if (blockers > 0 && round >= MAX_ROUNDS) console.log(`tope: la ronda ${round} terminó con bloqueantes después de dos rondas de corrección; no se corrige más, se reporta a la persona`);
 }

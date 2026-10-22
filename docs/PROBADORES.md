@@ -129,7 +129,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 
 ## 6. Comandos
 
-- **Solo los invocas tú:** `/arnes:plan --trivial <pedido>`, `/arnes:setup [--check] <url> [destino]`, `/arnes:init [--check]`, `/arnes:ship [--solo-commit] [<rama>]`, `/arnes:worktree open <slug> | integrate <slug> | close <slug> | list | pending` y `/arnes:sync`.
+- **Solo los invocas tú:** `/arnes:plan --trivial <pedido>`, `/arnes:setup [--check] <url> [destino]`, `/arnes:init [--check]`, `/arnes:ship [--solo-commit] [<rama>]`, `/arnes:worktree open <slug> | integrate <slug> | close <slug> | list | pending`, `/arnes:sync` y `/arnes:limpiar [<issue>]`, que borra lo que el arnés creó para los issues ya entregados.
 - **Los carga el modelo cuando corresponde:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`. No hace falta invocarlos: escribe tu pedido en lenguaje normal.
 - **Del mod:** `/arnes-panel` abre o cierra el panel.
 

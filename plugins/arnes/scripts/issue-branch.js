@@ -41,12 +41,13 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, loadProject } = require('./lib/manifest.js');
+const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists } = require('./lib/branches.js');
 const { append, read, planState } = require('./lib/timeline.js');
 const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
+const issues = require('./lib/issues.js');
 
 const branchOf = (ws) => git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
 
@@ -193,6 +194,11 @@ function enterNative(project, w) {
   });
   notePlan(project, `${here.join(', ')}: la del worktree nativo de Claude Code`);
   append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `worktree nativo ${w.name}: ${here.join(', ')}` });
+  issues.record(project, {
+    branches: workspaces(project, plan).map((ws) => ({ repo: posix(ws.gitRoot.replace(path.resolve(w.path), path.resolve(w.main))), branch: branchOf(ws) })),
+    worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch },
+    files: [planPath(project)],
+  });
   console.log(`rama: ${here.join(', ')}`);
   return failed ? 1 : 0;
 }
@@ -264,6 +270,7 @@ function create(project, wanted, fromOther) {
   if (done.length) {
     notePlan(project, `${name}, creada al aprobar el plan en ${done.join(', ')}`);
     append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `${name} en ${done.join(', ')}` });
+    issues.record(project, { branches: workspaces(project, plan).filter((ws) => done.includes(ws.name)).map((ws) => ({ repo: posix(ws.gitRoot), branch: name })), files: [planPath(project)] });
   }
   console.log(`rama: ${name}`);
   return failed ? 1 : 0;

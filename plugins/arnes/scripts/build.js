@@ -298,6 +298,7 @@ function app(project, wsName, dry) {
   child.unref();
   fs.closeSync(fd);
   fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
+  require('./lib/issues.js').record(project, { files: [log, path.join(dir, `${ws.name}.json`)] });
   console.log(`${ws.name}: la levanté desde ${posix(ws.dir)} con ${cmd}${vars ? `, con ${vars} en su entorno` : ''}; su salida va a ${posix(log)}. Para pararla, ciérrala tú (proceso ${child.pid}): el arnés no mata procesos`);
   return 0;
 }
