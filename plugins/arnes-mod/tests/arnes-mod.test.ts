@@ -96,6 +96,7 @@ test('lib: qué se pregunta, cómo se lee la respuesta y cuándo hay plan en cur
   expect(planOpen(`${line('start', 'plan')}\nbasura\n`)).toBe(true)
   expect(planOpen(`${line('start', 'plan')}\n${line('end', 'ship', { result: 'falla' })}`)).toBe(true)
   expect(planOpen(`${line('start', 'plan')}\n${line('end', 'ship', { result: 'ok' })}`)).toBe(false)
+  expect(planOpen(`${line('start', 'plan')}\n${line('note', 'plan', { result: 'movido', detail: 'al worktree cobros' })}`)).toBe(false)
 })
 
 test('una pregunta evidente pasa sin llamar a haiku; con un verbo de cambio, decide haiku', async ($, on) => {
