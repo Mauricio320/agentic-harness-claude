@@ -296,8 +296,9 @@ function runAndRead(ws, specs) {
   const out = parse(run.out);
   if (!out.summary) return { error: `${ws.name}: la salida no trae el resumen de jest. Últimas líneas:\n${tail(run.out, 10)}`, code: 3 };
   if (out.tests.length !== total(out.summary)) {
-    const flag = /\s--verbose\b/.test(cmd) ? '--reporters=default (un reporter propio de la config de jest se come el detalle)' : '--verbose';
-    return { error: `${ws.name}: el detalle por test (${out.tests.length}) no cuadra con el resumen (${total(out.summary)}); falta ${flag} en commands.test`, code: 3 };
+    const flag = /\s--verbose\b/.test(cmd) ? '--reporters=default' : '--verbose';
+    const why = flag === '--verbose' ? '' : ' (un reporter propio de la config de jest se come el detalle)';
+    return { error: `${ws.name}: el detalle por test (${out.tests.length}) no cuadra con el resumen (${total(out.summary)}); falta ${flag}${why} en commands.test`, code: 3, flag };
   }
   return { out, run };
 }
@@ -311,7 +312,7 @@ function probeTests(ws) {
   if (t.error) return t;
   if (!t.specs.length) return { skip: 'sin specs trackeados según specPattern' };
   const r = runAndRead(ws, [t.specs[0]]);
-  return r.error ? { error: r.error } : { ok: `${t.specs[0]}: ${r.out.tests.length} test(s) leídos con su detalle` };
+  return r.error ? { error: r.error, flag: r.flag } : { ok: `${t.specs[0]}: ${r.out.tests.length} test(s) leídos con su detalle` };
 }
 
 // La base sin imprimir nada: → { file, data, summary, failed, unknown } o { error, code }.

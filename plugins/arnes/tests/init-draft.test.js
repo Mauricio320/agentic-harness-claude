@@ -173,14 +173,14 @@ function wrongBranch() {
   return dir;
 }
 
-test('un repo sin manifiesto dice su rama, y si una rama remota lo trae, --write se niega sin --force', () => {
+test('un repo sin manifiesto dice su rama; si una rama remota lo trae, init lo pregunta con recomendación y --write espera la respuesta', () => {
   const dir = wrongBranch();
   const r = h.run('init-draft.js', [], { cwd: dir });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /sin manifiesto arnes-init-rama-\S+ en feature\/talleres-view, sin \.claude\/harness\.json; origin\/fix\/adopcion-arnes sí lo trae; cámbiate antes de seguir/);
+  assert.match(r.stderr, /^pregunta +arnes-init-rama-\S+ está en feature\/talleres-view, sin la configuración del arnés; origin\/fix\/adopcion-arnes sí la trae \(la escribió t el \d{4}-\d\d-\d\d\)\. Recomiendo cambiarte a fix\/adopcion-arnes: es la adopción del equipo, y así trabajas con la misma configuración que los demás\. La alternativa es adoptar desde cero aquí, con una configuración nueva en feature\/talleres-view\.$/m);
   const w = h.run('init-draft.js', ['--write'], { cwd: dir });
   assert.equal(w.status, 2);
-  assert.match(w.stderr, /no escribo los manifiestos: .* lo trae\(n\) en otra rama\. Haz git fetch, cámbiate a esa rama/);
+  assert.match(w.stderr, /no escribo los manifiestos: .* lo trae\(n\) en otra rama, y eso es una pregunta de la ronda de init/);
   assert.ok(!fs.existsSync(path.join(dir, '.claude', 'harness.json')));
   assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: dir }).status, 2, '--force va con la ruta de un manifiesto');
   assert.equal(h.run('init-draft.js', ['--write', '--force', '.claude/harness.json'], { cwd: dir }).status, 0);

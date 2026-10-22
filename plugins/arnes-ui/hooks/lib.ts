@@ -73,13 +73,16 @@ export const flagText = (r: GateRow, t: number) =>
 // `git status --porcelain=v2 --branch -- .` de un workspace: rama, HEAD y cambios, los de código
 // según codeGlobs, y las rutas cambiadas, relativas al workspace. Como touched-files, deja fuera
 // lo que cae dentro de `skip` (el .tmp/harness del proyecto): si no, escribir la bandera la vencería.
+// Y como touched-files, lo que nunca es código del issue aunque el repo no lo ignore: graphify-out,
+// .tmp y node_modules, en cualquier nivel.
+const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules)(\/|$)/
 export function parseStatus(stdout: string, w: Ws, skip = ''): Partial<GateRow> & { paths: string[] } {
   const prefix = w.dir.length > w.gitRoot.length ? w.dir.slice(w.gitRoot.length + 1) + '/' : ''
   const fields: Record<string, number> = { '1': 8, '2': 9, u: 10 }
   const paths = stdout.split('\n').filter((l) => /^[12?u] /.test(l)).map((l) => {
     const p = l[0] === '?' ? l.slice(2) : l.split(' ').slice(fields[l[0]!]).join(' ').split('\t')[0]!
     return p.startsWith(prefix) ? p.slice(prefix.length) : p
-  }).filter((p) => !skip || !key(join(w.dir, p)).startsWith(key(skip) + '/'))
+  }).filter((p) => (!skip || !key(join(w.dir, p)).startsWith(key(skip) + '/')) && !NEVER.test(p))
   const code = w.codeGlobs.map(globRe)
   return {
     branch: /^# branch\.head (.+)$/m.exec(stdout)?.[1],

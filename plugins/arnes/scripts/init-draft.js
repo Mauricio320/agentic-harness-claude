@@ -38,7 +38,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
-const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
+const { manifestElsewhere, missingManifest, adoptionQuestion } = require('./lib/branches.js');
 const { databaseForbidden, afterBuildDraft } = require('./lib/database.js');
 const { matchAny } = require('./lib/glob.js');
 
@@ -249,8 +249,9 @@ function draft(root) {
   const where = (dir, name) => {
     if (fs.existsSync(path.join(dir, MANIFEST))) return;
     const w = manifestElsewhere(dir);
-    notes.push(`sin manifiesto ${missingManifest(name, w)}`);
-    if (w.remotes.length) elsewhere.push({ name, file: path.join(dir, MANIFEST) });
+    if (!w.remotes.length) return void notes.push(`sin manifiesto ${missingManifest(name, w)}`);
+    notes.push(`pregunta      ${adoptionQuestion(dir, name, w)}`);
+    elsewhere.push({ name, file: path.join(dir, MANIFEST) });
   };
   if (!nested.length) {
     if (!isRepoRoot(root)) return { error: `nada que detectar: ${root} no es un repo ni contiene repos anidados` };
@@ -336,7 +337,7 @@ function main() {
   if (!args.values.write) process.exit(0);
   const blocked = r.elsewhere.filter((e) => !forced.has(e.file)).map((e) => e.name);
   if (blocked.length) {
-    die(`no escribo los manifiestos: ${blocked.join(', ')} lo trae(n) en otra rama. Haz git fetch, cámbiate a esa rama y vuelve a correr init; --force <ruta> escribe igual`);
+    die(`no escribo los manifiestos: ${blocked.join(', ')} lo trae(n) en otra rama, y eso es una pregunta de la ronda de init: cambiarse a esa rama (adopt.js switch) o adoptar desde cero aquí (--force <ruta>)`);
   }
 
   for (const d of r.drafts.filter((x) => !kept(x))) {

@@ -54,4 +54,22 @@ function missingManifest(name, where) {
   return `${name} en ${where.branch}, sin .claude/harness.json${hint}`;
 }
 
-module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest };
+// La pregunta de init cuando una rama remota trae el manifiesto que la actual no: cambiarse a esa rama
+// o adoptar desde cero aquí, con recomendación. Entre varias remotas, la que lo agregó primero, que es
+// la adopción. Recomienda cambiarse: si lo escribió otra persona es la adopción del equipo, y si lo
+// escribió quien corre init, ahí ya está su configuración.
+function adoptionQuestion(dir, name, where) {
+  const added = where.remotes.map((ref) => {
+    const log = lines(git(dir, ['log', '--diff-filter=A', '--format=%ct%x09%an%x09%ae%x09%cs', ref, '--', '.claude/harness.json']).stdout);
+    const [ct, author, email, date] = (log[log.length - 1] || '').split('\t');
+    return { ref, ct: Number(ct) || Infinity, author, email, date };
+  });
+  const pick = added.sort((a, b) => a.ct - b.ct)[0];
+  const local = pick.ref.replace(/^origin\//, '');
+  const me = git(dir, ['config', 'user.email']).stdout.trim().toLowerCase();
+  const team = !pick.email || pick.email.toLowerCase() !== me;
+  const who = pick.author ? ` (la escribió ${pick.author}${pick.date ? ` el ${pick.date}` : ''})` : '';
+  return `${name} está en ${where.branch}, sin la configuración del arnés; ${pick.ref} sí la trae${who}. Recomiendo cambiarte a ${local}: ${team ? 'es la adopción del equipo, y así trabajas con la misma configuración que los demás' : 'ahí ya está tu configuración'}. La alternativa es adoptar desde cero aquí, con una configuración nueva en ${where.branch}.`;
+}
+
+module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest, adoptionQuestion };

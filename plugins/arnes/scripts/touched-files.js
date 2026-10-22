@@ -21,17 +21,23 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 
+// Lo que nunca es código del issue aunque el repo no lo ignore: el grafo de graphify, el estado del
+// arnés y las dependencias, en cualquier nivel (también un node_modules enlazado, que git ve como
+// archivo).
+const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules)(\/|$)/;
+
 // Rutas relativas al workspace. `--relative` en el diff y ls-files corrido desde la carpeta del
 // workspace limitan ambos a su subárbol, que es lo que necesita un monorepo con varios paquetes.
 // Con el proyecto, se excluye su .tmp/harness/: en un proyecto de un solo repo cae dentro del
-// workspace y, si no está ignorado, la propia bandera contaría como archivo tocado.
+// workspace y, si no está ignorado, la propia bandera contaría como archivo tocado. Y siempre lo de
+// NEVER.
 function touched(ws, base = 'HEAD', project = null) {
   const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=d', '--relative', base, '--']);
   if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
   const untracked = git(ws.dir, ['ls-files', '--others', '--exclude-standard']);
   if (untracked.status !== 0) return { error: `git ls-files falló en ${ws.name}: ${firstLine(untracked.stderr)}` };
   const own = project ? `${posix(path.relative(ws.dir, harnessDir(project)))}/` : null;
-  const files = [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])].filter((f) => !own || !f.startsWith(own));
+  const files = [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])].filter((f) => (!own || !f.startsWith(own)) && !NEVER.test(f));
   return { files: files.sort() };
 }
 
@@ -59,7 +65,7 @@ function withExt(ws, files, exts) {
   return files.filter((f) => exts.includes(path.extname(f).toLowerCase()) && fs.existsSync(path.join(ws.dir, f)));
 }
 
-module.exports = { touched, added, deleted, withExt };
+module.exports = { NEVER, touched, added, deleted, withExt };
 
 function main() {
   let args;

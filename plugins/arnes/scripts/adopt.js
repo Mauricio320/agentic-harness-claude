@@ -6,7 +6,8 @@
 //                           que test-baseline puede leer la salida; si no, dice el flag que falta
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
 //                           tests/known-failures.txt, con la fecha de hoy, los rojos que encontró y
-//                           no estaban; sin --write solo dice si se puede
+//                           no estaban; sin --write solo dice si se puede. Con código tocado dice qué
+//                           archivos estorban, y que se corre solo ese paso con /arnes:init --baseline
 //   hooks [--remove]        los hooks del .claude/settings.json del proyecto y de cada repo que corren
 //                           scripts de .claude/hooks/, los del arnés anterior; --remove los quita
 //   permissions [--write]   el bloque de permisos recomendados (README) para este proyecto: los node
@@ -26,7 +27,12 @@
 //                           sin tocar lo que ya está; --only limita a esos campos
 //   graph [--write]         el grafo de graphify de cada repo adoptable y, en una carpeta, el merge en
 //                           <raíz>/graphify-out, como el paso graph de setup, con el tiempo que tardó;
-//                           sin graphify, cómo instalarlo (uv tool install graphify). Idempotente
+//                           sin graphify, cómo instalarlo (uv tool install graphify). Antes, la línea
+//                           graphify-out/ en el .gitignore de cada repo que no lo ignora: el grafo nunca
+//                           es código del issue. Idempotente
+//   switch <repo> --to <rama remota> [--write]
+//                           cambia un repo sin manifiesto a la rama remota que lo trae (la adopción del
+//                           equipo), solo con su árbol sin cambios sin commitear; sin --write dice qué haría
 //   baseref [--remove]      los .claude/settings.json versionados del proyecto y de cada repo que fijan
 //                           worktree.baseRef en "head": un worktree nativo tiene que nacer de
 //                           origin/<rama por defecto>, no del HEAD de quien lo abre. --remove lo quita
@@ -78,12 +84,23 @@ const writeJson = (file, data) => {
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-function probe(project, names) {
+// Sin --write solo dice el flag que le falta al comando de test: init lo pregunta en su ronda, nunca
+// lo aplica en silencio. Con --write, que init corre después del sí, lo agrega a commands.test del
+// manifiesto del repo y vuelve a probar.
+function probe(project, names, write) {
   let bad = 0;
   for (const ws of selectWorkspaces(project, names).filter((w) => w.adoptable)) {
-    const r = tb.probeTests(ws);
+    let r = tb.probeTests(ws);
+    if (r.error && r.flag && write) {
+      const data = readJson(ws.manifest);
+      const own = data.workspaces.find((w) => w.name === ws.name);
+      own.commands.test = own.commands.test.includes('{specs}') ? own.commands.test.replace('{specs}', `{specs} ${r.flag}`) : `${own.commands.test} ${r.flag}`;
+      writeJson(ws.manifest, data);
+      console.log(`${ws.name}: agregué ${r.flag} al comando de test (${own.commands.test}); commitéalo en el repo`);
+      r = tb.probeTests({ ...ws, commands: { ...ws.commands, test: own.commands.test } });
+    }
     if (r.error) bad++;
-    console.log(`${ws.name}: ${r.ok ? `ok · ${r.ok}` : r.skip ? `sin prueba · ${r.skip}` : `FALTA · ${r.error}`}`);
+    console.log(`${ws.name}: ${r.ok ? `ok · ${r.ok}` : r.skip ? `sin prueba · ${r.skip}` : `FALTA · ${r.error}${r.flag && !write ? `. Es una pregunta para la ronda de init: agregar ${r.flag} al comando de test` : ''}`}`);
   }
   return bad ? 1 : 0;
 }
@@ -91,11 +108,15 @@ function probe(project, names) {
 function baseline(project, name, write) {
   const [ws] = selectWorkspaces(project, [name]);
   if (!ws.adoptable || !ws.commands.test || !ws.specPattern) die(`${ws.name}: hace falta un workspace adoptable con commands.test y specPattern`);
+  const t = touched(ws, 'HEAD', project);
+  const dirty = (t.files || []).filter((f) => matchAny(ws.codeGlobs, f));
+  if (dirty.length) {
+    console.log(`${ws.name}: no tomo la línea base: describe un commit, y estos archivos de código tienen cambios sin commitear: ${dirty.slice(0, 10).join(', ')}${dirty.length > 10 ? ` y ${dirty.length - 10} más` : ''}. Commitéalos o guárdalos (git stash) y corre solo este paso con /arnes:init --baseline`);
+    return 1;
+  }
   if (!write) {
-    const t = touched(ws, 'HEAD', project);
-    const dirty = (t.files || []).filter((f) => matchAny(ws.codeGlobs, f));
-    console.log(dirty.length ? `${ws.name}: hay código tocado (${dirty.slice(0, 3).join(', ')}); la base tiene que describir un commit` : `${ws.name}: árbol sin código tocado; se puede capturar la línea base (--write)`);
-    return dirty.length ? 1 : 0;
+    console.log(`${ws.name}: árbol sin código tocado; se puede capturar la línea base (--write)`);
+    return 0;
   }
   const r = tb.captureBaseline(project, ws);
   if (r.error) {
@@ -289,9 +310,44 @@ function complete(project, only, write) {
   return 0;
 }
 
+// Los repos adoptables cuyo .gitignore no ignora graphify-out/.
+function graphIgnores(project) {
+  return [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))].filter((repo) => git(repo, ['check-ignore', '-q', 'graphify-out/graph.json']).status === 1);
+}
+
 function graph(project, write) {
+  for (const repo of graphIgnores(project)) {
+    const file = path.join(repo, '.gitignore');
+    if (write) {
+      const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+      fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}graphify-out/\n`);
+    }
+    console.log(`${write ? 'agregado' : 'falta'}  ${posix(file)}: graphify-out/, para que el grafo nunca cuente como código del issue${write ? '; commitéalo en el repo' : ''}`);
+  }
   const { buildGraph } = require('./setup.js');
   return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write);
+}
+
+// Cambia un repo sin manifiesto a la rama remota que lo trae. Solo con el árbol sin cambios sin
+// commitear: git se los llevaría, o se negaría a medias.
+function switchRepo(root, repoArg, to, write) {
+  const repo = path.resolve(root, repoArg);
+  const local = to.replace(/^origin\//, '');
+  if (git(repo, ['rev-parse', '--verify', '--quiet', `origin/${local}^{commit}`]).status !== 0) die(`adopt: ${repoArg} no tiene la rama origin/${local}; haz git fetch primero`);
+  const dirty = git(repo, ['status', '--porcelain', '--untracked-files=no']).stdout.trim().split(/\r?\n/).filter(Boolean);
+  if (dirty.length) {
+    console.log(`${repoArg}: tiene ${dirty.length} archivo(s) con cambios sin commitear; commitéalos o guárdalos (git stash) antes de cambiarte a ${local}`);
+    return 1;
+  }
+  const exists = git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`]).status === 0;
+  if (!write) {
+    console.log(`${repoArg}: me cambiaría a ${local}${exists ? '' : `, creada desde origin/${local}`} (--write)`);
+    return 0;
+  }
+  const r = git(repo, exists ? ['switch', '-q', local] : ['switch', '-q', '-c', local, `origin/${local}`]);
+  if (r.status !== 0) die(`adopt: git switch ${local} falló en ${repoArg}: ${r.stderr.trim().split(/\r?\n/)[0]}`);
+  console.log(`${repoArg}: ahora en ${local}, que trae la configuración del arnés`);
+  return 0;
 }
 
 // Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
@@ -414,7 +470,7 @@ function folderSettings(project, marketplace, ref, write) {
   return 0;
 }
 
-module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs };
+module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs, graphIgnores };
 
 function main() {
   let args;
@@ -422,7 +478,7 @@ function main() {
     args = parseArgs({
       allowPositionals: true,
       options: {
-        ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, marketplace: { type: 'string' }, ref: { type: 'string' },
+        ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, marketplace: { type: 'string' }, ref: { type: 'string' }, to: { type: 'string' },
         write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
       },
     });
@@ -432,14 +488,16 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js probe [--ws n]... [--write] | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write] | switch <repo> --to <rama> [--write]';
+  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings', 'switch'].includes(mode) || ['baseline', 'switch'].includes(mode) !== Boolean(arg) || (mode === 'switch') !== Boolean(o.to)) die(usage);
+  if ((o.write && !['probe', 'baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings', 'switch'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
+  // switch corre antes de que haya configuración: el repo todavía no la tiene en su rama.
+  if (mode === 'switch') process.exit(switchRepo(process.cwd(), arg, o.to, o.write));
   const project = requireProject();
   const run = {
-    probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
+    probe: () => probe(project, o.ws, o.write), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
     'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   process.exit(run[mode]());

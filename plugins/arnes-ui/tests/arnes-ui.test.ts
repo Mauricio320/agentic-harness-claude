@@ -301,6 +301,8 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   expect(parseStatus(STATUS, both[1]!)).toEqual({ branch: 'feature/x', head: 'abc123', changed: 2, code: 1, paths: ['src/a.ts', 'notas.md'] })
   const own = `${STATUS}? .tmp/harness/gate/api.json\n`
   expect(parseStatus(own, both[1]!, `${ROOT}/api-academico/.tmp/harness`).paths).toEqual(['src/a.ts', 'notas.md'])
+  const never = `${STATUS}? graphify-out/graph.json\n? node_modules\n? paquete/node_modules/x.js\n? .tmp/otra/cosa.ts\n`
+  expect(parseStatus(never, both[1]!).paths).toEqual(['src/a.ts', 'notas.md'])
   expect(bandText(null, true, [], [], 0)).toBe('arnes ▸ Pensando…')
   expect(openWorktrees(null)).toEqual([])
   expect(openWorktrees({ worktrees: 'roto' })).toEqual([])

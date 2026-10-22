@@ -44,7 +44,8 @@ test('baseline: con el árbol limpio captura la base y anota con fecha los rojos
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'tocado\n');
   let r = adopt(dir, ['baseline', 'api']);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /hay código tocado \(src\/a\.ts\)/);
+  assert.match(r.stdout, /^api: no tomo la línea base: describe un commit, y estos archivos de código tienen cambios sin commitear: src\/a\.ts\. Commitéalos o guárdalos \(git stash\) y corre solo este paso con \/arnes:init --baseline$/m);
+  assert.equal(adopt(dir, ['baseline', 'api', '--write']).status, 1, 'con el árbol sucio tampoco con --write');
   h.git(dir, 'checkout', '--', 'src/a.ts');
   assert.match(adopt(dir, ['baseline', 'api']).stdout, /se puede capturar la línea base \(--write\)/);
   r = adopt(dir, ['baseline', 'api', '--write']);
