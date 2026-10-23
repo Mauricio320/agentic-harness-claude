@@ -49,6 +49,7 @@ const { append, read, planState } = require('./lib/timeline.js');
 const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
 const issues = require('./lib/issues.js');
+const { fetchOrigin } = require('./lib/fetch.js');
 
 const branchOf = (ws) => git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
 
@@ -113,7 +114,7 @@ function stateOf(ws) {
 
 function fetch(ws) {
   if (!git(ws.gitRoot, ['remote']).stdout.trim()) return 'sin remoto origin';
-  const r = git(ws.gitRoot, ['fetch', '--quiet', 'origin']);
+  const r = fetchOrigin(ws.gitRoot);
   return r.status === 0 ? null : `git fetch falló: ${firstLine(r.stderr)}`;
 }
 
@@ -126,7 +127,7 @@ function worktreeRoute(project) {
   if (top.status !== 0 || path.resolve(top.stdout.trim()).toLowerCase() !== path.resolve(project.root).toLowerCase()) {
     return { ok: false, why: `${project.kind === 'folder' ? 'la carpeta' : 'la raíz del proyecto'} no es un repo de git, y un worktree necesita uno` };
   }
-  if (git(project.root, ['remote']).stdout.trim()) git(project.root, ['fetch', '--quiet', 'origin']);
+  if (git(project.root, ['remote']).stdout.trim()) fetchOrigin(project.root);
   const head = git(project.root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
   const def = head.status === 0 ? head.stdout.trim() : ['origin/main', 'origin/master', 'main', 'master'].find((r) => refExists(project.root, r)) || 'HEAD';
   if (git(project.root, ['cat-file', '-e', `${def}:.claude/harness.json`]).status !== 0) {

@@ -45,6 +45,7 @@ const { nativeWorktree, nativeRoot, key, list, DIR } = require('./lib/worktree-n
 const { readPlan, planWorkspaces } = require('./lib/plan.js');
 const { read, planState } = require('./lib/timeline.js');
 const rescate = require('./lib/rescate.js');
+const { fetchOrigin } = require('./lib/fetch.js');
 
 const FILE = 'materializado.json';
 const ledger = () => require('./worktree-ledger.js');
@@ -130,7 +131,7 @@ function bring(f, state, ws, branch) {
   if (present(dst)) return { line: `${ws.name}: hay una carpeta ${repoRel} que no es un worktree de su repo; no la toco`, entry: null };
   const def = ws.defaultBranch || 'main';
   if (git(ws.repo, ['remote']).stdout.trim()) {
-    const r = git(ws.repo, ['fetch', '--quiet', 'origin']);
+    const r = fetchOrigin(ws.repo);
     if (r.status !== 0) state.notes = [...(state.notes || []), `${ws.name}: no pude traer origin (${firstLine(r.stderr)}); salgo de lo que hay en local`];
   }
   const from = refExists(ws.repo, `origin/${def}`) ? `origin/${def}` : def;
