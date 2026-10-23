@@ -345,3 +345,47 @@ test('verify, review, ship, plan-guard, la bandera y el guard funcionan dentro d
   assert.equal(c.status, 0, c.stdout);
   assert.match(c.stdout, /^- api \(.*\) · rama feature\/talleres · 1 tocado\(s\)/m);
 });
+
+// Una app que no termina sola: anota su PID donde el repo ya ignora, y se queda viva.
+const LONG_APP = "require('fs').writeFileSync('app-entorno.txt', String(process.pid)); setInterval(() => {}, 1000);\n";
+const { alive } = require('../scripts/lib/app.js');
+const until = async (fn, ms = 15000) => {
+  for (const end = Date.now() + ms; !fn(); await new Promise((ok) => setTimeout(ok, 100))) if (Date.now() > end) return false;
+  return true;
+};
+
+// La app del worktree, viva: commiteada para que el repo traído quede limpio.
+async function liveApp(wt) {
+  const api = path.join(wt, 'api');
+  fs.writeFileSync(path.join(api, 'app.js'), LONG_APP);
+  h.commitAll(api, 'una app que no termina sola');
+  const r = h.run('build.js', ['app', '--ws', 'api'], { cwd: wt });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.ok(await until(() => fs.existsSync(path.join(api, 'app-entorno.txt'))), 'la app arrancó');
+  const pid = Number(fs.readFileSync(path.join(api, 'app-entorno.txt'), 'utf8'));
+  assert.ok(alive(pid));
+  return pid;
+}
+
+test('antes de borrar el worktree de carpeta, ExitWorktree y clean paran la app que levantó el arnés ahí; el borrado queda entero', async () => {
+  const root = folder();
+  let wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  let pid = await liveApp(wt);
+  assert.equal(exit(wt).out, null, 'ExitWorktree deja borrar');
+  assert.ok(await until(() => !alive(pid)), 'y antes paró la app');
+  assert.ok(!fs.existsSync(path.join(wt, 'api')), 'el repo traído se quitó entero');
+  outside(root, wt);
+  wt = h.nativeWorktree(root, 'talleres-dos');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Talleres dos\n');
+  pid = await liveApp(wt);
+  let r = h.run('issues.js', ['clean', 'talleres-dos'], { cwd: root });
+  assert.match(r.stdout, /^- app api \(proceso \d+\) · se para antes de borrar$/m, r.stdout);
+  r = h.run('issues.js', ['clean', 'talleres-dos', '--write'], { cwd: root });
+  assert.match(r.stdout, /^parada app api \(proceso \d+\)$/m, r.stdout + r.stderr);
+  assert.match(r.stdout, /^borrado carpeta .*\/\.claude\/worktrees\/talleres-dos$/m);
+  assert.ok(await until(() => !alive(pid)));
+  assert.ok(!fs.existsSync(wt), 'clean borró la carpeta entera');
+  for (const name of ['api', 'web']) assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue`);
+});

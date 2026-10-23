@@ -1,6 +1,6 @@
 ---
 name: build
-description: Implementar un plan aprobado de .tmp/harness/plan.md con un agente dev por workspace tocado, el back antes que el front; el contrato que devuelve el back viaja textual al front, y cada dev declara desviaciones y cobertura de criterios con archivo:línea. También levanta la app para probarla cuando la persona lo pide ("inicia la app", "levanta la app").
+description: Implementar un plan aprobado de .tmp/harness/plan.md con un agente dev por workspace tocado, el back antes que el front; el contrato que devuelve el back viaja textual al front, y cada dev declara desviaciones y cobertura de criterios con archivo:línea. También levanta la app para probarla, y la para, cuando la persona lo pide ("inicia la app", "levanta la app", "para la app").
 argument-hint: "[workspace]..."
 ---
 
@@ -33,4 +33,4 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 ## Levantar la app
 
-Cuando la persona pide probarla ("inicia la app", "levanta la app"): `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" app --ws <ws>` por workspace, el back primero. La arranca desde la carpeta de la sesión, en segundo plano, y en un worktree con sus puertos en el entorno del proceso, que ganan a cualquier `.env`. Di en una línea en qué puerto quedó cada una y dónde mirar su salida. Nunca la detengas: la para la persona.
+Cuando la persona pide probarla ("inicia la app", "levanta la app"): `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" app --ws <ws>` por workspace, el back primero. La arranca desde la carpeta de la sesión, en segundo plano, y en un worktree con sus puertos en el entorno del proceso, que ganan a cualquier `.env`. Di en una línea en qué puerto quedó cada una y dónde mirar su salida. Cuando la persona pide pararla ("para la app"), `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" app stop`: para solo lo que levantó el arnés, y lo dice. Nunca pares un proceso por tu cuenta, ni con otro comando.

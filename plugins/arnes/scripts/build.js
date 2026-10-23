@@ -32,10 +32,17 @@
 //          app y las que apuntan a localhost:<puerto> del worktree, leídas de sus .env. En el entorno
 //          ganan a cualquier .env, porque dotenv, ConfigModule o el cliente de Prisma enlazado (que
 //          carga el .env del principal) no pisan lo que ya está ahí; sirven con nest --watch, next dev
-//          o lo que sea. Nunca la para: el arnés no mata procesos. Con --dry dice qué correría
+//          o lo que sea. Anota en .tmp/harness/app/<ws>.json el PID raíz y la marca de su lanzador
+//          (lib/app.js); si ya corría una que levantó el arnés, la para antes. Con --dry dice qué
+//          correría
+//   app stop [--ws <ws>]
+//          para la app que levantó el arnés (todas, o la de ws): el árbol de su PID raíz, solo si ese
+//          proceso todavía lleva su marca. La piden la persona ("para la app"), y antes de borrar un
+//          worktree lo hacen issues.js clean y close, el PreToolUse de ExitWorktree y el registro de
+//          worktrees. Nunca un proceso que no haya lanzado el arnés
 // Exit: 0 escrita, o after con algo que correr o nada declarado (con aviso en stderr si falta el
-//       contrato de un consumidor) · 1 after con la base del .env que no es la local · 2 uso inválido,
-//       sin manifiesto o workspace desconocido
+//       contrato de un consumidor) · 1 after con la base del .env que no es la local, o app stop que
+//       no pudo parar una · 2 uso inválido, sin manifiesto o workspace desconocido
 
 'use strict';
 
@@ -46,6 +53,7 @@ const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/m
 const { help, die } = require('./lib/exec.js');
 const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
 const { spawn } = require('child_process');
+const apps = require('./lib/app.js');
 const { localDb, parseEnv, DB_VAR } = require('./lib/database.js');
 const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
@@ -280,6 +288,8 @@ function portEnv(project, ws) {
 // Un node separado del padre corre el comando con shell, sin separarlo, y le pasa su salida. En
 // Windows, un cmd.exe lanzado separado y sin consola se cuelga antes de correr nada (se vio con
 // npm run start:dev); un node separado no, y el shell que lanza hereda su salida.
+// La marca va como un argumento más del lanzador, que no lo lee: así queda en su línea de comando, y
+// app stop puede comprobar que el PID anotado sigue siendo él.
 const LAUNCH = "const c = require('child_process').spawn(process.argv[1], { shell: true, stdio: 'inherit', windowsHide: true }); c.on('exit', (code) => process.exit(code == null ? 1 : code)); c.on('error', (e) => { console.error(e.message); process.exit(1); });";
 
 function app(project, wsName, dry) {
@@ -297,15 +307,27 @@ function app(project, wsName, dry) {
     console.log(`${ws.name}: levantaría ${cmd} desde ${posix(ws.dir)}${vars ? `, con ${vars} en su entorno` : ''}`);
     return 0;
   }
+  const before = apps.stopAll(harnessDir(project), ws.name).filter((r) => r.result === 'parada');
+  for (const r of before) console.log(`${r.line}, antes de levantarla de nuevo`);
   fs.mkdirSync(dir, { recursive: true });
   const fd = fs.openSync(log, 'w');
-  const child = spawn(process.execPath, ['-e', LAUNCH, cmd], { cwd: ws.dir, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
+  const mark = apps.token();
+  const child = spawn(process.execPath, ['-e', LAUNCH, cmd, mark], { cwd: ws.dir, detached: true, windowsHide: true, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
   child.unref();
   fs.closeSync(fd);
-  fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
+  fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, token: mark, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
   require('./lib/issues.js').record(project, { files: [log, path.join(dir, `${ws.name}.json`)] });
-  console.log(`${ws.name}: la levanté desde ${posix(ws.dir)} con ${cmd}${vars ? `, con ${vars} en su entorno` : ''}; su salida va a ${posix(log)}. Para pararla, ciérrala tú (proceso ${child.pid}): el arnés no mata procesos`);
+  console.log(`${ws.name}: la levanté desde ${posix(ws.dir)} con ${cmd}${vars ? `, con ${vars} en su entorno` : ''}; su salida va a ${posix(log)}. Para pararla, pide «para la app»`);
   return 0;
+}
+
+// Para la app que levantó el arnés (todas, o la de wsName). → 0, o 1 si alguna no se pudo parar
+function stop(project, wsName) {
+  if (wsName) selectWorkspaces(project, [wsName]);
+  const results = apps.stopAll(harnessDir(project), wsName || null);
+  if (!results.length) console.log(wsName ? `${wsName}: no hay una app viva que haya levantado el arnés` : 'no hay ninguna app viva que haya levantado el arnés');
+  for (const r of results) console.log(r.line);
+  return apps.blocking(results).length ? 1 : 0;
 }
 
 module.exports = { planFor, planned, specOf, after, regenerates, appCommand, portEnv };
@@ -324,7 +346,11 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry]';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
+  if (mode === 'app' && rest[0] === 'stop') {
+    if (rest.length > 1 || list(o.files).length || o.para || o.contrato || o.write || o.dry) die(usage);
+    process.exit(stop(requireProject(), o.ws));
+  }
   if (mode === 'app') {
     if (!o.ws || o.para || o.contrato || o.write || files.length) die(usage);
     process.exit(app(requireProject(), o.ws, o.dry));

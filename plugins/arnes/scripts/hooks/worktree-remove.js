@@ -16,6 +16,8 @@
 // porque Claude Code no los ve: los repos están ignorados en el repo de carpeta. El marcador no cuenta
 // como trabajo del repo de carpeta. No hay hook WorktreeRemove: ese evento solo corre para worktrees
 // que creó un hook WorktreeCreate, y los nativos los borra git.
+// Si el borrado sigue, antes para la app que levantó el arnés en ese worktree (lib/app.js): viva, en
+// Windows bloquea la carpeta. Si no la puede parar, niega.
 // Vale haya o no manifiesto; sin manifiesto, la rama por defecto es la de origin/HEAD, o main o master.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
@@ -30,6 +32,14 @@ const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
 const { bringBack } = require('../lib/timeline.js');
+const apps = require('../lib/app.js');
+
+// La app que levantó el arnés en el worktree de dir, parada antes de borrarlo. → null, o el motivo
+function stopApps(dir) {
+  const top = git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir;
+  const left = apps.blocking(apps.stopUnder(top));
+  return left.length ? `no borro este worktree: ${left.map((r) => r.line).join('; ')}. Ciérrala tú y vuelve a intentarlo, o sal con action "keep".` : null;
+}
 
 // Un worktree nativo de Claude Code: Claude Code lo borra quitando solo los enlaces (desde la 2.1.205),
 // así que el enlace de node_modules no es el riesgo; lo es el trabajo sin subir, que se perdería.
@@ -58,9 +68,13 @@ function targetsOf(dir, branch) {
 function judgeFolder(dir) {
   const own = judgeNative(dir);
   if (own) return own;
+  const lost = (refused) => `no borro este worktree: ${refused.join('; ')}, y se perderían. Commitéalos con /arnes:ship --solo-commit, o sal con action "keep".`;
+  const pending = carpeta.dematerialize(dir, { check: true });
+  if (pending.refused.length) return lost(pending.refused);
+  const app = stopApps(dir);
+  if (app) return app;
   const r = carpeta.dematerialize(dir);
-  if (!r.refused.length) return null;
-  return `no borro este worktree: ${r.refused.join('; ')}, y se perderían. Commitéalos con /arnes:ship --solo-commit, o sal con action "keep".`;
+  return r.refused.length ? lost(r.refused) : null;
 }
 
 // Un worktree nativo que se va a borrar devuelve su timeline al checkout principal.
@@ -73,7 +87,12 @@ function keepTimeline(dir, why) {
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
   if (carpeta.folderWorktree(dir)) return keepTimeline(dir, judgeFolder(dir));
-  if (nativeWorktree(dir)) return keepTimeline(dir, judgeNative(dir));
+  if (nativeWorktree(dir)) return keepTimeline(dir, judgeNative(dir) || stopApps(dir));
+  return judgeOther(dir) || stopApps(dir);
+}
+
+// Un worktree que no es nativo: el del registro o uno hecho a mano.
+function judgeOther(dir) {
   const links = liveLinks(git(dir, ['rev-parse', '--show-toplevel']).stdout.trim() || dir);
   if (links.length) return `este worktree tiene enlaces del arnés (${links.join(', ')}) que borrarlo seguiría. Ciérralo con /arnes:worktree integrate o close, que los quita primero, o sal con action "keep".`;
   const name = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();

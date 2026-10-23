@@ -46,6 +46,7 @@ const { unlink, isLink } = require('./lib/links.js');
 const { nativeWorktree, list: worktreeList, key, inside } = require('./lib/worktree-nativo.js');
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
+const apps = require('./lib/app.js');
 
 const ledger = () => require('./worktree-ledger.js');
 const carpeta = () => require('./worktree-carpeta.js');
@@ -76,11 +77,33 @@ function rescuesOf(project, r) {
   return out;
 }
 
+// Lo que anotó build.js app para el issue: las de su worktree y las del registro.
+function appFiles(r) {
+  const dir = r.worktree && exists(r.worktree.path) ? apps.dirOf(path.join(r.worktree.path, '.tmp', 'harness')) : null;
+  const own = dir && fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => path.join(dir, n)) : [];
+  const listed = (r.files || []).filter((f) => /\/\.tmp\/harness\/app\/[^/]+\.json$/.test(posix(f)) && exists(f));
+  return [...new Map([...own, ...listed].map((f) => [key(f), f])).values()];
+}
+
 // Lo que se haría con cada cosa registrada. Con conCambios, también lo que tiene cambios sin commitear
-// en un repo traído al worktree de una carpeta, y los rescates. → [{ what, label, size, action, why, run }]
+// en un repo traído al worktree de una carpeta, y los rescates. Las apps que levantó el arnés van
+// primero: se paran antes de borrar nada. → [{ what, label, size, action, why, run, done }]
 function plan(project, r, conCambios = false) {
   const main = loadProject(I.mainRoot(project)) || project;
   const items = [];
+  for (const f of appFiles(r)) {
+    let s = null;
+    try {
+      s = JSON.parse(fs.readFileSync(f, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!s.pid || s.stoppedAt || !apps.alive(s.pid)) continue;
+    items.push({ what: 'app', label: `${path.basename(f, '.json')} (proceso ${s.pid})`, size: 0, action: 'se para antes de borrar', done: 'parada', run: () => {
+      const x = apps.stopFile(f);
+      return x && x.result === 'fallo' ? { status: 1, stderr: x.line } : { status: 0 };
+    } });
+  }
   for (const s of r.sets || []) {
     const e = ledger().readLedger(main).find((x) => key(x.path) === key(s.path));
     const ws = main.workspaces.find((w) => w.name === s.ws);
@@ -148,6 +171,10 @@ function linksIn(dir, depth = 3) {
 // seguirlos; si queda un enlace que nadie registró, no se borra. Después git worktree remove desde su
 // checkout principal y, si su rama no es la del issue y no tiene commits propios, la rama.
 function removeNative(w, isIssueBranch, conCambios = false) {
+  const pending = carpeta().dematerialize(w.path, { force: conCambios, check: true });
+  if (pending.refused.length) return { status: 1, stderr: pending.refused.join('; ') };
+  const alive = apps.blocking(apps.stopUnder(w.path));
+  if (alive.length) return { status: 1, stderr: `${alive.map((x) => x.line).join('; ')}; la app viva bloquea la carpeta` };
   const r = carpeta().dematerialize(w.path, { force: conCambios });
   if (r.refused.length) return { status: 1, stderr: r.refused.join('; ') };
   for (const l of ledger().liveLinks(w.path)) {
@@ -213,7 +240,7 @@ function clean(project, slug, write, conCambios = false) {
     }
     const ok = !res || Array.isArray(res) || res.status === 0 || res.status === undefined;
     if (!ok) failed = true;
-    console.log(`${ok ? 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
+    console.log(`${ok ? i.done || 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
   }
   for (const i of items.filter((x) => x.exit)) console.log(`falta ${i.what} ${i.label}: sal de él con ExitWorktree y action "remove"`);
   for (const i of items.filter((x) => x.why)) console.log(`se queda ${i.what} ${i.label}: ${i.why}`);
@@ -301,7 +328,7 @@ function close(project, slug, write) {
     const res = i.run();
     const ok = !res || Array.isArray(res) || res.status === 0 || res.status === undefined;
     failed = failed || !ok;
-    console.log(`${ok ? 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine((res && (res.stderr || res.stdout)) || '')}`}`);
+    console.log(`${ok ? i.done || 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine((res && (res.stderr || res.stdout)) || '')}`}`);
   }
   for (const s of steps) {
     const res = s.run();

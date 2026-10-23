@@ -315,14 +315,16 @@ function removeRepo(e, force) {
 
 // Al salir. Con un repo con cambios sin commitear no toca ninguno, salvo con force, que los borra y
 // descarta su rescate. Con cada repo quitado se va su rescate (lo que tenía quedó commiteado, o la
-// persona dijo que se pierde), y al final el marcador. → { refused: [..], lines: [..] }
-function dematerialize(dir, { force = false } = {}) {
+// persona dijo que se pierde), y al final el marcador. Con check solo dice lo que negaría, sin tocar
+// nada. → { refused: [..], lines: [..] }
+function dematerialize(dir, { force = false, check = false } = {}) {
   const f = folderWorktree(dir);
   if (!f) return { refused: [], lines: [] };
   const state = readState(f.project);
   const live = state.repos.filter((r) => r.status === 'vivo');
   const dirty = live.map((e) => [e, dirtyOf(e)]).filter(([, d]) => d.length);
   if (dirty.length && !force) return { refused: dirty.map(([e, d]) => `${path.basename(e.repo)} tiene ${d.length} archivo(s) sin commitear (${short(d)})`), lines: [] };
+  if (check) return { refused: [], lines: [] };
   const refused = [];
   const out = [];
   for (const e of live) {

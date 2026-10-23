@@ -519,6 +519,9 @@ const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDi
 // detrás, como el 2026-10-19); después las copias de .env y la carpeta copiada si un enlace cayó a
 // copia. Si algo falla, el registro queda abierto con `undo` diciendo qué quedó, y no hay remove.
 function undo(project, entries, e) {
+  const app = require('./lib/app.js');
+  const alive = app.blocking(app.stopUnder(e.path));
+  if (alive.length) refuse(`${e.ws}: ${alive.map((r) => r.line).join('; ')}; no corrí git worktree remove, porque la app viva bloquea la carpeta`);
   const left = [];
   e.links = (e.links || []).filter((l) => {
     const err = unlink(l);
