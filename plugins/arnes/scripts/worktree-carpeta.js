@@ -41,7 +41,7 @@ const { loadProject, harnessDir, posix } = require('./lib/manifest.js');
 const { git, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink, linksUnder, real } = require('./lib/links.js');
-const { nativeWorktree, nativeRoot, key, list } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeRoot, key, list, DIR } = require('./lib/worktree-nativo.js');
 const { readPlan, planWorkspaces } = require('./lib/plan.js');
 const { read, planState } = require('./lib/timeline.js');
 const rescate = require('./lib/rescate.js');
@@ -349,6 +349,48 @@ function dematerialize(dir, { force = false, check = false } = {}) {
   return { refused, lines: out };
 }
 
+// Recupera el worktree de carpeta <name> que se borró sin pasar por el arnés: lo vuelve a crear en el
+// repo de carpeta (en su rama worktree-<name> si quedó, o en una nueva desde origin), trae adentro los
+// repos que tienen la rama del issue o un rescate, con enlaces, copias y puertos, como al arrancar, y
+// aplica en cada uno su rescate. Al final lo protege de nuevo: rescate y marcador.
+// main: el proyecto del checkout principal de la carpeta. → { ok, lines }
+function recoverFolder(main, name, rescues) {
+  const dst = path.join(main.root, DIR, name);
+  const rel = posix(path.relative(main.root, dst));
+  if (present(dst)) return { ok: false, lines: [`ya hay algo en ${rel}; no recupero ahí la carpeta`] };
+  git(main.root, ['worktree', 'prune']);
+  const own = `worktree-${name}`;
+  let args;
+  if (refExists(main.root, `refs/heads/${own}`)) {
+    const at = checkedOutAt(main.root, own);
+    if (at) return { ok: false, lines: [`la rama ${own} está abierta en ${posix(at)}; no recupero la carpeta`] };
+    args = ['worktree', 'add', '-q', dst, own];
+  } else {
+    const head = git(main.root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']).stdout.trim();
+    args = ['worktree', 'add', '-q', '-b', own, dst, head || 'HEAD'];
+  }
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  const add = git(main.root, args);
+  if (add.status !== 0) return { ok: false, lines: [`no pude volver a crear el worktree de carpeta: ${firstLine(add.stderr)}`] };
+  const f = folderWorktree(dst);
+  if (!f) return { ok: false, lines: [`volví a crear ${rel}, pero no tiene la composición del arnés; no traigo los repos`] };
+  const branch = branchName(f);
+  const repos = perRepo(main.workspaces.filter((w) => w.adoptable)).filter((ws) => refExists(ws.repo, `refs/heads/${branch}`) || rescues.some((x) => key(x.repo) === key(ws.repo)));
+  for (const ws of repos) git(ws.repo, ['worktree', 'prune']);
+  const lines = [`volví a crear el worktree de carpeta ${name} en ${rel}, en la rama ${own}`, ...materialize(dst, { only: repos.map((ws) => ws.name) }).lines];
+  const state = readState(f.project);
+  let ok = true;
+  for (const x of rescues) {
+    const e = state.repos.find((r) => r.status === 'vivo' && key(r.main) === key(x.repo));
+    const res = e ? rescate.apply(e.path, x, ownOf(e)) : { ok: false, line: `${path.basename(x.repo)}: no quedó adentro; dejo el rescate ${x.ref}` };
+    ok = ok && res.ok;
+    lines.push(res.line);
+  }
+  protect(dst);
+  lines.push(`se sigue abriendo Claude Code en la carpeta con --worktree ${name}`);
+  return { ok, lines };
+}
+
 // Los enlaces que el registro anotó para el repo materializado en p, o null si p no es uno.
 function nestedLinks(p) {
   const project = loadProject(p);
@@ -372,7 +414,7 @@ function pruneOrphans(project) {
   return out;
 }
 
-module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo };
+module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo };
 
 function main() {
   let args;

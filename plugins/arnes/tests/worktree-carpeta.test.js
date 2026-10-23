@@ -231,7 +231,7 @@ test('Stop guarda en el repo el rescate de lo que no está commiteado y pone el 
   assert.ok(!fs.existsSync(marker), 'commiteado y subido, el marcador se va');
 });
 
-test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate queda en el repo: SessionStart y pending lo avisan, y limpiar lo recupera en un worktree nuevo con los cambios intactos', () => {
+test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate queda en el repo: SessionStart y pending lo avisan, y recover vuelve a crear la carpeta con los cambios intactos', () => {
   const root = folder();
   const wt = h.nativeWorktree(root, 'talleres');
   start(wt);
@@ -254,23 +254,33 @@ test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate que
   assert.match(`- ${p.stdout}`, line);
   let r = h.run('issues.js', ['clean', 'talleres'], { cwd: root });
   assert.match(r.stdout, /^- rescate talleres de api \(refs\/arnes\/rescate\/talleres, rama feature\/talleres\) · se queda: guarda 3 archivo\(s\) sin commitear \(app\.js, src\/a\.ts, src\/nuevo-mio\.ts\) que quedaron sin su worktree; se recupera en un worktree nuevo, o se descarta solo si dices que esos cambios se pierden$/m);
+  assert.match(r.stdout, /^- rama worktree-talleres en .* \(la del worktree talleres, que ya no existe\) · se queda: hasta recuperar o descartar el trabajo rescatado de ese worktree$/m, 'la rama huérfana del repo de carpeta espera al rescate');
   assert.match(h.run('issues.js', ['list'], { cwd: root }).stdout, /^talleres · .* · 1 rescate\(s\) de trabajo sin commitear sin su worktree$/m);
   h.run('issues.js', ['clean', 'talleres', '--write'], { cwd: root });
   assert.ok(h.git(api, 'rev-parse', 'refs/arnes/rescate/talleres'), 'limpiar sin el sí no lo toca');
   r = h.run('issues.js', ['recover', 'talleres'], { cwd: root });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /^api: recuperé 3 archivo\(s\) sin commitear en api\/\.claude\/worktrees\/talleres, en la rama feature\/talleres; se sigue abriendo Claude Code en api con --worktree talleres$/m);
-  const back = path.join(api, '.claude', 'worktrees', 'talleres');
+  assert.match(r.stdout, /^volví a crear el worktree de carpeta talleres en \.claude\/worktrees\/talleres, en la rama worktree-talleres$/m);
+  assert.match(r.stdout, /^api: lo traje a este worktree en la rama feature\/talleres, que ya existía$/m);
+  assert.match(r.stdout, /^web: lo traje a este worktree en la rama feature\/talleres, que ya existía$/m, 'web también vuelve: tiene la rama del issue');
+  assert.match(r.stdout, /^api: recuperé sus 3 archivo\(s\) sin commitear$/m);
+  assert.match(r.stdout, /^se sigue abriendo Claude Code en la carpeta con --worktree talleres$/m);
+  const back = path.join(wt, 'api');
+  assert.ok(fs.existsSync(path.join(wt, '.claude', 'harness.json')), 'la carpeta volvió, con su composición');
+  assert.ok(isLink(path.join(back, 'node_modules')), 'con sus enlaces');
+  assert.equal(fs.readFileSync(path.join(back, '.env'), 'utf8'), 'PORT=3013\nDB_PORT=3306\n', 'y sus puertos');
   assert.equal(fs.readFileSync(path.join(back, 'src', 'a.ts'), 'utf8'), 'a medias\n');
   assert.equal(fs.readFileSync(path.join(back, 'src', 'nuevo-mio.ts'), 'utf8'), 'nuevo\n');
   assert.ok(!fs.existsSync(path.join(back, 'app.js')), 'lo borrado sigue borrado');
   assert.deepEqual(h.git(back, 'status', '--porcelain').split('\n').map((l) => l.trim()).sort(), ['?? src/nuevo-mio.ts', 'D app.js', 'M src/a.ts']);
   assert.equal(h.git(back, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/talleres');
-  assert.equal(h.git(api, 'for-each-ref', 'refs/arnes/'), '', 'recuperado, el ref se va');
-  assert.equal(h.git(api, 'status', '--porcelain'), '', 'el checkout principal no ve el worktree recuperado');
+  assert.ok(!fs.existsSync(path.join(api, '.claude', 'worktrees', 'talleres')), 'sin un worktree suelto del repo');
+  assert.ok(fs.existsSync(path.join(wt, MARKER)), 'protegida otra vez: el marcador');
+  assert.match(h.git(api, 'log', '-1', '--format=%B', 'refs/arnes/rescate/talleres'), /^archivos: 3$/m, 'y un rescate nuevo, de la carpeta viva');
+  assert.equal(h.git(api, 'status', '--porcelain'), '', 'el checkout principal no ve nada');
   const again = start(root);
-  assert.doesNotMatch(again, /rescate talleres/);
-  assert.match(again, /^- worktree talleres \(rama feature\/talleres\) · 3 archivo\(s\) sin commitear · creado hoy; nunca se borra solo$/m, 'ahora es un worktree del repo con sus cambios, que nunca se borra solo');
+  assert.doesNotMatch(again, /rescate talleres/, 'el rescate ya tiene su worktree');
+  assert.doesNotMatch(h.run('issues.js', ['clean', 'talleres'], { cwd: root }).stdout, /rama worktree-talleres/, 'la rama del repo de carpeta volvió a estar abierta');
 });
 
 test('con el sí a perder los cambios, limpiar borra la carpeta con un repo sucio y descarta los rescates sin worktree', () => {
@@ -297,6 +307,8 @@ test('con el sí a perder los cambios, limpiar borra la carpeta con un repo suci
   r = h.run('issues.js', ['clean', 'talleres', '--write', '--con-cambios'], { cwd: root });
   assert.match(r.stdout, /^borrado rescate talleres de web \(refs\/arnes\/rescate\/talleres, rama feature\/talleres\)$/m, r.stdout + r.stderr);
   assert.equal(h.git(path.join(root, 'web'), 'for-each-ref', 'refs/arnes/'), '');
+  assert.match(r.stdout, /^borrado rama worktree-talleres en .* \(la del worktree talleres, que ya no existe\)$/m, 'la rama huérfana del repo de carpeta, sin commits propios, se borra');
+  assert.equal(h.git(root, 'branch', '--list', 'worktree-talleres'), '');
 });
 
 test('el guard niega un git worktree remove del worktree de carpeta mientras tenga los enlaces de los repos: git los seguiría', () => {

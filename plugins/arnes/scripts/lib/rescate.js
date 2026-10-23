@@ -91,9 +91,27 @@ function excludeWorktrees(repo) {
   fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}/${posix(WORKTREES)}/\n`);
 }
 
+const manualOf = (x) => `a mano: git worktree add <carpeta> ${x.ref}^ y, adentro, git restore --source=${x.ref} --worktree -- :/`;
+
+// Aplica el rescate x en el worktree dst, que tiene que estar en el commit del que salió, y comprobado
+// que quedó igual, borra el ref. exclude: lo que puso el arnés en dst. → { ok, line }
+function apply(dst, x, exclude = []) {
+  const name = path.basename(x.repo);
+  if (git(dst, ['rev-parse', 'HEAD']).stdout.trim() !== git(dst, ['rev-parse', `${x.ref}^`]).stdout.trim()) {
+    return { ok: false, line: `${name}: su rama avanzó después del rescate; no lo aplico solo, y dejo el ref ${x.ref} (${manualOf(x)})` };
+  }
+  const rs = git(dst, ['restore', `--source=${x.ref}`, '--worktree', '--', ':/']);
+  const want = git(dst, ['rev-parse', `${x.ref}^{tree}`]).stdout.trim();
+  if (rs.status !== 0 || treeOf(dst, exclude) !== want) return { ok: false, line: `${name}: los cambios no quedaron iguales al rescate; dejo el ref ${x.ref} (${firstLine(rs.stderr) || 'difieren'})` };
+  discard(x.repo, x.name);
+  return { ok: true, line: `${name}: recuperé sus ${x.count} archivo(s) sin commitear` };
+}
+
 // Recupera un rescate en un worktree nuevo del repo, <repo>/.claude/worktrees/<nombre>, en su rama y
 // con los cambios sin commitear como estaban; comprobado eso, borra el ref. Si la rama avanzó después
-// del rescate, o está abierta en otro lado, no lo toca y dice cómo hacerlo a mano. → { ok, line }
+// del rescate, o está abierta en otro lado, no lo toca y dice cómo hacerlo a mano. Es el camino de un
+// rescate suelto; el de un worktree de carpeta lo recupera con la carpeta worktree-carpeta.js
+// recoverFolder. → { ok, line }
 function recover(repo, x) {
   const name = path.basename(repo);
   git(repo, ['worktree', 'prune']);
@@ -102,7 +120,7 @@ function recover(repo, x) {
   if (fs.existsSync(dst)) return { ok: false, line: `${name}: ya hay algo en ${rel}; no recupero el rescate ahí` };
   const parent = git(repo, ['rev-parse', `${x.ref}^`]).stdout.trim();
   const branch = x.branch || `rescate-${x.name}`;
-  const manual = `a mano: git worktree add <carpeta> ${x.ref}^ y, adentro, git restore --source=${x.ref} --worktree -- :/`;
+  const manual = manualOf(x);
   let args;
   if (git(repo, ['rev-parse', '-q', '--verify', `refs/heads/${branch}`]).status === 0) {
     const open = lines(git(repo, ['worktree', 'list', '--porcelain']).stdout).some((l) => l === `branch refs/heads/${branch}`);
@@ -147,4 +165,4 @@ function mark(wt, issue, pending) {
   return true;
 }
 
-module.exports = { PREFIX, MARKER, treeOf, save, list, orphans, discard, recover, excludeWorktrees, mark };
+module.exports = { PREFIX, MARKER, treeOf, save, list, orphans, discard, apply, recover, excludeWorktrees, mark };

@@ -43,7 +43,7 @@ const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { unlink, isLink } = require('./lib/links.js');
-const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy, DIR } = require('./lib/worktree-nativo.js');
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
 const apps = require('./lib/app.js');
@@ -135,9 +135,21 @@ function plan(project, r, conCambios = false) {
     else if (kept.length && !conCambios) items.push({ what: 'carpeta', label: posix(w.path), size, why: `${lost}; se borra solo si dices que esos cambios se pierden`, dirty: true });
     else items.push({ what: 'carpeta', label: posix(w.path), size, action: `${kept.length ? `se borra, y se pierde lo que ${lost.replace(/ tiene /g, ' tenía ')}` : 'se borra'}${lock ? `; estaba bloqueado por un proceso que ya no existe (${lock.pid}), y se desbloquea` : ''}`, run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
   }
+  // La rama del worktree de carpeta que se borró por fuera: Claude Code la habría borrado con él. Sin
+  // commits propios se borra, salvo que quede trabajo rescatado de ese worktree por recuperar.
+  const saved = rescuesOf(project, r);
+  if (w && !exists(w.path) && w.branch && w.main && exists(w.main) && refExists(w.main, `refs/heads/${w.branch}`) && !(r.branches || []).some((b) => b.branch === w.branch && key(b.repo) === key(w.main))) {
+    const open = worktreeList(w.main).some((x) => x.branch === w.branch && exists(x.path));
+    const own = unmerged(w.main, w.branch, mergeTargets(w.main).refs) || [];
+    const label = `${w.branch} en ${path.basename(w.main)} (la del worktree ${w.name}, que ya no existe)`;
+    if (open) items.push({ what: 'rama', label, size: 0, why: 'está abierta en otro worktree' });
+    else if (own.length) items.push({ what: 'rama', label, size: 0, why: `tiene ${own.length} commit(s) propios` });
+    else if (saved.some((x) => x.name === w.name) && !conCambios) items.push({ what: 'rama', label, size: 0, why: 'hasta recuperar o descartar el trabajo rescatado de ese worktree' });
+    else items.push({ what: 'rama', label, size: 0, action: 'se borra: no tiene commits propios', run: () => (git(w.main, ['worktree', 'prune']), git(w.main, ['branch', '-D', w.branch])) });
+  }
   // Los rescates que quedaron sin su worktree: Claude Code borró el worktree de carpeta con trabajo sin
   // commitear adentro. Se recuperan con recover; con conCambios se descartan.
-  for (const x of rescuesOf(project, r)) {
+  for (const x of saved) {
     const label = `${x.name} de ${path.basename(x.repo)} (${x.ref}, rama ${x.branch})`;
     const files = `${x.count} archivo(s) sin commitear (${x.files.slice(0, 3).join(', ')}${x.count > 3 ? ', …' : ''})`;
     if (conCambios) items.push({ what: 'rescate', label, size: 0, action: `se descarta, con sus ${files}`, run: () => rescate.discard(x.repo, x.name) });
@@ -218,11 +230,24 @@ function recover(project, slug) {
     console.log(`${slug}: no tiene trabajo rescatado sin su worktree`);
     return 0;
   }
+  // En una carpeta, el rescate de un worktree de carpeta se recupera con la carpeta entera: el worktree
+  // vuelve a crearse, con sus repos adentro, y cada rescate se aplica en el suyo.
+  const main = loadProject(I.mainRoot(project)) || project;
+  const base = path.join(main.root, DIR);
+  const folders = new Map();
   let failed = false;
   for (const x of all) {
-    const res = rescate.recover(x.repo, x);
+    if (main.kind === 'folder' && x.worktree && inside(path.resolve(x.worktree), base)) folders.set(x.name, [...(folders.get(x.name) || []), x]);
+    else {
+      const res = rescate.recover(x.repo, x);
+      failed = failed || !res.ok;
+      console.log(res.line);
+    }
+  }
+  for (const [name, list] of folders) {
+    const res = carpeta().recoverFolder(main, name, list);
     failed = failed || !res.ok;
-    console.log(res.line);
+    for (const l of res.lines) console.log(l);
   }
   return failed ? 1 : 0;
 }
