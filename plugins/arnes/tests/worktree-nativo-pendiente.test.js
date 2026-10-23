@@ -48,7 +48,7 @@ test('pending lista los worktrees nativos con commits sin subir o cambios sin co
 
 test('el guard niega git worktree remove con el enlace vivo; ExitWorktree lo deja salvo trabajo sin subir', () => {
   const { dir, wt } = repo();
-  assert.match(reason(guard(dir, `git worktree remove ${wt}`)), /tiene enlaces del arnés .*node_modules/);
+  assert.match(reason(guard(dir, `git worktree remove "${wt}"`)), /tiene enlaces del arnés .*node_modules/);
   assert.equal(exitWorktree(wt).out, null, 'Claude Code borra solo el enlace: sin trabajo sin subir, puede borrarlo');
   h.write(wt, 'src/b.ts', 'b\n');
   h.commitAll(wt, 'trabajo');

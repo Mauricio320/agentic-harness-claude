@@ -48,7 +48,20 @@ test('segments: el cuerpo de un heredoc y de un here-string de PowerShell no es 
   assert.deepEqual(segments(heredoc), ['cat > nota.md <<HEREDOC', 'git status']);
   assert.deepEqual(segments('cat <<-FIN\n\tgit push -f\n\tFIN\necho ok'), ['cat <<HEREDOC', 'echo ok']);
   const ps = "$m = @'\ngit reset --hard\n'@\nWrite-Output $m";
-  assert.deepEqual(segments(ps), ["$m = ''", 'Write-Output $m']);
+  assert.deepEqual(segments(ps, 'powershell'), ["$m = ''", 'Write-Output $m']);
+});
+
+test('segments: una comilla escapada dentro de comillas no cierra, con los escapes de bash y de PowerShell', () => {
+  assert.deepEqual(segments('echo "hola \\" && rm -rf /"'), ['echo "hola \\" && rm -rf /"']);
+  assert.deepEqual(segments('git commit -m "fix: \\"a; b\\""'), ['git commit -m "fix: \\"a; b\\""']);
+  assert.deepEqual(command('git commit -m "fix: \\"a; b\\""').args, ['commit', '-m', 'fix: "a; b"']);
+  assert.deepEqual(segments("echo $'it\\'s; ok' && echo a\\;b"), ["echo $'it\\'s; ok'", 'echo a\\;b']);
+  assert.deepEqual(segments('echo "hola `" && rm -rf /"', 'powershell'), ['echo "hola `" && rm -rf /"']);
+  assert.deepEqual(segments('git commit -m "fix: `"a; b`""', 'powershell'), ['git commit -m "fix: `"a; b`""']);
+  assert.deepEqual(command('git commit -m "fix: `"a; b`""', 'powershell').args, ['commit', '-m', 'fix: "a; b"']);
+  assert.deepEqual(segments('Write-Output "di ""hola""; ya"; Write-Output \'it\'\'s; ok\'', 'powershell'), ['Write-Output "di ""hola""; ya"', "Write-Output 'it''s; ok'"]);
+  assert.deepEqual(segments('Get-Content "C:\\x\\" ; Remove-Item y', 'powershell'), ['Get-Content "C:\\x\\"', 'Remove-Item y'], 'en PowerShell la \\ es un carácter más');
+  assert.deepEqual(segments('cat <<EOF\nrm -rf /\nEOF', 'powershell'), ['cat <<EOF', 'rm -rf /', 'EOF'], 'PowerShell no tiene heredoc');
 });
 
 test('command: salta asignaciones de entorno, envoltorios y paréntesis de subshell', () => {
@@ -226,6 +239,17 @@ test('PowerShell: here-string con texto de git pasa; reset --hard real se bloque
   const ps = "$msg = @'\ngit reset --hard\ngit push --force\n'@\nWrite-Output $msg";
   assert.ok(!denied(guard(api, ps, { tool: 'PowerShell' })));
   assert.ok(denied(guard(api, 'Set-Location src; git reset --hard', { tool: 'PowerShell' })));
+  assert.ok(denied(guard(api, 'cat <<EOF\ngit reset --hard\nEOF', { tool: 'PowerShell' })), 'en PowerShell no hay heredoc: la línea corre');
+});
+
+test('una comilla escapada no esconde ni inventa un comando: cada shell con sus escapes', () => {
+  const { api } = folder();
+  assert.ok(!denied(guard(api, 'echo "hola \\" && git reset --hard"')), 'el && está dentro de las comillas');
+  assert.ok(denied(guard(api, 'echo "hola \\"" && git reset --hard')));
+  assert.ok(!denied(guard(api, 'echo "hola `" ; git reset --hard"', { tool: 'PowerShell' })));
+  assert.ok(denied(guard(api, 'echo "hola `"" ; git reset --hard', { tool: 'PowerShell' })));
+  assert.ok(denied(guard(api, 'powershell -Command "echo hola; git reset --hard"')), 'el anidado se parte con los escapes de PowerShell');
+  assert.ok(!denied(guard(api, 'bash -c "echo \\"x; git reset --hard\\""')));
 });
 
 test('branch -D: deniega una rama con commits sin mergear y permite una ya integrada', () => {
@@ -305,21 +329,57 @@ test('cat, type, Get-Content y head de un secreto se deniegan, haya o no manifie
   assert.match(reason(guard(dir, 'cat .env')), /^arnes guard: cat \.env: es un archivo \.env\. Los secretos no entran al transcript\.[\s\S]*\.env\.example/);
 });
 
-test('solo se juzgan los archivos que leen: escribir un .env, mencionarlo o leer .env.example pasa', () => {
+test('cualquier comando que nombre un secreto se deniega, no solo los lectores, con el contenido enmascarado', () => {
+  const dir = h.tmp('guard-nombra');
+  h.repo(dir, { 'a.ts': 'a\n' });
+  h.write(dir, '.env', 'API_KEY=supersecreto\n');
+  for (const cmd of [
+    'tail -n 3 .env',
+    'more .env',
+    'sed -n 1p .env',
+    'grep KEY .env',
+    'awk 1 .env.local',
+    "node -e \"console.log(require('fs').readFileSync('.env', 'utf8'))\"",
+    'node --env-file=.env -e "console.log(process.env)"',
+    'cp .env copia.txt',
+    'base64 ~/.ssh/id_rsa',
+    'echo "nunca hagas cat .env"',
+    'ls .env | xargs cat',
+    'ls $(cat .env)',
+    'ls `cat .env`',
+  ]) {
+    assert.ok(denied(guard(dir, cmd)), cmd);
+  }
+  for (const cmd of ['Select-String KEY .env', 'Get-Content .env | Select-Object -First 1', 'gci .env | Get-Content', "node -e \"require('fs').readFileSync('.env')\""]) {
+    assert.ok(denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
+  }
+  const r = reason(guard(dir, 'tail -n 3 .env'));
+  assert.match(r, /^arnes guard: tail \.env: es un archivo \.env\. Los secretos no entran al transcript\./);
+  assert.match(r, /API_KEY/);
+  assert.doesNotMatch(r, /supersecreto/);
+});
+
+test('pasan ls, dir y rm de un secreto, escribirlo por redirección y leer .env.example', () => {
   const dir = h.tmp('guard-leer-ok');
   h.repo(dir, { 'a.ts': 'a\n' });
   for (const cmd of [
+    'ls -la .env',
+    'ls .env*',
+    'dir .env',
+    'rm -f .env.local',
     'cat .env.example',
     'cat README.md src/a.ts',
     "cat > .env <<'EOF'\nAPI_KEY=x\nEOF",
     'cat >> .env.local <<EOF\nX=1\nEOF',
-    'echo "nunca hagas cat .env"',
-    'grep -rn "cat .env" docs',
+    'echo X=1 >> .env',
     'cat <<EOF\ncat .env\nEOF',
     'head -n 5 deploy/id_ed25519.pub',
     'type git',
   ]) {
     assert.ok(!denied(guard(dir, cmd)), cmd);
+  }
+  for (const cmd of ['Get-ChildItem .env', 'gci -Force .env*', 'Remove-Item .env.local', 'dir .env', 'Get-Content .env.example', "Write-Output 'X=1' > .env"]) {
+    assert.ok(!denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
   }
 });
 

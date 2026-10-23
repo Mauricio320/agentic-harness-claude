@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 // PreToolUse sobre Bash y PowerShell (docs/PLAN.md §6.2). Parte el comando en segmentos con
-// lib/shell.js y juzga cada uno solo por el ejecutable con que empieza: nunca mira el cuerpo de
-// un heredoc ni los argumentos de echo o grep. De cat, type, Get-Content (gc) y head mira solo
-// los archivos que leen, nunca texto libre. El directorio de cada segmento sigue los cd
-// anteriores y el -C de git, a partir del cwd del JSON de entrada (nunca CLAUDE_PROJECT_DIR).
+// lib/shell.js, con las comillas y los escapes del shell de la herramienta (bash para Bash,
+// PowerShell para PowerShell; el de un bash -c o un powershell -Command anidado, el suyo), y juzga
+// cada uno por el ejecutable con que empieza: nunca mira el cuerpo de un heredoc. El directorio de
+// cada segmento sigue los cd anteriores y el -C de git, a partir del cwd del JSON de entrada (nunca
+// CLAUDE_PROJECT_DIR).
 //
 // Deniega siempre, haya o no manifiesto:
 //   git reset --hard · git push forzado (--force, -f, --force-with-lease, refspec +) ·
 //   git clean -f · git branch -D de una rama con commits fuera de su destino ·
 //   git worktree remove de un worktree cuya rama tiene commits fuera de su destino ·
-//   cat, type, Get-Content o head de un archivo de secretos (los de read-guard.js: .env y
-//   variantes salvo .env.example, ~/.ssh, ~/.aws, credenciales, llaves, tokens; con manifiesto,
-//   además secretPaths). La negativa trae el .env enmascarado, como la de read-guard.js (lib/env-mask.js)
+//   cualquier comando cuyos argumentos nombren la ruta de un archivo de secretos (los de
+//   read-guard.js: .env y variantes salvo .env.example, ~/.ssh, ~/.aws, credenciales, llaves,
+//   tokens; con manifiesto, además secretPaths), también dentro de un argumento, como el código de
+//   un node -e o el --env-file=.env de una opción. No depende de una lista de lectores: tail, more,
+//   sed, grep o Select-String caen igual que cat. Solo pasan ls, dir y rm (y Get-ChildItem y
+//   Remove-Item, que son lo mismo en PowerShell), que no muestran el contenido, salvo que su salida
+//   vaya a otro comando por una tubería o el argumento lleve una sustitución ($(...), <(...) o un
+//   backtick). El destino de una redirección de salida (> .env) no cuenta: escribir no lo muestra.
+//   La negativa trae el .env enmascarado, como la de read-guard.js (lib/env-mask.js)
 // El destino de una rama es el registrado en .tmp/harness/worktrees.json si es de un worktree
 // abierto del registro; si no, la rama por defecto del workspace.
 // Deniega solo con manifiesto:
@@ -32,7 +39,7 @@ const os = require('os');
 const path = require('path');
 const { run, deny } = require('../lib/hook.js');
 const { append } = require('../lib/timeline.js');
-const { segments, command, nestedCommand, tokenize } = require('../lib/shell.js');
+const { pieces, command, nestedCommand, tokenize } = require('../lib/shell.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git, lines } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
@@ -44,7 +51,7 @@ const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
-const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head']);
+const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item']);
 const RUNNERS = [['npx'], ['bunx'], ['pnpm', 'exec'], ['pnpm', 'dlx'], ['yarn'], ['npm', 'exec']];
 
 // Git Bash escribe C:\x como /c/x; ~ es el home.
@@ -186,27 +193,25 @@ function judgeGit(args, dir) {
 
 // ---------- lectura de secretos ----------
 
-// Los archivos que lee un cat, type, Get-Content o head: sus argumentos sin opciones, sin el
-// destino de una redirección de salida y sin el marcador de heredoc. Un `cat < .env` también lee.
-function readTargets(args) {
+// Las rutas que nombra un comando: cada pedazo de cada argumento que puede ser una ruta, sin el
+// destino de una redirección de salida ni el marcador de heredoc. Un `cat < .env` también la nombra.
+function namedPaths(args) {
   const out = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (/^[0-9&]?>>?$/.test(a)) i++;
-    else if (!/^[0-9&]?>/.test(a) && !a.startsWith('-') && a !== '<<HEREDOC') out.push(a.replace(/^</, ''));
+    else if (!/^[0-9&]?>/.test(a) && a !== '<<HEREDOC') out.push(...a.replace(/^</, '').split(/[\s'"`()[\]{},;=|&<>$]+/).filter(Boolean));
   }
-  return out.filter(Boolean);
+  return out;
 }
 
-function judgeRead(cmd, dir) {
+function judgeSecrets(cmd, piece, dir) {
   const { project } = workspaceAt(dir);
-  for (const a of readTargets(cmd.args)) {
-    const why = secretPath(toPath(dir, a), project);
-    if (!why) continue;
-    const shown = maskedFile(toPath(dir, a), project);
-    return `${cmd.raw} ${a}: ${why}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
-  }
-  return null;
+  const hit = namedPaths(cmd.args).map((p) => ({ p, abs: toPath(dir, p) })).find((x) => secretPath(x.abs, project));
+  if (!hit) return null;
+  if (LISTERS.has(cmd.exe) && piece.sep !== '|' && !/\$\(|<\(|`/.test(piece.text)) return null;
+  const shown = maskedFile(hit.abs, project);
+  return `${cmd.raw} ${hit.p}: ${secretPath(hit.abs, project)}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
 }
 
 // ---------- forbidden del manifiesto ----------
@@ -271,10 +276,10 @@ function noteGraph(cmd, dir) {
 
 // ---------- recorrido ----------
 
-function judge(text, dir, depth = 0) {
+function judge(text, dir, depth = 0, dialect = 'bash') {
   let cwd = dir;
-  for (const seg of segments(text)) {
-    const cmd = command(seg);
+  for (const piece of pieces(text, dialect)) {
+    const cmd = command(piece.text, dialect);
     if (!cmd) continue;
     if (CD.has(cmd.exe)) {
       const target = cmd.args.find((a) => !a.startsWith('-') && a.toLowerCase() !== '/d');
@@ -283,12 +288,12 @@ function judge(text, dir, depth = 0) {
     }
     const nested = depth < 3 ? nestedCommand(cmd) : null;
     if (nested) {
-      const why = judge(nested, cwd, depth + 1);
+      const why = judge(nested.text, cwd, depth + 1, nested.dialect);
       if (why) return why;
       continue;
     }
     noteGraph(cmd, cwd);
-    const why = (READERS.has(cmd.exe) && judgeRead(cmd, cwd)) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
+    const why = judgeSecrets(cmd, piece, cwd) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }
   return null;
@@ -300,7 +305,7 @@ if (require.main === module) {
   run('guard', (input) => {
     const text = input.tool_input && input.tool_input.command;
     if (!text) return null;
-    const why = judge(text, path.resolve(input.cwd || process.cwd()));
+    const why = judge(text, path.resolve(input.cwd || process.cwd()), 0, input.tool_name === 'PowerShell' ? 'powershell' : 'bash');
     return why ? deny(`arnes guard: ${why}`) : null;
   });
 }

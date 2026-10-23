@@ -15,6 +15,8 @@ Ronda de consolidación: no agrega funciones; quita turnos, duplicación y hueco
 
 ### Corregido
 - El `node --test` de un repo corre sin las variables `NODE_TEST_*` heredadas, que dentro de otro `node --test` le impedían correr sus archivos.
+- El guard entiende una comilla escapada dentro de comillas, con los escapes del shell que corre el comando: `\"` en bash, `` `" `` y `""` en PowerShell, `^` en un `cmd /c`. `echo "hola \" && rm -rf /"` es un solo comando y `git commit -m "fix: \"a; b\""` también; en PowerShell un `<<EOF` no es heredoc.
+- La protección de secretos por shell ya no depende de una lista de lectores: se niega cualquier comando cuyos argumentos nombren un archivo de secretos, también dentro de un argumento (`node -e`, `--env-file=.env`), con el contenido enmascarado en el motivo. `tail`, `more`, `sed`, `grep`, `Select-String` y `node -e` caen igual que `cat`. Solo pasan `ls`, `dir` y `rm` (y `Get-ChildItem` y `Remove-Item`), sin tubería ni sustitución, y escribir por redirección (`> .env`).
 
 ## [0.6.9] - sin etiquetar
 

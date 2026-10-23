@@ -165,7 +165,7 @@ test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nad
   assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /no borro este worktree: api tiene 1 archivo\(s\) sin commitear \(src\/a\.ts\), y se perderían/);
   assert.doesNotMatch(r.out.hookSpecificOutput.permissionDecisionReason, /arnes-trabajo-pendiente/, 'el marcador no es trabajo del repo de carpeta');
   assert.ok(isLink(path.join(wt, 'api', 'node_modules')), 'no tocó nada');
-  const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove ${path.join(wt, 'api')}` }, cwd: path.join(root, 'api') }) });
+  const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove "${path.join(wt, 'api')}"` }, cwd: path.join(root, 'api') }) });
   assert.match(g.stdout, /enlaces del arnés|enlace/, 'a mano, el guard niega borrar un repo traído con su enlace vivo');
   const commit = h.commitAll(path.join(wt, 'api'), 'feat: cambio');
   stop(wt);
@@ -317,7 +317,7 @@ test('el guard niega un git worktree remove del worktree de carpeta mientras ten
   const root = folder();
   const wt = h.nativeWorktree(root, 'talleres');
   start(wt);
-  const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove --force ${wt}` }, cwd: root }) });
+  const g = h.run('hooks/guard.js', [], { input: JSON.stringify({ tool_input: { command: `git worktree remove --force "${wt}"` }, cwd: root }) });
   assert.match(g.stdout, /enlace/);
   assert.match(g.stdout, /api/);
 });
