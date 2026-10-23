@@ -4,6 +4,9 @@
 // declara commands.typecheckFast, lo corre también, como mucho una vez cada 20 s por workspace;
 // sin esa variante el typecheck completo queda para verify, porque un tsc de un minuto después
 // de cada edición destruye la sesión. Nunca bloquea.
+// En el worktree de una carpeta, además, guarda el rescate de lo que quedó sin commitear en sus repos
+// y pone o quita el marcador (worktree-carpeta.js protect), como mucho una vez por minuto: lo escrito
+// después del último Stop también sobrevive si Claude Code borra la carpeta a mitad de un turno.
 //
 // Sale en silencio si: no hay manifiesto subiendo desde el cwd, el archivo no pertenece a ningún
 // workspace, el workspace no es adoptable, el archivo no cae en codeGlobs o ya no existe, o el
@@ -21,6 +24,7 @@ const { runExpanded, tail } = require('../lib/exec.js');
 const tb = require('../typecheck-baseline.js');
 
 const DEBOUNCE_MS = 20 * 1000;
+const RESCUE_MS = 60 * 1000;
 const MAX_CHARS = 4000;
 
 function lint(ws, rel) {
@@ -59,12 +63,34 @@ function typecheckFast(project, ws, rel, now) {
   return `typecheckFast en ${ws.name}: ${diags.length} diagnóstico(s), ${own.length} en ${rel}:\n${shown.join('\n')}`;
 }
 
+// El rescate del worktree de carpeta, como mucho una vez por minuto: la marca va antes, para que dos
+// ediciones seguidas no lo corran dos veces. Nunca falla hacia afuera.
+function rescue(project, cwd, now) {
+  if (project.kind !== 'folder') return;
+  const carpeta = require('../worktree-carpeta.js');
+  if (!carpeta.folderWorktree(cwd)) return;
+  const file = path.join(harnessDir(project), 'rescate-edicion.json');
+  try {
+    if (now - Date.parse(JSON.parse(fs.readFileSync(file, 'utf8')).at) < RESCUE_MS) return;
+  } catch {
+    /* sin marca: toca */
+  }
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ at: new Date(now).toISOString() }));
+    carpeta.protect(cwd);
+  } catch {
+    /* el rescate nunca frena una edición */
+  }
+}
+
 function afterEdit(input, now = Date.now()) {
   const filePath = input.tool_input && (input.tool_input.file_path || input.tool_input.path);
   if (!filePath) return null;
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
+  rescue(project, cwd, now);
   const hit = resolveWorkspace(project, path.resolve(cwd, filePath));
   if (!hit || !hit.ws.adoptable || !matchAny(hit.ws.codeGlobs, hit.rel)) return null;
   if (!fs.existsSync(path.join(hit.ws.dir, hit.rel))) return null;
@@ -74,7 +100,7 @@ function afterEdit(input, now = Date.now()) {
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n[… recortado]` : text;
 }
 
-module.exports = { DEBOUNCE_MS, afterEdit };
+module.exports = { DEBOUNCE_MS, RESCUE_MS, afterEdit };
 
 if (require.main === module) {
   run('after-edit', (input) => context('PostToolUse', afterEdit(input)));

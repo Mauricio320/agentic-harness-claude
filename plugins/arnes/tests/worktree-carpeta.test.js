@@ -401,3 +401,25 @@ test('antes de borrar el worktree de carpeta, ExitWorktree y clean paran la app 
   assert.ok(!fs.existsSync(wt), 'clean borró la carpeta entera');
   for (const name of ['api', 'web']) assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue`);
 });
+
+test('una edición en el worktree de carpeta también guarda el rescate, como mucho una vez por minuto', () => {
+  const root = folder({ deps: false });
+  const wt = h.nativeWorktree(root, 'talleres');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Talleres\n');
+  const edit = (file) => h.hook('after-edit', { hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(wt, file) }, cwd: wt });
+  const api = path.join(root, 'api');
+  const ref = () => h.git(api, 'for-each-ref', '--format=%(objectname)', 'refs/arnes/rescate/talleres');
+  h.write(wt, 'api/src/a.ts', 'primera edición\n');
+  edit('api/src/a.ts');
+  const first = ref();
+  assert.ok(first, 'sin esperar al Stop, la edición ya dejó el rescate');
+  assert.ok(fs.existsSync(path.join(wt, MARKER)), 'y el marcador');
+  h.write(wt, 'api/src/a.ts', 'segunda edición\n');
+  edit('api/src/a.ts');
+  assert.equal(ref(), first, 'dentro del minuto no lo vuelve a escribir');
+  fs.writeFileSync(path.join(wt, '.tmp', 'harness', 'rescate-edicion.json'), JSON.stringify({ at: new Date(Date.now() - 61 * 1000).toISOString() }));
+  edit('api/src/a.ts');
+  assert.notEqual(ref(), first, 'pasado el minuto, sí');
+  assert.equal(h.git(api, 'show', 'refs/arnes/rescate/talleres:src/a.ts'), 'segunda edición');
+});
