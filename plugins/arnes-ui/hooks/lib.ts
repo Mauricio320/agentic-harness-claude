@@ -10,8 +10,6 @@ export type Col = 'tsc' | 'tests'
 export type Probe = { label: string; ws?: string; col?: Col; gate?: boolean }
 
 const SCRIPTS = /[\\/]scripts[\\/](ci-gate|verify|typecheck-baseline|test-select)\.js/
-// Los scripts del plugin base que anotan la timeline o la bandera: después de correr uno, se relee.
-export const WRITERS = /[\\/]scripts[\\/](lib[\\/]timeline|plan-state|build|verify|review|ship|gate-flag|ci-gate)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
   memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', timeline: null,

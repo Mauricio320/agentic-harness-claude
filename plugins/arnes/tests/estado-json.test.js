@@ -140,3 +140,32 @@ test('ningún mod reimplementa el manifiesto, la timeline ni los globs del plugi
   ];
   for (const [file, text] of sources) for (const [re, why] of banned) assert.doesNotMatch(text, re, `${file} ${why}`);
 });
+
+test('vigia.js: al arrancar dice la timeline y el gate; con fs.watch, una línea por cambio con las entradas nuevas; el respaldo lento repite el gate', async () => {
+  const { watch } = require('../scripts/vigia.js');
+  const { loadProject } = require('../scripts/lib/manifest.js');
+  const root = folder();
+  const seen = [];
+  const stop = watch(loadProject(root), 0, { out: (o) => seen.push(o), debounce: 20, fallback: 400 });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (fn, ms = 3000) => {
+    for (const end = Date.now() + ms; Date.now() < end; await wait(25)) if (fn()) return true;
+    return false;
+  };
+  try {
+    assert.deepEqual(seen.map((o) => o.tipo), ['timeline', 'gate']);
+    assert.deepEqual(seen[0].events, []);
+    tl.append(root, { event: 'start', stage: 'plan' });
+    assert.ok(await until(() => seen.some((o, i) => i > 1 && o.tipo === 'timeline')), 'fs.watch trajo la timeline');
+    const t = seen.filter((o) => o.tipo === 'timeline').pop();
+    assert.deepEqual(t.events.map((e) => `${e.event} ${e.stage}`), ['start plan']);
+    const gates = () => seen.filter((o) => o.tipo === 'gate').length;
+    const before = gates();
+    h.write(root, '.tmp/harness/gate/api.json', '{}');
+    assert.ok(await until(() => gates() > before), 'la carpeta del gate');
+    const after = gates();
+    assert.ok(await until(() => gates() > after, 1500), 'el respaldo lento vuelve a decir el gate');
+  } finally {
+    stop();
+  }
+});
