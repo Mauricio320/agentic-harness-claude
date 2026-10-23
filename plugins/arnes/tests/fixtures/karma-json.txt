@@ -1,0 +1,21 @@
+{
+  "browsers": {
+    "51262144": {
+      "id": "51262144",
+      "fullName": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/130.0.0.0 Safari/537.36",
+      "name": "Chrome Headless 130.0.0.0 (Windows 10)",
+      "state": "EXECUTING",
+      "lastResult": { "success": 2, "failed": 1, "skipped": 1, "total": 4, "totalTime": 41, "netTime": 23, "error": false, "disconnected": false },
+      "launchId": 1
+    }
+  },
+  "result": {
+    "51262144": [
+      { "id": "spec0", "description": "crea el taller", "suite": ["TalleresComponent", "formulario"], "success": true, "skipped": false, "time": 12, "log": [] },
+      { "id": "spec1", "description": "valida el cupo", "suite": ["TalleresComponent", "formulario"], "success": false, "skipped": false, "time": 8, "log": ["Expected false to be true."] },
+      { "id": "spec2", "description": "exporta a excel", "suite": ["TalleresComponent"], "success": false, "skipped": true, "time": 0, "log": [] },
+      { "id": "spec3", "description": "calcula los cupos libres", "suite": ["CuposService"], "success": true, "skipped": false, "time": 3, "log": [] }
+    ]
+  },
+  "summary": { "success": 2, "failed": 1, "skipped": 1, "error": false, "disconnected": false, "exitCode": 1 }
+}

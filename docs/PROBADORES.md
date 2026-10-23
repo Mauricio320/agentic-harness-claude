@@ -103,9 +103,63 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
    ```
 
    Con tu respuesta escribe todo, lo valida y cierra en pocas líneas: qué quedó escrito, lo que te toca (commitear la configuración de cada repo en su repo y subir el repo de carpeta) y cómo sigues: "escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship". En una carpeta con back y front, el contract hace que ship sepa que el back va primero.
-4. Lo determinista de la adopción entra en esa misma ronda: probar que la salida del test se lea (y el flag que falta, `--verbose` o `--reporters=default`), quitar los hooks del arnés anterior, los permisos de §3, el `CLAUDE.md` de la carpeta y, con el árbol limpio, la línea base de tests con los rojos que ya había anotados en `tests/known-failures.txt` con la fecha de hoy. init no commitea: la línea base y las fallas conocidas las commiteas tú, con `gates:` al inicio del asunto.
+4. Lo determinista de la adopción entra en esa misma ronda: probar que el arnés lea cada test (con jest, vitest y `node --test` no hace falta nada; con otro runner, el punto 7), quitar los hooks del arnés anterior, los permisos de §3, el `CLAUDE.md` de la carpeta y, con el árbol limpio, la línea base de tests con los rojos que ya había anotados en `tests/known-failures.txt` con la fecha de hoy. init no commitea: la línea base y las fallas conocidas las commiteas tú, con `gates:` al inicio del asunto.
 5. En una carpeta multi-repo, haz de la carpeta un repo (`git init`), commitea lo que escribió init y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
 6. `/arnes:init --check` corre las ocho comprobaciones del mínimo de adopción (`docs/PLAN.md` §8). Cada una sale `ok`, `FALTA`, `MANUAL` (configuración del host git que no se ve desde local) o `NO ADOPTABLE` (un repo sin manifiesto propio, como uno PHP, que no bloquea).
+7. **Si tus tests no son jest, vitest ni `node --test`.** El arnés lee los resultados de cada test (archivo, nombre completo y si pasó, falló o se saltó) para compararlos con la línea base. Con esos tres lo hace solo. Con otro runner, el repo declara en su manifiesto `commands.testJson`: un comando que corre los specs que recibe en `{specs}` e imprime por stdout `{ "tests": [{ "file", "name", "status" }], "summary": { "pasa", "falla", "saltado", "total" } }`, con `status` `pasa`, `falla` o `saltado`, `file` relativo al repo y `name` con ` › ` entre cada describe y el test. Si está, el arnés lo usa en vez de `commands.test`. Para Angular con Karma:
+
+   - Instala `karma-json-reporter` y súmalo en `karma.conf.js`: `require('karma-json-reporter')` en `plugins`, `'json'` en `reporters` y `jsonReporter: { stdout: false, outputFile: '.tmp/karma-result.json' }`.
+   - Guarda el adaptador en `scripts/karma-contract.js` y declara `"testJson": "node scripts/karma-contract.js {specs}"`. Corre `ng test` una vez con un `--include` por spec, y saca el archivo de cada test del `describe` raíz de su spec, porque Karma no lo informa: cada spec necesita un `describe` raíz propio, como el nombre del componente o del servicio.
+
+   ```js
+   // Adaptador de Karma para el arnés: corre ng test con los specs que recibe y deja por stdout el contrato de resultados.
+   'use strict';
+   const { spawnSync } = require('child_process');
+   const fs = require('fs');
+   const path = require('path');
+
+   const OUT = path.resolve('.tmp/karma-result.json');
+   const specs = process.argv.slice(2);
+   fs.rmSync(OUT, { force: true });
+   const run = spawnSync('npx', ['ng', 'test', '--watch=false', '--browsers=ChromeHeadless', ...specs.map((s) => `--include=${s}`)], { stdio: ['ignore', 2, 2], shell: true });
+   if (!fs.existsSync(OUT)) {
+     console.error('karma no dejó .tmp/karma-result.json: revisa jsonReporter en karma.conf.js');
+     process.exit(2);
+   }
+   const karma = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+   const files = specs.length ? specs : spawnSync('git', ['ls-files', '*.spec.ts'], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean);
+   const owner = new Map();
+   for (const file of files) {
+     const m = fs.readFileSync(file, 'utf8').match(/\bdescribe\(\s*(['"`])(.+?)\1/);
+     if (m) owner.set(m[2], owner.has(m[2]) ? null : file);
+   }
+   const tests = [];
+   for (const entries of Object.values(karma.result || {})) {
+     for (const e of entries) {
+       const file = owner.get(e.suite[0]);
+       if (!file) {
+         console.error(`no encuentro un único spec con describe('${e.suite[0]}')`);
+         process.exit(2);
+       }
+       tests.push({ file, name: [...e.suite, e.description].join(' › '), status: e.skipped ? 'saltado' : e.success ? 'pasa' : 'falla' });
+     }
+   }
+   const summary = { pasa: 0, falla: 0, saltado: 0, total: 0 };
+   for (const b of Object.values(karma.browsers || {})) {
+     summary.pasa += b.lastResult.success;
+     summary.falla += b.lastResult.failed;
+     summary.saltado += b.lastResult.skipped;
+   }
+   if (karma.summary && (karma.summary.error || karma.summary.disconnected)) {
+     tests.push({ file: 'karma.conf.js', name: 'Test suite failed to run', status: 'falla' });
+     summary.falla += 1;
+   }
+   summary.total = summary.pasa + summary.falla + summary.saltado;
+   console.log(JSON.stringify({ tests, summary }));
+   process.exit(run.status == null ? 1 : run.status);
+   ```
+
+   Con eso, `/arnes:init` comprueba que el arnés lea los tests y captura la línea base como con jest. Sin `testJson`, el arnés solo ve si el comando salió bien o mal, y con una línea base el gate queda en rojo hasta declararlo.
 
 ## 5. Qué vas a ver
 

@@ -122,24 +122,49 @@ process.stdout.write(out);
 process.exit(fs.existsSync('tsc-exit.txt') ? Number(fs.readFileSync('tsc-exit.txt', 'utf8')) : /error TS/.test(out) ? 2 : 0);
 `;
 
-// jest falso con la salida de jest 30 (íconos de Windows en win32, como el real). Cada spec es una
-// línea por test: estado|describe|nombre, con estado pass, fail o skip; una línea "crash" hace que
-// la suite no llegue a correr. Con --verbose imprime el árbol; sin él, solo cabeceras y fallas.
+// jest falso con la salida de jest 30 (íconos de Windows en win32, como el real); sirve también de
+// vitest, que da el mismo JSON. Cada spec es una línea por test: estado|describe|nombre, con estado
+// pass, fail o skip; una línea "crash" hace que la suite no llegue a correr. Con --json o
+// --reporter=json arma el JSON de jest --json y lo escribe en --outputFile (o --outputFile.json), o
+// por stdout si no hay archivo; con --verbose, el árbol; sin nada, solo cabeceras y fallas.
 const FAKE_JEST = `const fs = require('fs');
+const path = require('path');
 const win = process.platform === 'win32';
 const I = { pass: win ? '\\u221a' : '\\u2713', fail: win ? '\\u00d7' : '\\u2715', skip: '\\u25cb' };
 const verbose = process.argv.includes('--verbose');
-const specs = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const asJson = process.argv.includes('--json') || process.argv.includes('--reporter=json');
+const outArg = process.argv.find((a) => /^--outputFile(\\.json)?=/.test(a));
+const outFile = outArg && outArg.slice(outArg.indexOf('=') + 1);
+const toStdout = asJson && !outFile;
+const specs = process.argv.slice(2).filter((a) => !a.startsWith('--') && a !== 'run');
 const c = { pass: 0, fail: 0, skip: 0 };
 let broken = false;
+const testResults = [];
 for (const s of specs) {
   const rows = fs.readFileSync(s, 'utf8').split(/\\r?\\n/).filter(Boolean).map((l) => l.split('|'));
   if (rows.some((r) => r[0] === 'crash')) {
-    console.log('FAIL ' + s + '\\n  \\u25cf Test suite failed to run\\n\\n    boom\\n');
     broken = true;
+    testResults.push({ name: path.resolve(s), status: 'failed', message: 'Test suite failed to run\\n\\n  boom', assertionResults: [] });
+    if (!toStdout) console.log('FAIL ' + s + '\\n  \\u25cf Test suite failed to run\\n\\n    boom\\n');
     continue;
   }
-  console.log((rows.some((r) => r[0] === 'fail') ? 'FAIL ' : 'PASS ') + s + ' (1.2 s)');
+  const suiteFail = rows.some((r) => r[0] === 'fail');
+  const assertions = [];
+  for (const r of rows) {
+    c[r[0]]++;
+    const ancestors = r[1] ? r[1].split(' \\u203a ') : [];
+    const status = r[0] === 'pass' ? 'passed' : r[0] === 'fail' ? 'failed' : 'pending';
+    assertions.push({
+      ancestorTitles: ancestors,
+      title: r[2],
+      fullName: [...ancestors, r[2]].join(' '),
+      status,
+      failureMessages: r[0] === 'fail' ? ['Error: expect(1).toBe(2)'] : [],
+    });
+  }
+  testResults.push({ name: path.resolve(s), status: suiteFail ? 'failed' : 'passed', message: '', assertionResults: assertions });
+  if (toStdout) continue;
+  console.log((suiteFail ? 'FAIL ' : 'PASS ') + s + ' (1.2 s)');
   const groups = new Map();
   for (const r of rows) groups.set(r[1], [...(groups.get(r[1]) || []), r]);
   if (verbose) for (const [d, rs] of groups) {
@@ -148,12 +173,28 @@ for (const s of specs) {
   }
   console.log('');
   for (const r of rows) {
-    c[r[0]]++;
     if (r[0] === 'fail') console.log('  \\u25cf ' + (r[1] ? r[1] + ' \\u203a ' : '') + r[2] + '\\n\\n    expect(1).toBe(2)\\n');
   }
 }
-const parts = [c.fail && c.fail + ' failed', c.skip && c.skip + ' skipped', c.pass + ' passed', c.pass + c.fail + c.skip + ' total'];
-console.log('Tests:       ' + parts.filter(Boolean).join(', '));
+const report = JSON.stringify({
+  success: !broken && !c.fail,
+  numTotalTestSuites: specs.length,
+  numPassedTestSuites: testResults.filter((t) => t.status === 'passed').length,
+  numFailedTestSuites: testResults.filter((t) => t.status === 'failed').length,
+  numPendingTestSuites: 0,
+  numTotalTests: c.pass + c.fail + c.skip,
+  numPassedTests: c.pass,
+  numFailedTests: c.fail,
+  numPendingTests: c.skip,
+  numTodoTests: 0,
+  testResults,
+});
+if (asJson && outFile) fs.writeFileSync(outFile, report);
+if (toStdout) console.log(report);
+else {
+  const parts = [c.fail && c.fail + ' failed', c.skip && c.skip + ' skipped', c.pass + ' passed', c.pass + c.fail + c.skip + ' total'];
+  console.log('Tests:       ' + parts.filter(Boolean).join(', '));
+}
 process.exit(broken || c.fail ? 1 : 0);
 `;
 

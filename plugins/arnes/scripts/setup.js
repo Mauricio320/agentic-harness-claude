@@ -319,7 +319,7 @@ function probe(dir) {
 function baseline(dir, names, write) {
   const project = requireProject(dir);
   let pending = 0;
-  for (const ws of project.workspaces.filter((w) => w.adoptable && w.commands.test && w.specPattern && (!names.length || names.includes(w.name)))) {
+  for (const ws of project.workspaces.filter((w) => w.adoptable && (w.commands.test || w.commands.testJson) && w.specPattern && (!names.length || names.includes(w.name)))) {
     const b = tb.readBaseline(ws);
     const file = rel(ws.dir, b.file);
     const committed = b.data && git(ws.dir, ['ls-files', '--error-unmatch', '--', file]).status === 0;

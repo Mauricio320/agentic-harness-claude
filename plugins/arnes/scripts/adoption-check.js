@@ -2,9 +2,9 @@
 // Mínimo de adopción (docs/PLAN.md §8), por workspace del proyecto que se resuelve desde el cwd:
 //   1. manifiesto válido contra el schema, carpeta y repo git presentes
 //   2. CLAUDE.md (≤ 200 líneas) y .claude/rules/*.md con `paths:` en cada repo; CLAUDE.md raíz en una carpeta
-//   3. commands.typecheck y commands.lint declarados, ejecutables y sin --fix; commands.test, si
-//      está, corre sobre un spec y test-baseline lee su detalle (si no, dice el flag que falta); y
-//      lo que toca una base (scripts y escrituras de prisma, typeorm, knex) está en forbidden
+//   3. commands.typecheck y commands.lint declarados, ejecutables y sin --fix; commands.test o
+//      commands.testJson, si está, corre sobre un spec y test-baseline lee su contrato de resultados;
+//      y lo que toca una base (scripts y escrituras de prisma, typeorm, knex) está en forbidden
 //   4. CI que corre ci-gate; detección de secretos (GitLab); el resto de la configuración del host, a mano
 //   5. riskPaths declaradas; regla de aprobación en el host (CODEOWNERS o a mano)
 //   6. plugin fijado a un tag en .claude/settings.json del proyecto o de un repo, o en el de usuario
@@ -178,8 +178,7 @@ function main() {
       const where = manifestElsewhere(ws.repo);
       if (where.remotes.length) say('FALTA', missingManifest(label, where));
       else say('NO ADOPTABLE', `${missingManifest(label, where)} propio; se declara sin comandos y no bloquea`);
-    }
-    else {
+    } else {
       say('ok', `${label}: carpeta y repo git presentes`);
       wss.push(ws);
     }

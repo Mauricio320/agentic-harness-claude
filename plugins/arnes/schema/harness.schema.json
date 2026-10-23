@@ -95,16 +95,17 @@
       }
     },
     "commands": {
-      "description": "Todo comando es opcional salvo typecheck o test (al menos uno). {files} y {specs} se sustituyen por listas citadas.",
+      "description": "Todo comando es opcional salvo typecheck, test o testJson (al menos uno). {files} y {specs} se sustituyen por listas citadas.",
       "type": "object",
       "additionalProperties": false,
-      "anyOf": [{ "required": ["typecheck"] }, { "required": ["test"] }],
+      "anyOf": [{ "required": ["typecheck"] }, { "required": ["test"] }, { "required": ["testJson"] }],
       "properties": {
         "typecheck": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } },
         "typecheckFast": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" } },
         "lint": { "$ref": "#/$defs/command" },
         "test": { "$ref": "#/$defs/command" },
         "testAll": { "$ref": "#/$defs/command" },
+        "testJson": { "description": "Comando que corre los specs ({specs}) e imprime por stdout el contrato de resultados ($defs.testResultContract) en JSON, para runners que no vienen de serie.", "$ref": "#/$defs/command" },
         "build": { "$ref": "#/$defs/command" },
         "app": { "description": "Lo que levanta la app para probarla (build.js app). Sin él, el script start:dev, dev o start del package.json.", "$ref": "#/$defs/command" }
       }
@@ -214,6 +215,38 @@
         "pass": { "type": "integer", "minimum": 0 },
         "fail": { "type": "integer", "minimum": 0 },
         "skip": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "testResultContract": {
+      "description": "Contrato de resultado estructurado de tests (docs/PLAN.md §6.1): lista de tests con archivo relativo al workspace, nombre completo con › entre describe y test, y estado pasa, falla o saltado, más el resumen con totales.",
+      "type": "object",
+      "required": ["tests", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "name", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "$ref": "#/$defs/relPath" },
+              "name": { "type": "string", "minLength": 1 },
+              "status": { "type": "string", "pattern": "^(pasa|falla|saltado)$" }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": ["pasa", "falla", "saltado", "total"],
+          "additionalProperties": false,
+          "properties": {
+            "pasa": { "type": "integer", "minimum": 0 },
+            "falla": { "type": "integer", "minimum": 0 },
+            "saltado": { "type": "integer", "minimum": 0 },
+            "total": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     },
     "relPath": {

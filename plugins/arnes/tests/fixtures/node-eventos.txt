@@ -1,0 +1,25 @@
+{"type":"test:start","data":{"name":"raíz","nesting":0,"file":"/workspace/src/a.test.js"}}
+{"type":"test:pass","data":{"name":"raíz","nesting":0,"file":"/workspace/src/a.test.js","details":{"type":"test"}}}
+{"type":"test:start","data":{"name":"Factura","nesting":0,"file":"/workspace/src/a.test.js"}}
+{"type":"test:start","data":{"name":"totales","nesting":1,"file":"/workspace/src/a.test.js"}}
+{"type":"test:start","data":{"name":"calcula el neto","nesting":2,"file":"/workspace/src/a.test.js"}}
+{"type":"test:pass","data":{"name":"calcula el neto","nesting":2,"file":"/workspace/src/a.test.js","details":{"type":"test"}}}
+{"type":"test:start","data":{"name":"aplica retención","nesting":2,"file":"/workspace/src/a.test.js"}}
+{"type":"test:fail","data":{"name":"aplica retención","nesting":2,"file":"/workspace/src/a.test.js","details":{"type":"test"}}}
+{"type":"test:fail","data":{"name":"totales","nesting":1,"file":"/workspace/src/a.test.js","details":{"type":"suite"}}}
+{"type":"test:start","data":{"name":"anula","nesting":1,"file":"/workspace/src/a.test.js"}}
+{"type":"test:pass","data":{"name":"anula","nesting":1,"file":"/workspace/src/a.test.js","skip":true,"details":{"type":"test"}}}
+{"type":"test:start","data":{"name":"timbre","nesting":1,"file":"/workspace/src/a.test.js"}}
+{"type":"test:pass","data":{"name":"timbre","nesting":1,"file":"/workspace/src/a.test.js","todo":"pendiente","details":{"type":"test"}}}
+{"type":"test:fail","data":{"name":"Factura","nesting":0,"file":"/workspace/src/a.test.js","details":{"type":"suite"}}}
+{"type":"test:summary","data":{"file":"/workspace/src/a.test.js","counts":{"tests":5,"failed":1,"passed":2,"cancelled":0,"skipped":1,"todo":1,"topLevel":2,"suites":2}}}
+{"type":"test:start","data":{"name":"b sola","nesting":0,"file":"/workspace/src/b.test.js"}}
+{"type":"test:pass","data":{"name":"b sola","nesting":0,"file":"/workspace/src/b.test.js","details":{"type":"test"}}}
+{"type":"test:start","data":{"name":"b padre","nesting":0,"file":"/workspace/src/b.test.js"}}
+{"type":"test:start","data":{"name":"hija","nesting":1,"file":"/workspace/src/b.test.js"}}
+{"type":"test:pass","data":{"name":"hija","nesting":1,"file":"/workspace/src/b.test.js","details":{"type":"test"}}}
+{"type":"test:pass","data":{"name":"b padre","nesting":0,"file":"/workspace/src/b.test.js","details":{"type":"test"}}}
+{"type":"test:summary","data":{"file":"/workspace/src/b.test.js","counts":{"tests":3,"failed":0,"passed":3,"cancelled":0,"skipped":0,"todo":0,"topLevel":2,"suites":0}}}
+{"type":"test:start","data":{"name":"src\\c.test.js","nesting":0,"file":"/workspace/src/c.test.js"}}
+{"type":"test:fail","data":{"name":"src\\c.test.js","nesting":0,"file":"/workspace/src/c.test.js","details":{"type":"test"}}}
+{"type":"test:summary","data":{"counts":{"tests":9,"failed":2,"passed":5,"cancelled":0,"skipped":1,"todo":1,"topLevel":5,"suites":2}}}

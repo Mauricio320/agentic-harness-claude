@@ -58,6 +58,7 @@ function sh(cmd, cwd, env) {
   const r = spawnSync(cmd, { cwd, shell: true, encoding: 'utf8', maxBuffer: MAX_BUFFER, env: env || process.env });
   return {
     status: r.status == null ? -1 : r.status,
+    stdout: r.stdout || '',
     out: (r.stdout || '') + (r.stderr || '') + (r.error ? `${r.error.message}\n` : ''),
   };
 }

@@ -1,0 +1,155 @@
+{
+  "numFailedTestSuites": 2,
+  "numFailedTests": 1,
+  "numPassedTestSuites": 1,
+  "numPassedTests": 4,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 1,
+  "numRuntimeErrorTestSuites": 1,
+  "numTodoTests": 1,
+  "numTotalTestSuites": 3,
+  "numTotalTests": 7,
+  "openHandles": [],
+  "startTime": 1792783417957,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "HealthzService"
+          ],
+          "duration": 4,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "HealthzService should be defined",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "should be defined"
+        },
+        {
+          "ancestorTitles": [
+            "HealthzService",
+            "Hello Healthz"
+          ],
+          "duration": 0,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "HealthzService Hello Healthz getHello",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "getHello"
+        }
+      ],
+      "endTime": 1792783422636,
+      "message": "",
+      "name": "/workspace/src/healthz.spec.js",
+      "startTime": 1792783419358,
+      "status": "passed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [],
+      "endTime": 1792783422695,
+      "message": "  ● Test suite failed to run\n\n    boom al cargar",
+      "name": "/workspace/src/roto.spec.js",
+      "startTime": 1792783422695,
+      "status": "failed",
+      "summary": ""
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "duration": 5,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "raíz sin describe",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "raíz sin describe"
+        },
+        {
+          "ancestorTitles": [
+            "Sonda"
+          ],
+          "duration": 1,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "Sonda debe pasar",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "passed",
+          "title": "debe pasar"
+        },
+        {
+          "ancestorTitles": [
+            "Sonda",
+            "anidado › raro"
+          ],
+          "duration": 2,
+          "failing": false,
+          "failureMessages": [
+            "Error: expect(received).toBe(expected) // Object.is equality"
+          ],
+          "fullName": "Sonda anidado › raro debe fallar",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "debe fallar"
+        },
+        {
+          "ancestorTitles": [
+            "Sonda",
+            "anidado › raro"
+          ],
+          "duration": null,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "Sonda anidado › raro debe saltarse",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "pending",
+          "title": "debe saltarse"
+        },
+        {
+          "ancestorTitles": [
+            "Sonda",
+            "anidado › raro"
+          ],
+          "duration": null,
+          "failing": false,
+          "failureMessages": [],
+          "fullName": "Sonda anidado › raro debe hacerse",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "todo",
+          "title": "debe hacerse"
+        }
+      ],
+      "endTime": 1792783422661,
+      "message": "  ● Sonda › anidado › raro › debe fallar\n\n    expect(received).toBe(expected) // Object.is equality",
+      "name": "/workspace/src/sonda.spec.js",
+      "startTime": 1792783419358,
+      "status": "failed",
+      "summary": ""
+    }
+  ]
+}

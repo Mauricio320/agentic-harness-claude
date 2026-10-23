@@ -1,7 +1,7 @@
 'use strict';
-// Los remates de la prueba de init (docs/PLAN.md §8): el grafo nunca cuenta como código, el flag que
-// falta al comando de test es una pregunta de la ronda, la rama remota que trae la configuración se
-// pregunta, y la línea base con el árbol sucio dice qué estorba.
+// Los remates de la prueba de init (docs/PLAN.md §8): el grafo nunca cuenta como código, el contrato
+// de tests se comprueba en probe, la rama remota que trae la configuración se pregunta, y la línea
+// base con el árbol sucio dice qué estorba.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,11 +19,11 @@ function env() {
   return { [key]: `${BIN}${path.delimiter}${dirs.join(path.delimiter)}`, CLAUDE_CONFIG_DIR: NO_CONFIG };
 }
 
-function repo(test = 'jest {specs} --runTestsByPath', gitignore = '.tmp/\n') {
+function repo(testCmd = 'jest {specs} --runTestsByPath', gitignore = '.tmp/\n', extraCommands = {}) {
   const dir = h.tmp('remates');
   h.repo(dir, {
     '.gitignore': gitignore,
-    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', commands: { typecheck: ['npx tsc --noEmit'], test }, specPattern: '{dir}/{name}.spec.ts' })),
+    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', commands: { typecheck: ['npx tsc --noEmit'], test: testCmd, ...extraCommands }, specPattern: '{dir}/{name}.spec.ts' })),
     'src/a.ts': 'a\n',
     'src/a.spec.ts': 'pass|A|debe sumar\n',
   });
@@ -31,7 +31,6 @@ function repo(test = 'jest {specs} --runTestsByPath', gitignore = '.tmp/\n') {
 }
 
 const adopt = (dir, args) => h.run('adopt.js', args, { cwd: dir, env: env() });
-const manifest = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'harness.json'), 'utf8'));
 
 test('el grafo, el estado del arnés y las dependencias nunca cuentan como código, aunque el repo no los ignore', () => {
   const dir = repo('jest {specs}', '');
@@ -53,17 +52,15 @@ test('el paso graph ofrece graphify-out/ en el .gitignore de cada repo que no lo
   assert.doesNotMatch(adopt(dir, ['graph']).stdout, /graphify-out\/, para que/, 'ya lo ignora');
 });
 
-test('el flag que falta al comando de test es una pregunta de la ronda: sin --write no se aplica, con el sí sí', () => {
+test('probe lee el contrato con jest sin necesitar --verbose y exige commands.testJson para otros runners', () => {
   const dir = repo();
   let r = adopt(dir, ['probe']);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /falta --verbose en commands\.test\. Es una pregunta para la ronda de init: agregar --verbose al comando de test$/m);
-  assert.equal(manifest(dir).workspaces[0].commands.test, 'jest {specs} --runTestsByPath', 'no se aplica en silencio');
-  r = adopt(dir, ['probe', '--write']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /^api: agregué --verbose al comando de test \(jest \{specs\} --verbose --runTestsByPath\); commitéalo en el repo$/m);
   assert.match(r.stdout, /^api: ok · src\/a\.spec\.ts: 1 test\(s\) leídos con su detalle$/m);
-  assert.equal(manifest(dir).workspaces[0].commands.test, 'jest {specs} --verbose --runTestsByPath');
+  const karma = repo('ng test --watch=false');
+  r = adopt(karma, ['probe']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /no hay adaptador de resultados para ng; declara commands\.testJson/);
 });
 
 test('cambiarse a la rama remota que trae la configuración: solo con el árbol limpio', () => {

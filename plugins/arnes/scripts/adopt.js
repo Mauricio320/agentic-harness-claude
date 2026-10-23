@@ -2,8 +2,8 @@
 // Lo determinista de la adopción, que /arnes:init ofrece después de escribir los manifiestos
 // (docs/PLAN.md §8). No instala dependencias ni commitea: deja los archivos, y la persona decide
 // qué commitear.
-//   probe [--ws n]...       corre commands.test sobre un spec trackeado de cada workspace y comprueba
-//                           que test-baseline puede leer la salida; si no, dice el flag que falta
+//   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
+//                           comprueba que test-baseline puede leer el contrato de resultados
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
 //                           tests/known-failures.txt, con la fecha de hoy, los rojos que encontró y
 //                           no estaban; sin --write solo dice si se puede. Con código tocado dice qué
@@ -48,7 +48,7 @@
 //                           está instalado este plugin (known_marketplaces.json de la configuración de
 //                           Claude Code); sin ref, la rama probadores, donde se publica cada versión.
 //                           --write agrega lo que falte; un marketplace ya fijado no se cambia
-// Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuya salida de tests no se lee, una base
+// Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuyo contrato de tests no se lee, una base
 //       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write ·
 //       2 uso inválido o sin manifiesto
 
@@ -58,13 +58,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces, posix } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, posix, validate } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { detectRepo, contractFor, cloneUrl } = require('./init-draft.js');
 const { missingFromForbidden } = require('./lib/database.js');
-const { validate } = require('./lib/manifest.js');
 const tb = require('./test-baseline.js');
 const { ownScript } = require('./adoption-check.js');
 
@@ -84,30 +83,19 @@ const writeJson = (file, data) => {
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-// Sin --write solo dice el flag que le falta al comando de test: init lo pregunta en su ronda, nunca
-// lo aplica en silencio. Con --write, que init corre después del sí, lo agrega a commands.test del
-// manifiesto del repo y vuelve a probar.
-function probe(project, names, write) {
+function probe(project, names) {
   let bad = 0;
   for (const ws of selectWorkspaces(project, names).filter((w) => w.adoptable)) {
-    let r = tb.probeTests(ws);
-    if (r.error && r.flag && write) {
-      const data = readJson(ws.manifest);
-      const own = data.workspaces.find((w) => w.name === ws.name);
-      own.commands.test = own.commands.test.includes('{specs}') ? own.commands.test.replace('{specs}', `{specs} ${r.flag}`) : `${own.commands.test} ${r.flag}`;
-      writeJson(ws.manifest, data);
-      console.log(`${ws.name}: agregué ${r.flag} al comando de test (${own.commands.test}); commitéalo en el repo`);
-      r = tb.probeTests({ ...ws, commands: { ...ws.commands, test: own.commands.test } });
-    }
+    const r = tb.probeTests(ws);
     if (r.error) bad++;
-    console.log(`${ws.name}: ${r.ok ? `ok · ${r.ok}` : r.skip ? `sin prueba · ${r.skip}` : `FALTA · ${r.error}${r.flag && !write ? `. Es una pregunta para la ronda de init: agregar ${r.flag} al comando de test` : ''}`}`);
+    console.log(`${ws.name}: ${r.ok ? `ok · ${r.ok}` : r.skip ? `sin prueba · ${r.skip}` : `FALTA · ${r.error}`}`);
   }
   return bad ? 1 : 0;
 }
 
 function baseline(project, name, write) {
   const [ws] = selectWorkspaces(project, [name]);
-  if (!ws.adoptable || !ws.commands.test || !ws.specPattern) die(`${ws.name}: hace falta un workspace adoptable con commands.test y specPattern`);
+  if (!ws.adoptable || (!ws.commands.test && !ws.commands.testJson) || !ws.specPattern) die(`${ws.name}: hace falta un workspace adoptable con commands.test (o commands.testJson) y specPattern`);
   const t = touched(ws, 'HEAD', project);
   const dirty = (t.files || []).filter((f) => matchAny(ws.codeGlobs, f));
   if (dirty.length) {
@@ -175,7 +163,7 @@ function recommended(project) {
   const allow = [`Bash(node "${base}/*)`, `PowerShell(node "${base}/*)`, ...GIT_READ];
   const ask = [];
   for (const ws of project.workspaces.filter((w) => w.adoptable)) {
-    for (const k of ['typecheck', 'test', 'testAll', 'lint']) {
+    for (const k of ['typecheck', 'test', 'testAll', 'testJson', 'lint']) {
       for (const cmd of [].concat(ws.commands[k] || [])) {
         const prefix = String(cmd).split('{')[0].trim();
         if (!prefix || /\s--fix\b/.test(prefix)) continue;
@@ -215,7 +203,7 @@ function compositionDraft(project) {
   const repos = project.workspaces.map((ws) => {
     if (!ws.adoptable) return `- \`${ws.rel}\`: sin manifiesto propio todavía; el arnés lo ve, pero no lo verifica.`;
     const c = ws.contract ? [ws.contract.provides && `provee ${ws.contract.provides.join(', ')}`, ws.contract.consumes && `consume ${ws.contract.consumes.join(', ')}`].filter(Boolean).join(' · ') : 'sin contract declarado';
-    return `- \`${ws.rel}\` (${ws.name}, ${ws.stack || 'stack sin declarar'}): typecheck ${cmd(ws, 'typecheck') || 'no declarado'}, tests ${cmd(ws, 'test') || 'no declarados'}. ${c}. Sus reglas, en \`${ws.rel}/CLAUDE.md\`.`;
+    return `- \`${ws.rel}\` (${ws.name}, ${ws.stack || 'stack sin declarar'}): typecheck ${cmd(ws, 'typecheck') || 'no declarado'}, tests ${cmd(ws, 'test') || cmd(ws, 'testJson') || 'no declarados'}. ${c}. Sus reglas, en \`${ws.rel}/CLAUDE.md\`.`;
   });
   const integ = project.integration || {};
   return [
@@ -488,16 +476,16 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... [--write] | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write] | switch <repo> --to <rama> [--write]';
+  const usage = 'uso: adopt.js probe [--ws n]... |baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write] | switch <repo> --to <rama> [--write]';
   if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings', 'switch'].includes(mode) || ['baseline', 'switch'].includes(mode) !== Boolean(arg) || (mode === 'switch') !== Boolean(o.to)) die(usage);
-  if ((o.write && !['probe', 'baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings', 'switch'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
+  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings', 'switch'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   // switch corre antes de que haya configuración: el repo todavía no la tiene en su rama.
   if (mode === 'switch') process.exit(switchRepo(process.cwd(), arg, o.to, o.write));
   const project = requireProject();
   const run = {
-    probe: () => probe(project, o.ws, o.write), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
+    probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
     'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   process.exit(run[mode]());

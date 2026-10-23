@@ -2,6 +2,17 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.0] - en curso
+
+Ronda de consolidación: no agrega funciones; quita turnos, duplicación y huecos, y mide antes y después (`docs/PLAN.md` §6.1). Rama `feature/consolidacion-a`.
+
+### Cambiado
+- Los resultados de tests se leen como un contrato estructurado (`$defs.testResultContract` del schema: archivo, nombre completo y estado de cada test, más el resumen), nunca del texto de la corrida. De serie, jest (`--json --outputFile`), vitest (`--reporter=json --outputFile.json`) y `node --test` (un reporter propio del plugin, `lib/node-test-reporter.js`); el flag lo agrega el script y los manifiestos no cambian. Para otro runner, `commands.testJson` en el manifiesto; el adaptador de Karma está en `docs/PROBADORES.md` §4. `tests/baseline.json` y `tests/known-failures.txt` no cambian.
+- `adopt.js probe` ya no pide `--verbose` ni `--reporters=default`, y `probe --write` desaparece: init pregunta, en su lugar, por el adaptador de un runner que el arnés no sabe leer.
+
+### Corregido
+- El `node --test` de un repo corre sin las variables `NODE_TEST_*` heredadas, que dentro de otro `node --test` le impedían correr sus archivos.
+
 ## [0.6.9] - sin etiquetar
 
 Ronda corta de limpieza segura antes de soltar la 0.6.8 a los probadores: los huecos que dejó anotados la corrida C y los que confirmó una revisión externa leyendo el código (`docs/PLAN.md` §7). Rama `feature/limpieza-segura`, probada con Claude Code 2.1.309 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre la carpeta de prueba con dos repos.

@@ -10,9 +10,10 @@
 //      código (conventions.js), antes del lint: lo mecánico no llega al reviewer
 //   3. lint sobre los tocados que caen en codeGlobs
 //   4. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
-//      test-baseline.js: contra la línea base de tests commiteada, si el workspace la tiene, y con
-//      las fallas de tests/known-failures.txt como preexistentes. Un spec de la base borrado es
-//      rojo aunque no haya otro código tocado.
+//      test-baseline.js leyendo el contrato estructurado de resultados ($defs.testResultContract):
+//      contra la línea base de tests commiteada, si el workspace la tiene, y con las fallas de
+//      tests/known-failures.txt como preexistentes. Un spec de la base borrado es rojo aunque no
+//      haya otro código tocado.
 // Base: --base, o CI_MERGE_REQUEST_DIFF_BASE_SHA (GitLab), o merge-base de HEAD con
 // origin/<defaultBranch> (o <defaultBranch> local). /arnes:verify lo corre con --base HEAD: lo
 // mismo que el CI, sobre los cambios sin commitear.
@@ -61,7 +62,7 @@ function firstLint(out, dir) {
 function firstTests(out) {
   const news = [...String(out || '').matchAll(/^falla nueva: (.+?) › (.+)$/gm)].map((m) => ({ spec: m[1], name: m[2] }));
   if (!news.length) {
-    const red = String(out || '').split(/\r?\n/).find((l) => /^línea base:|sin fallas parseables|falla\(s\) sin nombre|no hay parser/.test(l));
+    const red = String(out || '').split(/\r?\n/).find((l) => /^línea base:|^resultados:|sin fallas en sus resultados|no hay adaptador/.test(l));
     return red ? { what: red } : null;
   }
   const spec = news[0].spec;
@@ -183,7 +184,7 @@ function stepLint(ws, code) {
 
 // Los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.
 function stepTests(ws, files) {
-  if (!ws.commands.test && !ws.commands.testAll) return { status: 'omitido', detail: 'sin commands.test' };
+  if (!ws.commands.test && !ws.commands.testAll && !ws.commands.testJson) return { status: 'omitido', detail: 'sin commands.test' };
   const r = tbl.checkTests(ws, tbl.planTests(ws, files));
   return r.status === 'falla' ? { ...r, first: firstTests(r.out) || { what: r.detail } } : r;
 }

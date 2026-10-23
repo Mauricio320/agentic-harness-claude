@@ -45,7 +45,7 @@ Un solo mensaje, con un bloque numerado. Cada punto dice qué se escribe y dónd
 - **Los hooks del arnés anterior** a quitar, **los permisos** para que no pregunte por cada comando (van a `.claude/settings.local.json`, que no se commitea), **el CLAUDE.md de la carpeta**, **el settings.json de la carpeta** con el marketplace, **la línea base de tests** de cada repo con el árbol limpio y, si graphify está instalado, **el grafo de código** de cada repo, que va después de la línea base. Sin graphify, una línea con cómo instalarlo, `uv tool install graphify`, y sigue sin él.
 - **El .worktreeinclude** de cada repo con `.env`, para que los worktrees que crea Claude Code (`claude --worktree`, el escritorio) nazcan con sus `.env`; se commitea en el repo.
 - **Quitar `worktree.baseRef: "head"`** de un `.claude/settings.json` versionado, si lo tiene: un worktree de Claude Code tiene que nacer de origin, no del HEAD de quien lo abre.
-- **Un flag que le falta al comando de test**, si probe lo dice: qué se agrega y para qué ("para que el arnés lea cada test"). Nunca se aplica sin esta ronda.
+- **Un runner de tests que el arnés no sabe leer**, si probe dice que no hay adaptador (Karma, por ejemplo): que el repo necesita un comando propio que entregue los resultados de cada test, y que la guía de probadores trae el de Karma. Lo escribe la persona en su repo; tú no.
 - **La línea `graphify-out/` en el `.gitignore` de cada repo** que no la tiene, si el paso del grafo la ofrece: el grafo nunca es código del issue.
 
 Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.` Termina el turno ahí.
@@ -55,7 +55,6 @@ Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.
 Aplica lo aceptado, sin volver a preguntar:
 - `node "S/init-draft.js" --write` escribe los manifiestos que faltan y no toca los existentes. Pisar uno existente es `--force <ruta>`, solo si la persona lo pidió para ese archivo. Las correcciones que dictó, con Edit.
 - La rama remota con la configuración: con el sí a cambiarse, `node "S/adopt.js" switch <repo> --to <rama remota> --write` y vuelve a mirar ese repo; con la alternativa, `init-draft.js --write --force <repo>/.claude/harness.json`.
-- El flag del comando de test, si se aceptó: `node "S/adopt.js" probe --ws <ws> --write`.
 - `node "S/adopt.js" complete --only <campo> --write` por cada campo aceptado; `hooks --remove`; `baseref --remove`; `permissions --write`; `worktreeinclude --write`; `claude-md --write`; `folder-settings --write`; `baseline <ws> --write`; después de la línea base, `graph --write`, y di cuánto tardó.
 - Valida con `node "S/lib/manifest.js" show`. Si no valida, corrígelo antes de seguir.
 - Si un paso no corre porque falta una dependencia, dilo con el comando: instalarla es de la persona. init no instala ni commitea.

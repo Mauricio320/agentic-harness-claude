@@ -7,14 +7,11 @@ const path = require('path');
 const h = require('./helpers.js');
 
 const BIN = h.fakeBin(h.tmp('bin-jest'), 'jest', h.FAKE_JEST);
-// Un jest con un reporter propio en su config: el detalle por test sale solo con --reporters=default.
-const REPORTERS = `if (!process.argv.includes('--reporters=default')) process.argv = process.argv.filter((a) => a !== '--verbose');\n${h.FAKE_JEST}`;
-const BIN_REPORTERS = h.fakeBin(h.tmp('bin-jest-rep'), 'jest', REPORTERS);
 
-function repo(test = 'jest {specs} --runTestsByPath --verbose', files = {}) {
+function repo(testCmd = 'jest {specs} --runTestsByPath --verbose', files = {}, extraCommands = {}) {
   const dir = h.tmp('adopt-js');
   h.repo(dir, {
-    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', commands: { typecheck: ['npx tsc --noEmit'], lint: 'npx eslint {files} --max-warnings=0', test }, specPattern: '{dir}/{name}.spec.ts' })),
+    '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', commands: { typecheck: ['npx tsc --noEmit'], lint: 'npx eslint {files} --max-warnings=0', test: testCmd, ...extraCommands }, specPattern: '{dir}/{name}.spec.ts' })),
     'src/a.ts': 'a\n',
     'src/a.spec.ts': 'pass|A|debe sumar\nfail|A|debe restar\n',
     ...files,
@@ -26,17 +23,19 @@ function repo(test = 'jest {specs} --runTestsByPath --verbose', files = {}) {
 const NO_CONFIG = h.tmp('config-vacia');
 const adopt = (dir, args, bin = BIN, env = {}) => h.run('adopt.js', args, { cwd: dir, env: h.withPath(bin, { CLAUDE_CONFIG_DIR: NO_CONFIG, ...env }) });
 
-test('probe: el comando de test sobre un spec se lee; si no, dice el flag que falta', () => {
-  let r = adopt(repo(), ['probe']);
+test('probe: lee el contrato estructurado de los runners de serie y de commands.testJson; falla si no hay contrato', () => {
+  let r = adopt(repo('jest {specs} --runTestsByPath'), ['probe']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /api: ok · src\/a\.spec\.ts: 2 test\(s\) leídos con su detalle/);
-  r = adopt(repo('jest {specs} --runTestsByPath'), ['probe']);
+  r = adopt(repo('ng test --watch=false'), ['probe']);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /api: FALTA · api: el detalle por test \(0\) no cuadra con el resumen \(2\); falta --verbose en commands\.test/);
-  r = adopt(repo(), ['probe'], BIN_REPORTERS);
+  assert.match(r.stdout, /api: FALTA · api: no hay adaptador de resultados para ng; declara commands\.testJson/);
+  r = adopt(repo('ng test --watch=false', { 'karma-json.js': 'console.log(JSON.stringify({ tests: [{ file: "src/a.spec.ts", name: "A › debe sumar", status: "pasa" }], summary: { pasa: 1, falla: 0, saltado: 0, total: 2 } }));' }, { testJson: 'node karma-json.js {specs}' }), ['probe']);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /falta --reporters=default \(un reporter propio de la config de jest se come el detalle\) en commands\.test/);
-  assert.equal(adopt(repo('jest {specs} --runTestsByPath --verbose --reporters=default'), ['probe'], BIN_REPORTERS).status, 0);
+  assert.match(r.stdout, /resultados: el detalle por test \(1: 1 pasan, 0 fallan, 0 saltados\) no cuadra con el resumen \(2: /);
+  r = adopt(repo('ng test --watch=false', { 'karma-json.js': 'console.log(JSON.stringify({ tests: [{ file: "src/a.spec.ts", name: "A › debe sumar", status: "pasa" }], summary: { pasa: 1, falla: 0, saltado: 0, total: 1 } }));' }, { testJson: 'node karma-json.js {specs}' }), ['probe']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /api: ok · src\/a\.spec\.ts: 1 test\(s\) leídos con su detalle/);
 });
 
 test('baseline: con el árbol limpio captura la base y anota con fecha los rojos que ya había; no commitea', () => {
@@ -121,7 +120,7 @@ test('claude-md: en una carpeta multi-repo escribe el borrador de composición, 
 
 test('usos inválidos → 2', () => {
   const dir = repo();
-  for (const args of [[], ['otra'], ['baseline'], ['probe', 'x'], ['hooks', '--write'], ['probe', '--remove'], ['permissions', '--ws', 'api']]) {
+  for (const args of [[], ['otra'], ['baseline'], ['probe', 'x'], ['hooks', '--write'], ['probe', '--remove'], ['probe', '--write'], ['permissions', '--ws', 'api']]) {
     assert.equal(adopt(dir, args).status, 2, args.join(' '));
   }
   assert.equal(adopt(h.tmp('sin'), ['probe']).status, 2, 'sin manifiesto');

@@ -1,0 +1,99 @@
+{
+  "numTotalTestSuites": 5,
+  "numPassedTestSuites": 1,
+  "numFailedTestSuites": 4,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 6,
+  "numPassedTests": 3,
+  "numFailedTests": 1,
+  "numPendingTests": 1,
+  "numTodoTests": 1,
+  "startTime": 1792783398917,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "Carrito",
+            "totales"
+          ],
+          "fullName": "Carrito totales suma los ítems",
+          "status": "passed",
+          "title": "suma los ítems",
+          "duration": 2.2475000000000023,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": [
+            "Carrito",
+            "totales"
+          ],
+          "fullName": "Carrito totales rechaza cantidad negativa",
+          "status": "failed",
+          "title": "rechaza cantidad negativa",
+          "duration": 4.086800000000011,
+          "failureMessages": [
+            "AssertionError: expected -1 to be greater than 0"
+          ]
+        },
+        {
+          "ancestorTitles": [
+            "Carrito"
+          ],
+          "fullName": "Carrito aplica cupón vencido",
+          "status": "skipped",
+          "title": "aplica cupón vencido",
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": [
+            "Carrito"
+          ],
+          "fullName": "Carrito timbra la boleta",
+          "status": "todo",
+          "title": "timbra la boleta",
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": [],
+          "fullName": "formatea moneda",
+          "status": "passed",
+          "title": "formatea moneda",
+          "duration": 0.3859999999999957,
+          "failureMessages": []
+        }
+      ],
+      "startTime": 1792783399198,
+      "endTime": 1792783399205.386,
+      "status": "failed",
+      "message": "",
+      "name": "/workspace/src/carrito.test.mjs"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "fullName": "redondea",
+          "status": "passed",
+          "title": "redondea",
+          "duration": 2.6299999999999955,
+          "failureMessages": []
+        }
+      ],
+      "startTime": 1792783399198,
+      "endTime": 1792783399200.63,
+      "status": "passed",
+      "message": "",
+      "name": "/workspace/src/moneda.test.mjs"
+    },
+    {
+      "assertionResults": [],
+      "startTime": 1792783398917,
+      "endTime": 1792783398917,
+      "status": "failed",
+      "message": "boom al cargar",
+      "name": "/workspace/src/roto.test.mjs"
+    }
+  ]
+}
