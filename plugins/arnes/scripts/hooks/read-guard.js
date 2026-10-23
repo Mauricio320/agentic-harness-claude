@@ -10,15 +10,22 @@
 // Read se juzga por file_path; Glob por path y por pattern; Grep por path y por glob. Un Grep sobre
 // una carpeta entera no se deniega: ripgrep salta lo que ignora .gitignore, que es donde viven
 // estos archivos. Un `cat .env` por Bash no lo mira este hook: lo juzga guard.js con secretPath.
+// La negativa de un Read o un Grep sobre un archivo de secretos trae su contenido enmascarado
+// (lib/env-mask.js: los nombres enteros, de cada valor su forma, de una URL el host y el puerto, y
+// enteros solo los nombres de envReveal del workspace); uno sin forma de .env no se muestra.
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
 'use strict';
 
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { run, deny } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
+const { maskEnv } = require('../lib/env-mask.js');
+
+const MAX_BYTES = 256 * 1024;
 
 const DIRS = ['.ssh', '.aws'];
 const ALLOWED = [/^\.env\.example$/i];
@@ -53,6 +60,27 @@ function secretPath(abs, project) {
   return null;
 }
 
+// El contenido enmascarado de un archivo de secretos, para el motivo de la negativa: el texto con su
+// encabezado, o '' si no existe o no se puede leer.
+function maskedFile(abs, project) {
+  let text;
+  try {
+    const st = fs.statSync(abs);
+    if (!st.isFile()) return '';
+    if (st.size > MAX_BYTES) return 'Es demasiado grande para mostrarlo enmascarado.';
+    text = fs.readFileSync(abs, 'utf8');
+  } catch {
+    return '';
+  }
+  const hit = project && resolveWorkspace(project, abs);
+  const reveal = (hit && hit.ws.envReveal) || [];
+  const { lines, env } = maskEnv(text, reveal);
+  if (!env) return 'No tiene forma de .env, así que no muestro nada de su contenido.';
+  if (!lines.length) return 'Está vacío.';
+  const whole = reveal.length ? `; enteras solo ${reveal.join(', ')}, que declara envReveal` : '; no se muestra ninguna entera';
+  return [`Su contenido, enmascarado (los nombres completos; de cada valor, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host y el puerto${whole}):`, ...lines].join('\n');
+}
+
 function secretGlob(glob) {
   for (const seg of String(glob).split(/[\\/]/)) {
     if (DIRS.includes(seg.toLowerCase())) return `apunta a ${seg}`;
@@ -73,18 +101,20 @@ function readGuard(input) {
     project = null;
   }
   const checks = [];
-  if (input.tool_name === 'Read' && ti.file_path) checks.push([ti.file_path, secretPath(toPath(cwd, ti.file_path), project)]);
-  if ((input.tool_name === 'Glob' || input.tool_name === 'Grep') && ti.path) checks.push([ti.path, secretPath(toPath(cwd, ti.path), project)]);
+  const file = (p) => [p, secretPath(toPath(cwd, p), project), toPath(cwd, p)];
+  if (input.tool_name === 'Read' && ti.file_path) checks.push(file(ti.file_path));
+  if ((input.tool_name === 'Glob' || input.tool_name === 'Grep') && ti.path) checks.push(input.tool_name === 'Grep' ? file(ti.path) : [ti.path, secretPath(toPath(cwd, ti.path), project)]);
   if (input.tool_name === 'Glob' && ti.pattern) checks.push([ti.pattern, secretGlob(ti.pattern)]);
   if (input.tool_name === 'Grep' && ti.glob) checks.push([ti.glob, secretGlob(ti.glob)]);
   const found = checks.find(([, why]) => why);
   if (!found) return null;
+  const shown = found[2] ? maskedFile(found[2], project) : '';
   return deny(
-    `arnes guard: ${input.tool_name} sobre ${found[0]} denegado: ${found[1]}. Los secretos no entran al transcript; ` +
-      `si hace falta un valor, pídeselo a la persona, o lee .env.example.`,
+    `arnes guard: ${input.tool_name} sobre ${found[0]} denegado: ${found[1]}. Los secretos no entran al transcript.` +
+      `${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`,
   );
 }
 
-module.exports = { readGuard, secretName, secretPath };
+module.exports = { readGuard, secretName, secretPath, maskedFile };
 
 if (require.main === module) run('read-guard', readGuard);

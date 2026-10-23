@@ -11,7 +11,7 @@
 //   git worktree remove de un worktree cuya rama tiene commits fuera de su destino ·
 //   cat, type, Get-Content o head de un archivo de secretos (los de read-guard.js: .env y
 //   variantes salvo .env.example, ~/.ssh, ~/.aws, credenciales, llaves, tokens; con manifiesto,
-//   además secretPaths)
+//   además secretPaths). La negativa trae el .env enmascarado, como la de read-guard.js (lib/env-mask.js)
 // El destino de una rama es el registrado en .tmp/harness/worktrees.json si es de un worktree
 // abierto del registro; si no, la rama por defecto del workspace.
 // Deniega solo con manifiesto:
@@ -39,7 +39,7 @@ const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { checkFlag } = require('../gate-flag.js');
 const { targetOf, liveLinks } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
-const { secretPath } = require('./read-guard.js');
+const { secretPath, maskedFile } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 
@@ -202,7 +202,9 @@ function judgeRead(cmd, dir) {
   const { project } = workspaceAt(dir);
   for (const a of readTargets(cmd.args)) {
     const why = secretPath(toPath(dir, a), project);
-    if (why) return `${cmd.raw} ${a}: ${why}. Los secretos no entran al transcript; si hace falta un valor, pídeselo a la persona, o lee .env.example.`;
+    if (!why) continue;
+    const shown = maskedFile(toPath(dir, a), project);
+    return `${cmd.raw} ${a}: ${why}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
   }
   return null;
 }

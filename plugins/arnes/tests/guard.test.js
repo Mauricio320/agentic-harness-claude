@@ -302,7 +302,7 @@ test('cat, type, Get-Content y head de un secreto se deniegan, haya o no manifie
   for (const cmd of ['Get-Content .env', 'Get-Content -Path .env -Raw', 'gc .env.local', 'type .env', 'cat .env']) {
     assert.ok(denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
   }
-  assert.match(reason(guard(dir, 'cat .env')), /^arnes guard: cat \.env: es un archivo \.env\. Los secretos no entran al transcript; .*\.env\.example/);
+  assert.match(reason(guard(dir, 'cat .env')), /^arnes guard: cat \.env: es un archivo \.env\. Los secretos no entran al transcript\.[\s\S]*\.env\.example/);
 });
 
 test('solo se juzgan los archivos que leen: escribir un .env, mencionarlo o leer .env.example pasa', () => {

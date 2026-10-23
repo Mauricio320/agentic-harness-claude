@@ -70,6 +70,7 @@
         "codeGlobs": { "$ref": "#/$defs/globs" },
         "sharedPaths": { "$ref": "#/$defs/globs" },
         "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
+        "envReveal": { "description": "Nombres de variables, o patrones con * (PORT, NODE_ENV, *_HOST), cuyo valor se muestra entero cuando el guard niega leer un .env y lo muestra enmascarado. Nada más se revela.", "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.*-]+$" } },
         "conventions": { "description": "Convenciones que se comprueban sin criterio (conventions.js), antes del lint y del reviewer.", "type": "array", "items": { "$ref": "#/$defs/convention" } },
         "testBaseline": { "description": "Ruta, relativa al workspace, de la línea base de tests commiteada ($defs.testBaselineFile); por defecto tests/baseline.json.", "$ref": "#/$defs/relPath" },
         "regeneratesNodeModules": { "description": "Globs, relativos al workspace, cuyo cambio regenera algo dentro de node_modules (como prisma/schema.prisma, que regenera el cliente). En un worktree con node_modules enlazado, build lo advierte y propone instalar las dependencias adentro.", "$ref": "#/$defs/globs" },

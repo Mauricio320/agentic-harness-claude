@@ -152,6 +152,8 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 
 ## 8. Preguntas frecuentes
 
+**¿Por qué no puede leer mi `.env`?** Ningún secreto entra al transcript: el arnés niega abrir un `.env`, una llave o un archivo de credenciales, con Read, Grep, `cat` o `Get-Content`. Pero la negativa le muestra a la sesión el `.env` enmascarado: los nombres completos y, de cada valor, su forma y a lo sumo sus tres primeros caracteres (`AWS_REGION=us-****-*`), y de una URL el host y el puerto, sin usuario ni clave (`mysql://***:***@127.0.0.1:3312/…`). Así te puede decir "te falta DATABASE_URL" o "apunta a 127.0.0.1:3312, el proxy de QA" sin ver un secreto. Lo que no es secreto, como `PORT`, `NODE_ENV` o `*_HOST`, lo declaras en `envReveal` del workspace y se muestra entero; nada más.
+
 **¿El arnés hace pull de main?** No. El pull es tuyo. Al empezar, el plan hace `git fetch` y te dice si tu rama va atrás de `origin/main`, con cuántos commits. Si estás en main, al aprobar el plan la rama del issue sale de `origin/main` actualizado, y main solo avanza si es fast-forward y no tienes cambios a medias. Si ya empezaste una rama y quieres traerle lo nuevo de main, `/arnes:sync` lo hace con un respaldo, y te deja la vuelta atrás.
 
 **¿Cuándo se entrega?** Cuando review termina con "Listo para /arnes:ship". `/arnes:ship --solo-commit` hace un commit por repo, el back primero, y se detiene. `/arnes:ship` a secas, además, hace push y abre los MR, después de pedirte un sí explícito. Nadie entrega por ti.
