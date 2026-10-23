@@ -245,9 +245,9 @@ test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate que
   for (const name of ['api', 'web']) assert.ok(fs.existsSync(path.join(root, name, 'node_modules', 'paquete', 'centinela.js')), `${name}: el node_modules del principal sigue`);
   const api = path.join(root, 'api');
   assert.ok(h.git(api, 'rev-parse', 'refs/arnes/rescate/talleres'), 'el rescate sobrevive en el repo');
-  const line = /^- rescate talleres de api: 3 archivo\(s\) sin commitear \(app\.js, src\/a\.ts, src\/nuevo-mio\.ts\) que quedaron sin su worktree \(rama feature\/talleres, guardado hoy\); nunca se borra solo: \/arnes:limpiar lo recupera en un worktree nuevo o lo descarta$/m;
+  const line = /^- rescate talleres de api: 3 archivo\(s\) sin commitear \(app\.js, src\/a\.ts, src\/nuevo-mio\.ts\) que quedaron sin su worktree \(rama feature\/talleres, guardado hoy\); nunca se borra solo: \/arnes:cerrar lo recupera o lo descarta$/m;
   const ctx = start(root);
-  assert.match(ctx, /^Trabajo sin commitear que quedó sin su worktree \(1\): está guardado en su repo y nunca se borra solo; \/arnes:limpiar lo recupera en un worktree nuevo o lo descarta\.$/m);
+  assert.match(ctx, /^Trabajo sin commitear que quedó sin su worktree \(1\): está guardado en su repo y nunca se borra solo; \/arnes:cerrar lo recupera o lo descarta\.$/m);
   assert.match(ctx, line);
   const p = h.run('worktree-ledger.js', ['pending'], { cwd: root });
   assert.equal(p.status, 1, 'pending lo cuenta');

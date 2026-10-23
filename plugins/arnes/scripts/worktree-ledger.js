@@ -162,7 +162,7 @@ function rescuePending(project) {
 function describeRescue(x, now = new Date()) {
   const days = Math.floor((now - x.at) / DAY_MS);
   const files = x.files.slice(0, 3).join(', ') + (x.count > 3 ? ', …' : '');
-  return `rescate ${x.name} de ${x.repo}: ${x.count} archivo(s) sin commitear (${files}) que quedaron sin su worktree (rama ${x.branch}, guardado ${days ? `hace ${days} día(s)` : 'hoy'}); nunca se borra solo: /arnes:limpiar lo recupera en un worktree nuevo o lo descarta`;
+  return `rescate ${x.name} de ${x.repo}: ${x.count} archivo(s) sin commitear (${files}) que quedaron sin su worktree (rama ${x.branch}, guardado ${days ? `hace ${days} día(s)` : 'hoy'}); nunca se borra solo: /arnes:cerrar lo recupera o lo descarta`;
 }
 
 // Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.

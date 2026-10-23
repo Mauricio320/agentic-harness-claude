@@ -12,7 +12,7 @@
 // EnterWorktree, como PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta.
 // En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco. Avisa de
 // los issues entregados hace más de 7 días que todavía tienen carpetas o archivos en disco
-// (lib/issues.js), y sugiere /arnes:limpiar.
+// (lib/issues.js), y sugiere /arnes:cerrar.
 // Sesión concurrente: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
 // pid (CLAUDE_PID, el proceso de Claude Code) y fecha, y lo borra en SessionEnd. Un lock cuyo pid ya
 // no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha.
@@ -128,7 +128,7 @@ function rescueLines(cwd, now) {
   if (!list.length) return [];
   const shown = list.slice(0, WORKTREES).map((x) => `- ${ledger.describeRescue(x, now)}`);
   if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
-  return [`Trabajo sin commitear que quedó sin su worktree (${list.length}): está guardado en su repo y nunca se borra solo; /arnes:limpiar lo recupera en un worktree nuevo o lo descarta.`, ...shown];
+  return [`Trabajo sin commitear que quedó sin su worktree (${list.length}): está guardado en su repo y nunca se borra solo; /arnes:cerrar lo recupera o lo descarta.`, ...shown];
 }
 
 // Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.
@@ -150,7 +150,7 @@ function leftovers(project, now) {
   const live = (r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : []), ...(r.files || [])].filter((p) => fs.existsSync(p));
   const old = issues.list(project).filter((r) => issues.DONE.includes(r.state) && r.shippedAt && now - new Date(r.shippedAt) > STALE_DAYS * DAY_MS && live(r).length);
   if (!old.length) return [];
-  return [`Hay ${old.length} issue(s) entregado(s) hace más de ${STALE_DAYS} días con carpetas o archivos todavía en disco (${old.map((r) => r.slug).slice(0, 3).join(', ')}${old.length > 3 ? ', …' : ''}): la persona los revisa y borra lo que marque con /arnes:limpiar.`];
+  return [`Hay ${old.length} issue(s) entregado(s) hace más de ${STALE_DAYS} días con carpetas o archivos todavía en disco (${old.map((r) => r.slug).slice(0, 3).join(', ')}${old.length > 3 ? ', …' : ''}): la persona los revisa y borra lo que marque con /arnes:cerrar.`];
 }
 
 // ---------- lock de sesión ----------

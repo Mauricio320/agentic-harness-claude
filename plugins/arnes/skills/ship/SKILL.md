@@ -53,7 +53,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
    - **Zona de riesgo:** si el check listó riskPaths tocadas, la primera línea del cuerpo es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`.
    - **Sin glab ni gh:** muestra el enlace que imprimió el push y el cuerpo listo para pegar.
 5. **Anota el fin:** por cada MR, `node "S/issues.js" state --actual subido --mr <número o url> --repo "<carpeta>"`, que deja el issue esperando su merge; y `node "S/lib/timeline.js" end ship --result ok --detail "<MR o commits>"`. Cuando el MR se mergee, la persona lo cierra con `/arnes:cerrar <issue>`.
-6. **Lo que se creó para el issue:** `node "S/issues.js" clean --actual` lista las carpetas, las ramas y los archivos registrados, con su tamaño. Pregunta en una línea: "¿Borro lo que creé para este issue, o lo dejo?", con esa lista. Con el sí, `clean --actual --write`: borra solo lo registrado, en orden seguro, y deja la rama del issue hasta que el MR esté mergeado; si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`. Con "lo dejo", queda, y `/arnes:limpiar` lo hace después.
+6. **Lo que se creó para el issue:** `node "S/issues.js" clean --actual` lista las carpetas, las ramas y los archivos registrados, con su tamaño. Pregunta en una línea: "¿Borro lo que creé para este issue, o lo dejo?", con esa lista. Con el sí, `clean --actual --write`: borra solo lo registrado, en orden seguro, y deja la rama del issue hasta que el MR esté mergeado; si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`. Con "lo dejo", queda, y `/arnes:cerrar` lo hace después.
 
 ## Reporte
 

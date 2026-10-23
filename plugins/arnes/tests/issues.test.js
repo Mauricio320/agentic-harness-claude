@@ -41,7 +41,7 @@ test('el registro junta la rama del issue, el plan, los worktrees del set y los 
   assert.ok(r.files.some((f) => f.endsWith('/plan.md')) && r.files.includes(inf));
 });
 
-test('limpiar con un enlace vivo: quita el enlace antes de borrar y el node_modules del principal queda', () => {
+test('clean con un enlace vivo: quita el enlace antes de borrar y el node_modules del principal queda', () => {
   const dir = repo();
   h.run('worktree-ledger.js', ['open', 'tarifas'], { cwd: dir });
   const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarifas');
@@ -128,7 +128,7 @@ test('SessionStart avisa de los issues entregados hace más de siete días con a
   const r = JSON.parse(fs.readFileSync(f, 'utf8'));
   fs.writeFileSync(f, JSON.stringify({ ...r, state: 'subido', shippedAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString() }));
   const ctx = h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's2', cwd: dir }).out.hookSpecificOutput.additionalContext;
-  assert.match(ctx, /^Hay 1 issue\(s\) entregado\(s\) hace más de 7 días con carpetas o archivos todavía en disco \(cobros\): la persona los revisa y borra lo que marque con \/arnes:limpiar\.$/m);
+  assert.match(ctx, /^Hay 1 issue\(s\) entregado\(s\) hace más de 7 días con carpetas o archivos todavía en disco \(cobros\): la persona los revisa y borra lo que marque con \/arnes:cerrar\.$/m);
   fs.writeFileSync(f, JSON.stringify({ ...r, state: 'subido', shippedAt: new Date().toISOString() }));
   assert.doesNotMatch(h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's3', cwd: dir }).out.hookSpecificOutput.additionalContext, /entregado\(s\) hace más de 7 días/);
   tl.append(dir, { event: 'start', stage: 'plan' });
