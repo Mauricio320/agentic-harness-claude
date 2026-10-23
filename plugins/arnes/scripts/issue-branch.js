@@ -200,28 +200,28 @@ function carry(project, w) {
   return `traje el plan aprobado del checkout principal; allí ya no se escribe código para este issue`;
 }
 
-function enterNative(project, w) {
+function enterNative(project, w, say = console.log) {
   const carried = carry(project, w);
-  if (carried) console.log(carried);
+  if (carried) say(carried);
   const renamed = renameNative(project, w);
-  if (renamed) console.log(renamed);
+  if (renamed) say(renamed);
   let failed = false;
   if (project.kind === 'folder') {
     const want = (() => {
       const main = loadProject(w.main);
       return main && !main.errors.length ? workspaces(main, readPlan(project)).map((ws) => ws.name) : [];
     })();
-    for (const l of require('./worktree-carpeta.js').materialize(w.path).lines) console.log(l);
+    for (const l of require('./worktree-carpeta.js').materialize(w.path).lines) say(l);
     project = requireProject(w.path);
     const missing = want.filter((n) => !project.workspaces.some((ws) => ws.adoptable && ws.name === n));
     if (missing.length) {
-      console.log(`${missing.join(', ')}: no quedó en este worktree; no se puede construir ahí hasta resolverlo`);
+      say(`${missing.join(', ')}: no quedó en este worktree; no se puede construir ahí hasta resolverlo`);
       failed = true;
     }
   }
   const plan = readPlan(project);
   const here = workspaces(project, plan).map((ws) => {
-    console.log(nativeLine(project, ws));
+    say(nativeLine(project, ws));
     return `${branchOf(ws)} en ${ws.name}`;
   });
   notePlan(project, `${here.join(', ')}: la del worktree nativo de Claude Code`);
@@ -231,7 +231,7 @@ function enterNative(project, w) {
     worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch },
     files: [planPath(project)],
   });
-  console.log(`rama: ${here.join(', ')}`);
+  say(`rama: ${here.join(', ')}`);
   return failed ? 1 : 0;
 }
 
@@ -346,7 +346,7 @@ function behind(project) {
   return late ? 1 : 0;
 }
 
-module.exports = { slugOf, worktreeRoute, renameNative };
+module.exports = { slugOf, worktreeRoute, renameNative, check, create, stay, behind, enterNative, carry };
 
 function main() {
   let args;

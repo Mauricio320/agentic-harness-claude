@@ -4,6 +4,7 @@
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 // cmd.exe corta la línea en 8191 caracteres; se deja margen para el resto del comando.
 const MAX_LINE = 7000;
@@ -97,4 +98,9 @@ function tail(text, n) {
   return lines(text).slice(-n).join('\n');
 }
 
-module.exports = { MAX_LINE, git, lines, firstLine, quote, expand, sh, runExpanded, help, die, tail };
+function onPath(tool) {
+  const exts = process.platform === 'win32' ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean)] : [''];
+  return (process.env.PATH || '').split(path.delimiter).some((dir) => dir && exts.some((e) => fs.existsSync(path.join(dir, tool + e))));
+}
+
+module.exports = { MAX_LINE, git, lines, firstLine, quote, expand, sh, runExpanded, help, die, tail, onPath };

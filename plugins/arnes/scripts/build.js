@@ -17,6 +17,12 @@
 //          - el plan, sin las líneas que solo nombran archivos de otro workspace (una ruta con su
 //            prefijo); una palabra suelta como "api" no cuenta. Un archivo previsto sin prefijo que
 //            existe en más de un workspace, o en ninguno, no se asigna: la entrada pide el prefijo.
+//          La entrada del dev abre además el build del workspace en la timeline (start build --ws),
+//          si no estaba abierto en la corrida, e imprime la lista de tareas.
+//   end --ws <ws> [--result ok|parcial|fail]
+//          cierra el build del workspace (end build --ws; ok lo deja construido en el registro del
+//          issue), lista sus comandos de afterBuild como after, y cuando ya cerró el último workspace
+//          del plan da la ruta del informe de build y si toca decir la frase del verde
 //   after --ws <ws>
 //          los comandos de afterBuild del workspace, que la skill build corre al cerrarlo, uno por
 //          uno desde su carpeta. Con onlyIfLocalDb, solo si el valor de esa variable en el .env del
@@ -59,6 +65,10 @@ const apps = require('./lib/app.js');
 const { localDb, parseEnv, DB_VAR } = require('./lib/database.js');
 const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
+const { append, read, tasks } = require('./lib/timeline.js');
+const { planWorkspaces } = require('./lib/plan.js');
+const { informe } = require('./informe.js');
+const issues = require('./lib/issues.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
 // Un archivo en la raíz del repo: con extensión (middleware.ts), un punto al inicio (.env.example) o
@@ -245,7 +255,44 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   console.log(`${ws.name}: ${targets.length} archivo(s), ${rl.lines.filter((l) => l.startsWith('#### ')).length} regla(s) que aplican${rl.omitted.length ? `, ${rl.omitted.length} omitida(s) por el tope` : ''}`);
   if (!tests && detail.ambiguous.length) console.log(`aviso: el plan nombra ${detail.ambiguous.join(', ')} sin el repo delante, y está en más de un repo o en ninguno; no se lo asigno a ${ws.name}. Corrige el plan con el prefijo de cada repo en "## Archivos previstos" antes de construir`);
   console.log(`entrada: ${file}`);
+  if (!tests) {
+    if (!buildOpen(read(project.root), ws.name)) append(project.root, { event: 'start', stage: 'build', ws: ws.name });
+    tasksLine(project);
+  }
   return 0;
+}
+
+function sinceRun(entries) {
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  return entries.slice(Math.max(i, 0));
+}
+
+function buildOpen(entries, name) {
+  const mine = sinceRun(entries).filter((e) => e.stage === 'build' && e.ws === name && (e.event === 'start' || e.event === 'end'));
+  return mine.length > 0 && mine[mine.length - 1].event === 'start';
+}
+
+function tasksLine(project) {
+  const t = tasks(read(project.root));
+  if (t) console.log(`tareas: ${JSON.stringify(t)}`);
+}
+
+function end(project, wsName, result) {
+  const [ws] = selectWorkspaces(project, [wsName]);
+  append(project.root, { event: 'end', stage: 'build', ws: ws.name, result });
+  if (result === 'ok') issues.setState(project, 'construido', ws.name);
+  const code = after(project, ws.name);
+  const plan = fs.existsSync(path.join(harnessDir(project), 'plan.md')) ? fs.readFileSync(path.join(harnessDir(project), 'plan.md'), 'utf8') : '';
+  const run = sinceRun(read(project.root));
+  const pending = planWorkspaces(project.workspaces, plan).filter((w) => !run.some((e) => e.stage === 'build' && e.event === 'end' && e.ws === w.name));
+  if (!pending.length) {
+    const rep = informe(project.root, 'build');
+    issues.record(project, { files: [rep.file] });
+    console.log(`informe: ${posix(rep.file)}`);
+    console.log(rep.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
+  } else console.log(`falta construir: ${pending.map((w) => w.name).join(', ')}`);
+  tasksLine(project);
+  return code;
 }
 
 // Lo que build corre al cerrar un workspace (docs/PLAN.md §8): los comandos de afterBuild, desde su
@@ -385,7 +432,7 @@ function main() {
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, result: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`build: ${e.message}`);
@@ -394,7 +441,7 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | end --ws <ws> [--result ok|parcial|fail] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
   if (mode === 'app' && rest[0] === 'stop') {
     if (rest.length > 1 || list(o.files).length || o.para || o.contrato || o.write || o.dry) die(usage);
     process.exit(stop(requireProject(), o.ws));
@@ -412,6 +459,11 @@ function main() {
     if (!o.ws || o.para || o.contrato || files.length) die(usage);
     process.exit(after(requireProject(), o.ws));
   }
+  if (mode === 'end') {
+    if (!o.ws || o.para || o.contrato || files.length || !['ok', 'parcial', 'fail'].includes(o.result || 'ok')) die(usage);
+    process.exit(end(requireProject(), o.ws, o.result || 'ok'));
+  }
+  if (o.result) die(usage);
   if (mode !== 'input' || !o.ws || (o.para && !['dev', 'test-writer'].includes(o.para))) die(usage);
   if (o.para === 'test-writer' && !files.length) die('build: --para test-writer necesita --files con los archivos para spec');
   if (o.para !== 'test-writer' && files.length) die('build: --files solo va con --para test-writer');

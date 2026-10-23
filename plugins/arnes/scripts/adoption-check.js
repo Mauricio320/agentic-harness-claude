@@ -27,7 +27,7 @@ const os = require('os');
 const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, selectWorkspaces, MANIFEST, posix } = require('./lib/manifest.js');
-const { git, help, die } = require('./lib/exec.js');
+const { git, help, die, onPath } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest } = require('./lib/branches.js');
 const { databaseForbidden, missingFromForbidden } = require('./lib/database.js');
 const { readBaseline, probeTests } = require('./test-baseline.js');
@@ -50,11 +50,6 @@ function exists(p) {
 
 function countLines(file) {
   return fs.readFileSync(file, 'utf8').split(/\r?\n/).length;
-}
-
-function onPath(tool) {
-  const exts = process.platform === 'win32' ? ['', ...(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';')] : [''];
-  return (process.env.PATH || '').split(path.delimiter).some((dir) => dir && exts.some((e) => exists(path.join(dir, tool + e))));
 }
 
 // Busca node_modules/.bin/<tool> desde la carpeta del workspace hasta la raíz de su repo, por si

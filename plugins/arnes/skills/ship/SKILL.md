@@ -9,52 +9,39 @@ disable-model-invocation: true
 
 Argumentos: `$ARGUMENTS`. Con `--solo-commit` no hay push ni MR. `--revisado <nombre>` lo escribe la persona cuando alguien revisó una zona de riesgo. Otra palabra es el nombre de la rama.
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando `timeline.js` imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando un script imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
-## 1. Resolver lo que falta
+Cada transición de ship es una llamada a `node "S/ship.js" deliver`, que anota la etapa, deja el detalle en el informe de la entrega y dice qué sigue.
 
-1. Anota el inicio: `node "S/lib/timeline.js" start ship`.
-2. Corre `node "S/ship.js" check`. Su salida va al informe de ship (abajo); en el chat, una línea.
-   - **`LISTO`:** sigue con la rama. **`LISTO PARA SUBIR`** o **`LISTO PARA MERGEAR`:** no hay nada que commitear y la rama tiene commits sin entregar: ve a la entrega (el merge local, o la sección 4).
-   - **`FALTA RESOLVER`:** resuelve cada línea, en su orden y sin preguntar, y vuelve a correr check:
-     - `integrar <slug>`: `node "S/worktree-ledger.js" integrate <slug>`, y después la skill verify con `--base` en el primer padre del merge (`git -C "<carpeta>" rev-parse HEAD^1`).
-     - `verificar <ws>`: carga la skill verify. Es barata si el contenido no cambió: reutiliza la foto del base, y los specs ya existen.
-     - `revisar`: carga la skill review.
-     Hasta tres vueltas. Si check sigue pidiendo lo mismo, dilo en una línea y termina.
-   - **`SE DETIENE`:** es una de las tres razones para no entregar: el gate en rojo, bloqueantes o una zona de riesgo sin revisión humana. Copia en el chat, textual, el bloque que sigue a `para la persona:`, con lo que pasó en una o dos frases y los pasos numerados; nada más. Anota `end ship --result fail --detail "<la razón>"` y termina. Si la persona responde "corrígelo", corrige, verifica, revisa y vuelve a ship.
+## 1. Comprobar y preparar
 
-## 2. Rama
+Corre `node "S/ship.js" deliver`, con `--solo-commit` y `--rama <rama>` si vienen en `$ARGUMENTS`.
+- **`FALTA RESOLVER`:** resuelve cada línea, en su orden y sin preguntar, y vuelve a correr `deliver`:
+  - `integrar <slug>`: `node "S/worktree-ledger.js" integrate <slug>`, y después la skill verify con `--base` en el primer padre del merge (`git -C "<carpeta>" rev-parse HEAD^1`).
+  - `verificar <ws>`: carga la skill verify. Es barata si el contenido no cambió: reutiliza la foto del base, y los specs ya existen.
+  - `revisar`: carga la skill review.
+  Hasta tres vueltas. Si sigue pidiendo lo mismo, dilo en una línea y termina.
+- **`SE DETIENE`:** es una de las tres razones para no entregar: el gate en rojo, bloqueantes o una zona de riesgo sin revisión humana. Copia en el chat, textual, el bloque que sigue a `para la persona:`, con lo que pasó en una o dos frases y los pasos numerados; nada más. La etapa ya quedó cerrada. Si la persona responde "corrígelo", corrige, verifica, revisa y vuelve a ship.
+- **`LISTO`:** `deliver` ya dejó la rama (la del issue, la actual; en un worktree nativo, la del worktree) y el stage de cada workspace, en el orden de commit (back antes que front); lo que no debe entrar (`.env`, logs) quedó fuera, y lo dice. Sigue con los mensajes.
+- **`LISTO PARA SUBIR`:** no hay nada que commitear y la rama tiene commits sin subir: ve a la sección 3. **`LISTO PARA MERGEAR`:** ve al merge local.
 
-1. Elige el nombre, en este orden: la de `$ARGUMENTS`; la del issue (la línea `Rama:` de `.tmp/harness/plan.md`, que es la actual); la "rama propuesta" del check; una corta en kebab-case del título del plan o del pedido.
-   - **En un worktree nativo de Claude Code**, la rama es la del worktree (en una carpeta, la de cada repo), y entregar es el push y el MR, no un merge local: `ship.js branch` la reutiliza.
-2. Corre `node "S/ship.js" branch <rama>`. El prefijo del manifiesto se agrega solo. Si sale con 1, di el motivo y termina. Nunca muevas un HEAD a mano.
+## 2. Mensajes y commits
 
-## 3. Commits, uno por workspace, en el orden del check (back antes que front)
+1. **Los mensajes**, con la convención del repo que mostró `deliver`: commitlint si lo encontró (léelo); si no, el CLAUDE.md del repo; si no, la forma de los últimos asuntos, en su idioma. Asunto: qué cambia, no cómo. Cuerpo: el porqué, en pocas líneas. Si dijo que la línea base de tests cambia, el asunto empieza con `gates: `. Sin `--solo-commit`, agrega a cada uno su `mr`: un título y una descripción corta de qué cambia; el resto del cuerpo del MR lo arma el arnés.
+2. Escríbelos con Write en `.tmp/harness/ship/mensajes.json`, como dijo `deliver`: `{ "<ws>": { "asunto": "…", "cuerpo": "…", "mr": { "titulo": "…", "descripcion": "…" } } }`.
+3. Corre `node "S/ship.js" deliver --commit`. Commitea cada workspace en su orden, solo con su verificación vigente; comprueba que cada commit lleva lo verificado, y deja en el informe el `log --stat` de cada uno. Si dice `FALLA`, di en una línea lo que pasó (sin verificación vigente, un hook del repo que rechazó el commit, o archivos que cambió después de verificar) y termina: la etapa ya quedó cerrada, y decide la persona. Las notas (un archivo que quedó fuera, uno que solo cambió sus fines de línea) no son fallas: dilas.
 
-1. **Stage:** `node "S/ship.js" stage <ws>`. Agrega solo los tocados y los borrados; lo que no debe entrar (`.env`, logs) se queda fuera, y lo dice. Nunca `git add .`.
-2. **Mensaje**, con la convención del repo: commitlint si el check lo encontró (léelo); si no, el CLAUDE.md del repo; si no, la forma de los últimos asuntos del check, en su idioma. Asunto: qué cambia, no cómo. Cuerpo: el porqué, en pocas líneas. Si el check dice que la línea base cambia, el asunto empieza con `gates: `.
-3. **Commit:** `git -C "<carpeta del workspace>" commit -m "<asunto>" -m "<cuerpo>"`. Si el guard lo niega, no lo rodees: di el motivo y termina.
-4. **El commit:** `git -C "<carpeta>" log -1 --stat` va al informe; en el chat, el asunto y cuántos archivos.
-5. **Comprueba lo commiteado:** `node "S/ship.js" committed <ws>`. Si sale con 1, un hook del repo cambió archivos después de verificar: di cuáles, anota `end ship --result fail --detail "el commit no es lo verificado"` y termina; decide la persona. Las notas (un archivo que quedó fuera, uno que solo cambió sus fines de línea) no son fallas: dilas y sigue.
+**Con `--solo-commit`:** `deliver --commit` cierra la etapa; di los commits en una línea por repo y termina.
 
-**Con `--solo-commit`:** anota `end ship --result ok --detail "solo commit"`, di los commits en una línea por repo y termina.
+**Con merge local** (`deliver` dice `entrega: merge local`, para quien trabaja solo y sin QA), en vez de la sección 3: `node "S/ship.js" merge start` mergea la rama del issue sobre la por defecto sin moverla; carga verify con `--base HEAD^1`. En verde, `merge finish` adelanta la rama por defecto; en rojo, `merge abort` y para con el bloque de la persona. Si start o finish dicen `SE DETIENE`, copia su bloque y termina. Después, con un sí explícito, `git -C "<carpeta>" push origin <rama por defecto>`, y cierra la etapa con `node "S/lib/timeline.js" end ship --result ok --detail "merge local"`.
 
-**Con merge local** (el check dice `entrega: merge local`, para quien trabaja solo y sin QA), en vez de la sección 4: `node "S/ship.js" merge start` mergea la rama del issue sobre la por defecto sin moverla; carga verify con `--base HEAD^1`. En verde, `merge finish` adelanta la rama por defecto; en rojo, `merge abort` y para con el bloque de la persona. Si start o finish dicen `SE DETIENE`, copia su bloque y termina. Después, con un sí explícito, `git -C "<carpeta>" push origin <rama por defecto>`; sigue en el paso 5.
+## 3. Push y MR, solo con un sí explícito
 
-## 4. Push y MR, solo con un sí explícito
-
-1. **Pide confirmación** en un mensaje, antes de cualquier push o MR: la rama y, por repo, el commit y el remoto (`git -C <carpeta> remote get-url origin`); el título y el cuerpo de cada MR.
-2. **Espera la respuesta.** Sin un sí explícito, anota `end ship --result ok --detail "commit sin push"` y termina.
-3. **Push:** `git -C "<carpeta>" push -u origin <rama>`, back primero. Nunca `--force`.
-4. **MR/PR:**
-   - **El CLI:** `glab` si el remoto es GitLab y `gh` si es GitHub, cada uno solo si está instalado (`glab --version`, `gh --version`). Destino: la rama por defecto del manifiesto. Primero el del back.
-   - **Enlaces cruzados:** el cuerpo del front enlaza el MR del back; después, edita el del back para que enlace el del front (`glab mr update <n> --description …` o `gh pr edit <n> --body …`).
-   - **Cuerpo de cada MR:** qué cambia; los criterios del plan, si existe; la prueba manual del plan, si el check dice que la trae, con sus pasos numerados textuales; el resultado de verify, con la frase de abajo; la revisión, con sus bloqueantes en 0; los enlaces a los MR de los otros repos.
-   - **Zona de riesgo:** si el check listó riskPaths tocadas, la primera línea del cuerpo es `REVISIÓN HUMANA OBLIGATORIA: <rutas>`.
-   - **Sin glab ni gh:** muestra el enlace que imprimió el push y el cuerpo listo para pegar.
-5. **Anota el fin:** por cada MR, `node "S/issues.js" state --actual subido --mr <número o url> --repo "<carpeta>"`, que deja el issue esperando su merge; y `node "S/lib/timeline.js" end ship --result ok --detail "<MR o commits>"`. Cuando el MR se mergee, la persona lo cierra con `/arnes:cerrar <issue>`.
-6. **Lo que se creó para el issue:** `node "S/issues.js" clean --actual` lista las carpetas, las ramas y los archivos registrados, con su tamaño. Pregunta en una línea: "¿Borro lo que creé para este issue, o lo dejo?", con esa lista. Con el sí, `clean --actual --write`: borra solo lo registrado, en orden seguro, y deja la rama del issue hasta que el MR esté mergeado; si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`. Con "lo dejo", queda, y `/arnes:cerrar` lo hace después.
+1. **Pide confirmación** en un solo mensaje, antes de cualquier push o MR: la rama y, por repo, el commit y el remoto que dio `deliver --commit`, y el título de cada MR (los cuerpos están en el informe). Termina el turno ahí: el push exige una respuesta de la persona después del commit.
+2. **Con el sí:** `node "S/ship.js" deliver --push`. Sube cada repo, back primero y nunca con `--force`; abre cada MR con glab o gh si están, con `REVISIÓN HUMANA OBLIGATORIA` primero si hay riskPaths, los criterios y la prueba manual del plan, el resultado de verify con la frase y la revisión, y enlaza los MR de los otros repos. Sin glab ni gh, los cuerpos quedan en el informe para pegar: dilo y muestra el enlace que dio el push. Deja el issue subido y cierra la etapa. Cuando el MR se mergee, la persona lo cierra con `/arnes:cerrar <issue>`.
+3. **Sin el sí:** `node "S/ship.js" deliver --sin-push`.
+4. **Lo que se creó para el issue:** `deliver --push` lo lista con su tamaño. Pregunta en una línea: "¿Borro lo que creé para este issue, o lo dejo?", con esa lista. Con el sí, `node "S/issues.js" clean --actual --write`: borra solo lo registrado, en orden seguro, y deja la rama del issue hasta que el MR esté mergeado; si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`. Con "lo dejo", queda, y `/arnes:cerrar` lo hace después.
 
 ## Reporte
 
-Lo que lee la persona (docs/PLAN.md §2): una línea por repo con lo que se entregó, y lo que tiene que decidir o hacer. La confirmación del push y los MR es una sola pregunta, con todo lo que va a salir. Cuando ship se detiene, habla como una persona: el bloque de `para la persona:` y nada más, sin nombres de scripts ni códigos de salida. El detalle (la salida del check, `log --stat` de cada commit, los cuerpos de los MR) va al informe: `node "S/informe.js" path ship` da la ruta, y el chat la dice en una línea. La frase "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si informe.js dijo `frase: dila`; en el cuerpo de cada MR va siempre.
+Lo que lee la persona (docs/PLAN.md §2): una línea por repo con lo que se entregó, y lo que tiene que decidir o hacer. La confirmación del push y los MR es una sola pregunta, con todo lo que va a salir. Cuando ship se detiene, habla como una persona: el bloque de `para la persona:` y nada más, sin nombres de scripts ni códigos de salida. El detalle (la salida de la comprobación, el `log --stat` de cada commit, los cuerpos de los MR) ya está en el informe de la entrega, que `deliver` dice en su línea `informe:` (la carpeta de `node "S/informe.js" path ship`); el chat la dice en una línea. La frase "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si la salida dijo `frase: dila`; en el cuerpo de cada MR va siempre.

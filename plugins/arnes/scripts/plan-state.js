@@ -1,12 +1,28 @@
 #!/usr/bin/env node
 // El plan de la corrida en curso (docs/PLAN.md §6.2 y §6.3). Planificar es obligatorio: el guard
 // de Edit y Write niega escribir código sin un plan aprobado, y la aprobación la anota solo este
-// script, que comprueba que vino de la persona.
-//   status   dice si hay plan en curso, si está escrito y si está aprobado
-//   approve  anota la nota "aprobado" del plan en curso. Exige que el plan esté escrito (end plan) y
+// script, que comprueba que vino de la persona. Las tres transiciones de la skill plan son una
+// llamada cada una (start, finish-draft y approve), con lo determinista adentro y una sola salida.
+//   start --detail <texto>
+//            empieza el plan: anota start plan; dice el proyecto con cada workspace, sus riskPaths, su
+//            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior; si
+//            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); las referencias de
+//            negocio y los ambientes de prueba; y si hay grafo de código y cómo consultarlo
+//   finish-draft
+//            con el plan escrito: la nota "grafo" (como grafo, abajo), end plan ok, y dónde se va a
+//            construir (issue-branch.js check): el worktree que abrirá al aprobar, o la rama en el
+//            checkout con su pregunta si un repo está en otra rama
+//   approve [--detail <texto>] [--en-checkout] [--desde-otra | --quedarse]
+//            anota la nota "aprobado" del plan en curso. Exige que el plan esté escrito (end plan) y
 //            que después haya una respuesta de la persona: la nota "respuesta" que UserPromptSubmit
 //            anota solo para un mensaje suyo, nunca para el aviso de un agente. Un modelo que se
-//            responde a sí mismo en el mismo turno no aprueba nada
+//            responde a sí mismo en el mismo turno no aprueba nada. Después deja la lista de tareas
+//            (como tareas --anota) y ubica la rama del issue: en un worktree nativo, la del worktree
+//            (issue-branch.js create); con el camino del worktree, dice el nombre con que entrar con
+//            EnterWorktree, y el PostToolUse de EnterWorktree termina la transición; en el checkout
+//            (--en-checkout, o si no se puede abrir un worktree), crea la rama, con --desde-otra si un
+//            repo está en otra rama y la persona aceptó la recomendación, o se queda con --quedarse.
+//            Ya aprobado, no vuelve a aprobar: solo ubica la rama, por si la transición quedó a medias
 //   tareas [--anota]
 //            la lista de tareas del plan aprobado, una por etapa y por workspace (construir cada
 //            workspace de "## Workspaces y orden", en ese orden; verificar, revisar y entregar), con su
@@ -24,24 +40,29 @@
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
-// Uso: node plan-state.js status
-//      node plan-state.js approve [--detail <texto>]
+// Uso: node plan-state.js start --detail <texto>
+//      node plan-state.js finish-draft
+//      node plan-state.js approve [--detail <texto>] [--en-checkout] [--desde-otra | --quedarse]
+//      node plan-state.js status
 //      node plan-state.js tareas [--anota]
 //      node plan-state.js referencias
 //      node plan-state.js grafo
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
-// Exit: 0 aprobado, o status con plan aprobado · 1 status sin plan aprobado, o approve/trivial
-//       negados (el motivo en stderr) · 2 uso inválido o sin manifiesto
+// Exit: 0 hecho, aprobado, o status con plan aprobado · 1 status sin plan aprobado, approve/trivial
+//       negados (el motivo en stderr), o la rama no quedó ubicada en algún repo (el motivo en stdout)
+//       · 2 uso inválido, sin manifiesto o sin plan escrito
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, harnessDir, planConfig } = require('./lib/manifest.js');
+const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
-const { readPlan, section, mentionAt } = require('./lib/plan.js');
-const { help, die } = require('./lib/exec.js');
+const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
+const { help, die, onPath } = require('./lib/exec.js');
+const branch = require('./issue-branch.js');
+const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
 
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -56,29 +77,100 @@ function status(project) {
   return p.approved ? 0 : 1;
 }
 
-function approve(project, detail) {
-  const entries = read(project.root);
-  const p = planState(entries);
-  if (!p.open) die('plan-state: no hay plan en curso; carga /arnes:plan', 1);
-  if (p.approved) {
-    console.log('el plan en curso ya estaba aprobado');
-    return 0;
-  }
-  const end = entries.map((e) => e.stage === 'plan' && e.event === 'end').lastIndexOf(true);
-  if (!p.written || end < 0) die('plan-state: el plan no está escrito todavía (falta end plan)', 1);
-  if (!entries.slice(end + 1).some(isAnswer)) {
-    die('plan-state: la aprobación tiene que venir de la persona. Termina el turno mostrando el plan, sin la herramienta de preguntas, y espera su respuesta.', 1);
-  }
-  append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });
-  require('./lib/issues.js').setState(project, 'planeado');
-  console.log('plan aprobado por la persona');
-  renamed(project);
+function workspaceLine(ws) {
+  const where = `${ws.name} (${ws.rel || '.'})`;
+  if (!ws.adoptable) return `- ${where}: no adoptable todavía; se ve, pero no se verifica`;
+  const c = ws.contract || {};
+  const contract = [c.provides && `provee ${c.provides.join(', ')}`, c.consumes && `consume ${c.consumes.join(', ')}`].filter(Boolean).join(' · ') || 'sin contrato';
+  const rulesDir = path.join(ws.dir, '.claude', 'rules');
+  const rules = fs.existsSync(rulesDir) ? fs.readdirSync(rulesDir).filter((f) => f.endsWith('.md')).length : 0;
+  const docs = [fs.existsSync(path.join(ws.dir, 'CLAUDE.md')) && posix(path.join(ws.dir, 'CLAUDE.md')), rules && `${rules} regla(s) en ${posix(rulesDir)}`].filter(Boolean).join(' y ');
+  return `- ${where} · ${ws.stack || 'sin stack'} · riskPaths: ${(ws.riskPaths || []).join(', ') || 'ninguna declarada'} · ${contract}${docs ? ` · lee ${docs}` : ''}`;
+}
+
+function graphLine(project) {
+  const dirs = [project.root, ...new Set(project.workspaces.map((w) => w.repo))];
+  const found = dirs.filter((d) => fs.existsSync(path.join(d, 'graphify-out', 'graph.json'))).map((d) => posix(path.relative(project.root, d)) || '.');
+  if (!found.length) return 'grafo: no hay; ubica el código con Grep por los nombres del pedido y abre un módulo parecido';
+  if (!onPath('graphify')) return `grafo: hay en ${found.join(', ')}, pero el comando graphify no está; ubica el código con Grep`;
+  return `grafo: en ${found.join(', ')}; pregúntale con graphify query, explain o path desde la carpeta de cada uno antes de abrir archivos`;
+}
+
+function start(project, detail) {
+  append(project.root, { event: 'start', stage: 'plan', detail });
+  console.log(`proyecto: ${project.name} · ${project.kind === 'folder' ? 'carpeta' : 'repo'} · raíz ${posix(project.root)}`);
+  for (const ws of project.workspaces) console.log(workspaceLine(ws));
+  const prev = readPlan(project);
+  if (prev) console.log(`plan anterior: «${(prev.match(/^# (?:Plan: )?(.+)$/m) || [, 'sin título'])[1].trim()}» en ${posix(planPath(project))}; si es de otro issue, pregunta antes de pisarlo`);
+  console.log('ramas:');
+  branch.behind(project);
+  console.log('negocio:');
+  referencias(project);
+  console.log(graphLine(project));
   return 0;
 }
 
-// En el worktree nativo de un repo solo, la rama pasa al nombre del issue al aprobar.
+function finishDraft(project) {
+  if (!readPlan(project)) die(`plan-state: el plan no está escrito en ${posix(planPath(project))}`);
+  const p = planState(read(project.root));
+  if (!p.open) die('plan-state: no hay plan en curso; empieza con plan-state.js start', 1);
+  grafo(project);
+  append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan escrito' });
+  console.log('plan: escrito; desde aquí espera la respuesta de la persona');
+  branch.check(project);
+  return 0;
+}
+
+function approve(project, detail, opts = {}) {
+  const entries = read(project.root);
+  const p = planState(entries);
+  if (!p.open) die('plan-state: no hay plan en curso; carga /arnes:plan', 1);
+  if (p.approved) console.log('el plan en curso ya estaba aprobado');
+  else {
+    const end = entries.map((e) => e.stage === 'plan' && e.event === 'end').lastIndexOf(true);
+    if (!p.written || end < 0) die('plan-state: el plan no está escrito todavía (falta end plan)', 1);
+    if (!entries.slice(end + 1).some(isAnswer)) {
+      die('plan-state: la aprobación tiene que venir de la persona. Termina el turno mostrando el plan, sin la herramienta de preguntas, y espera su respuesta.', 1);
+    }
+    append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });
+    require('./lib/issues.js').setState(project, 'planeado');
+    console.log('plan aprobado por la persona');
+  }
+  anotaTareas(project);
+  return place(project, opts);
+}
+
+function place(project, { checkout, fromOther, stay } = {}) {
+  if (!readPlan(project)) {
+    console.log(`sin ${posix(planPath(project))}: no hay rama que ubicar`);
+    return 0;
+  }
+  const w = nativeRoot(project) || nativeWorktree(project.root);
+  const route = w || checkout ? null : branch.worktreeRoute(project);
+  let code = 0;
+  if (w) code = branch.create(project);
+  else if (route && route.ok) {
+    const name = slugOf(readPlan(project) || '');
+    console.log(`worktree: ${name}`);
+    console.log(`siguiente: llama a EnterWorktree con name "${name}"; al entrar, el arnés trae el plan, los repos y la rama, y repite la lista de tareas`);
+  } else {
+    if (route) console.log(`en el checkout: ${route.why}`);
+    code = stay ? branch.stay(project) : branch.create(project, undefined, fromOther);
+  }
+  const list = tasks(read(project.root));
+  if (list) console.log(`tareas: ${JSON.stringify(list)}`);
+  return code;
+}
+
+function anotaTareas(project) {
+  const entries = read(project.root);
+  if (tasks(entries)) return;
+  const list = [...planOrder(project, readPlan(project) || '').map((w) => `Construir ${w.name}`), 'Verificar', 'Revisar', 'Entregar'];
+  append(project.root, { event: 'note', stage: 'plan', result: 'tareas', detail: list.join(' · ') });
+}
+
 function renamed(project) {
-  const line = require('./issue-branch.js').renameNative(project);
+  const line = branch.renameNative(project);
   if (line) console.log(line);
 }
 
@@ -124,14 +216,9 @@ function planOrder(project, plan) {
 }
 
 function tareas(project, anota) {
-  const entries = read(project.root);
-  const p = planState(entries);
+  const p = planState(read(project.root));
   if (!p.open || !p.approved) die('plan-state: no hay plan aprobado en curso; la lista sale de él', 1);
-  if (anota && !tasks(entries)) {
-    const plan = readPlan(project) || '';
-    const list = [...planOrder(project, plan).map((w) => `Construir ${w.name}`), 'Verificar', 'Revisar', 'Entregar'];
-    append(project.root, { event: 'note', stage: 'plan', result: 'tareas', detail: list.join(' · ') });
-  }
+  if (anota) anotaTareas(project);
   const list = tasks(read(project.root));
   if (!list) die('plan-state: la corrida no tiene lista de tareas; créala con tareas --anota', 1);
   console.log(JSON.stringify(list));
@@ -161,14 +248,23 @@ function grafo(project) {
   return 0;
 }
 
-module.exports = { status, approve, trivial, tareas, referencias, grafo };
+module.exports = { status, start, finishDraft, approve, trivial, tareas, referencias, grafo };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { detail: { type: 'string' }, pedido: { type: 'string' }, criterio: { type: 'string' }, anota: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+      options: {
+        detail: { type: 'string' },
+        pedido: { type: 'string' },
+        criterio: { type: 'string' },
+        anota: { type: 'boolean' },
+        'en-checkout': { type: 'boolean' },
+        'desde-otra': { type: 'boolean' },
+        quedarse: { type: 'boolean' },
+        help: { type: 'boolean', short: 'h' },
+      },
     });
   } catch (e) {
     die(`plan-state: ${e.message}`);
@@ -176,16 +272,22 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js status | approve [--detail t] | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo';
-  if (extra || !['status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  const usage = 'uso: plan-state.js start --detail t | finish-draft | approve [--detail t] [--en-checkout] [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo';
+  const placing = o['en-checkout'] || o['desde-otra'] || o.quedarse;
+  if (extra || !['start', 'finish-draft', 'status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  if ((placing && mode !== 'approve') || (o['desde-otra'] && o.quedarse) || (o.detail && !['start', 'approve'].includes(mode))) die(usage);
+  if (mode === 'start' && !(o.detail && o.detail.trim())) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
   if (mode !== 'trivial' && (o.pedido || o.criterio)) die(usage);
   const project = requireProject();
+  if (mode === 'start') process.exit(start(project, o.detail.trim()));
+  if (mode === 'finish-draft') process.exit(finishDraft(project));
   if (mode === 'status') process.exit(status(project));
   if (mode === 'tareas') process.exit(tareas(project, o.anota));
   if (mode === 'referencias') process.exit(referencias(project));
   if (mode === 'grafo') process.exit(grafo(project));
-  process.exit(mode === 'approve' ? approve(project, o.detail) : trivial(project, o.pedido, o.criterio));
+  if (mode === 'approve') process.exit(approve(project, o.detail, { checkout: o['en-checkout'] || o['desde-otra'] || o.quedarse, fromOther: o['desde-otra'], stay: o.quedarse }));
+  process.exit(trivial(project, o.pedido, o.criterio));
 }
 
 if (require.main === module) main();

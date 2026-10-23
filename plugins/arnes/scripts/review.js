@@ -29,14 +29,25 @@
 //          (sin bloqueantes), si el reviewer no escribió reporte, escribe el mínimo: Sin hallazgos
 //   check  revisión hecha: cada workspace adoptable con tocados está en review.json con su huella
 //          actual, y la revisión terminó sin bloqueantes
-// Uso: node review.js input [--completa]
+//   round [--completa]
+//          la transición de /arnes:review en una llamada: input, y con lo que decidió, start review
+//          con la ronda y su modo (o la nota de review si no hay nada que revisar, si dice "sin marcar"
+//          o si se niega), y cómo lanzar al reviewer: el prompt y el modelo de esa ronda
+//   round --marca [--limpio]
+//          al volver el reviewer, con su reporte guardado en review/report.md: los bloqueantes de su
+//          línea BLOQUEANTES (o las líneas BLOQUEANTE, si no la trae), mark, end review y el informe de
+//          la etapa con el reporte entero. --limpio es mark --clean
+// Uso: node review.js round [--completa] | round --marca [--limpio]
+//      node review.js input [--completa]
 //      node review.js mark --blockers <n> | mark --clean
 //      node review.js check
 // Salida: una línea por workspace, con las riskPaths tocadas; input sigue con la ronda y su modo y
-// termina con la ruta de input.md.
-// Exit: 0 escrita o hecha · 1 input: tope de rondas o nada cambió desde la revisión anterior;
-//       mark: el árbol cambió desde input; check: falta, no es del árbol actual o tuvo bloqueantes
-//       · 2 uso inválido, sin manifiesto, sin input previo, sin reporte o git falló
+// termina con la ruta de input.md; round, con el reviewer que hay que lanzar; round --marca, con los
+// bloqueantes, la ruta del reporte y la del informe.
+// Exit: 0 escrita, marcada o hecha · 1 input o round: tope de rondas o nada cambió desde la revisión
+//       anterior; mark o round --marca: el árbol cambió desde input; check: falta, no es del árbol
+//       actual o tuvo bloqueantes · 2 uso inválido, sin manifiesto, sin input previo, sin reporte o
+//       git falló
 
 'use strict';
 
@@ -48,6 +59,9 @@ const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched, added, deleted } = require('./touched-files.js');
 const { stateOf } = require('./gate-flag.js');
+const { append, read: readTimeline, tasks } = require('./lib/timeline.js');
+const { informe } = require('./informe.js');
+const issues = require('./lib/issues.js');
 
 const MAX_DIFF_LINES = 400;
 const MAX_ROUNDS = 3;
@@ -335,16 +349,19 @@ function input(project, full) {
   }
   if (!Object.keys(now).length) {
     console.log('sin tocados en ningún workspace adoptable: nada que revisar');
-    return;
+    return { none: true };
   }
   const pending = readJson(path.join(reviewDir(project), 'input.json'));
   const marks0 = (pending && pending.workspaces) || {};
   if (!full && fs.existsSync(reportFile(project)) && Object.keys(marks0).length === Object.keys(now).length && Object.keys(now).every((n) => same(now[n].st, marks0[n]))) {
     console.log(`sin marcar: la ronda ${pending.round || 1} de este mismo contenido ya tiene su reporte guardado; falta marcarla con los bloqueantes de ese reporte`);
-    return;
+    return { unmarked: true };
   }
   const r = roundOf(project, now, full);
-  if (r.stop) die(r.stop, 1);
+  if (r.stop) {
+    process.stderr.write(`${r.stop}\n`);
+    return { stop: r.stop };
+  }
   const plan = planFile(project);
   const bounded = r.mode === 'acotada';
   const parts = [
@@ -378,6 +395,7 @@ function input(project, full) {
   console.log(`ronda ${r.round} de ${MAX_ROUNDS} · ${r.mode}${why ? `: ${why}` : ''}`);
   console.log(`plan: ${fs.existsSync(plan) ? plan : 'no hay'}`);
   console.log(`entrada: ${path.join(dir, 'input.md')}`);
+  return { round: r.round, mode: r.mode, input: path.join(dir, 'input.md'), plan: fs.existsSync(plan) ? plan : null };
 }
 
 function same(a, b) {
@@ -402,15 +420,72 @@ function mark(project, blockers, clean = false) {
     const ws = project.workspaces.find((w) => w.name === name);
     const st = ws ? stateOf(project, ws) : { error: `workspace desconocido ${name}` };
     if (st.error) die(`review: ${st.error}`);
-    if (!same(st, m)) die(`${name}: el árbol cambió desde review.js input; lo revisado ya no es lo que hay, revisa de nuevo`, 1);
+    if (!same(st, m)) {
+      process.stderr.write(`${name}: el árbol cambió desde review.js input; lo revisado ya no es lo que hay, revisa de nuevo\n`);
+      return { changed: name };
+    }
   }
   const [round, mode] = [inp.round || 1, inp.mode || 'completa'];
   fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces }, null, 2) + '\n');
   fs.renameSync(rep, roundReport(project, round));
-  require('./lib/issues.js').record(project, { files: [roundReport(project, round), path.join(reviewDir(project), 'input.md')] });
+  issues.record(project, { files: [roundReport(project, round), path.join(reviewDir(project), 'input.md')] });
   console.log(`revisión marcada en ${reviewFile(project)}: ${blockers} bloqueante(s) · ronda ${round} de ${MAX_ROUNDS}, ${mode}`);
-  if (!blockers) require('./lib/issues.js').setState(project, 'revisado', `ronda ${round}`);
-  if (blockers > 0 && round >= MAX_ROUNDS) console.log(`tope: la ronda ${round} terminó con bloqueantes después de dos rondas de corrección; no se corrige más, se reporta a la persona`);
+  if (!blockers) issues.setState(project, 'revisado', `ronda ${round}`);
+  const top = blockers > 0 && round >= MAX_ROUNDS;
+  if (top) console.log(`tope: la ronda ${round} terminó con bloqueantes después de dos rondas de corrección; no se corrige más, se reporta a la persona`);
+  return { round, mode, top };
+}
+
+function tasksLine(project) {
+  const list = tasks(readTimeline(project.root));
+  if (list) console.log(`tareas: ${JSON.stringify(list)}`);
+}
+
+function round(project, full) {
+  const r = input(project, full);
+  if (r.none) {
+    append(project.root, { event: 'note', stage: 'review', result: 'ok', detail: 'sin tocados' });
+    return 0;
+  }
+  if (r.unmarked) {
+    console.log('siguiente: no relances al reviewer; marca con review.js round --marca, que usa el reporte guardado');
+    return 0;
+  }
+  if (r.stop) {
+    append(project.root, { event: 'note', stage: 'review', result: 'fail', detail: r.stop });
+    return 1;
+  }
+  append(project.root, { event: 'start', stage: 'review', detail: `ronda ${r.round} ${r.mode}` });
+  console.log(`siguiente: lanza arnes:reviewer una vez, ${r.mode === 'acotada' ? 'con model "sonnet"' : 'sin model (va en opus)'}, con el prompt: Lee ${posix(r.input)}. Plan: ${r.plan ? posix(r.plan) : 'no hay plan'}.`);
+  tasksLine(project);
+  return 0;
+}
+
+function blockersIn(text) {
+  const said = [...text.matchAll(/^BLOQUEANTES:\s*(\d+)\s*$/gm)].pop();
+  return said ? Number(said[1]) : (text.match(/^\s*(?:[-*]\s*)?BLOQUEANTE\b(?!S)/gm) || []).length;
+}
+
+function closeRound(project, clean) {
+  const rep = reportFile(project);
+  if (!clean && !fs.existsSync(rep)) die(`review: falta ${rep}: guarda ahí el reporte del reviewer, tal cual, antes de marcar`);
+  const n = clean ? 0 : blockersIn(fs.readFileSync(rep, 'utf8'));
+  const m = mark(project, n, clean);
+  if (m.changed) {
+    append(project.root, { event: 'end', stage: 'review', result: 'fail', detail: 'el árbol cambió' });
+    return 1;
+  }
+  append(project.root, { event: 'end', stage: 'review', result: n ? 'fail' : 'ok', detail: `${n} bloqueante(s) · ronda ${m.round} ${m.mode}` });
+  const out = informe(project.root, 'review');
+  const report = fs.readFileSync(roundReport(project, m.round), 'utf8').trim();
+  fs.writeFileSync(out.file, [`# Revisión · ronda ${m.round} de ${MAX_ROUNDS}, ${m.mode}`, '', report, ''].join('\n'));
+  issues.record(project, { files: [out.file] });
+  console.log(`bloqueantes: ${n}${m.top ? ' · tope de rondas: se reporta a la persona' : ''}`);
+  console.log(`reporte: ${posix(roundReport(project, m.round))}`);
+  console.log(`informe: ${posix(out.file)}`);
+  console.log(out.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
+  tasksLine(project);
+  return 0;
 }
 
 // → [{ ws, ok, reason, risk }] por workspace adoptable con tocados.
@@ -436,21 +511,28 @@ module.exports = { RISK, MAX_DIFF_LINES, rulePaths, checkReview, rulesBlock, num
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { blockers: { type: 'string' }, clean: { type: 'boolean' }, completa: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({
+      allowPositionals: true,
+      options: { blockers: { type: 'string' }, clean: { type: 'boolean' }, completa: { type: 'boolean' }, marca: { type: 'boolean' }, limpio: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } },
+    });
   } catch (e) {
     die(`review: ${e.message}`);
   }
-  if (args.values.help) help(__filename);
+  const o = args.values;
+  if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const clean = Boolean(args.values.clean);
-  const n = clean && args.values.blockers === undefined ? 0 : Number(args.values.blockers);
-  if (!['input', 'mark', 'check'].includes(mode) || extra) die('uso: review.js input [--completa] | mark --blockers <n> | mark --clean | check');
+  const clean = Boolean(o.clean);
+  const n = clean && o.blockers === undefined ? 0 : Number(o.blockers);
+  if (!['round', 'input', 'mark', 'check'].includes(mode) || extra) die('uso: review.js round [--completa] | round --marca [--limpio] | input [--completa] | mark --blockers <n> | mark --clean | check');
   if (clean && (mode !== 'mark' || n !== 0)) die('review: --clean solo va con mark, y es una revisión sin bloqueantes');
   if (mode === 'mark' && !(Number.isInteger(n) && n >= 0)) die('review: mark necesita --blockers <n>, un entero ≥ 0');
-  if (mode !== 'input' && args.values.completa) die('review: --completa solo va con input');
+  if (!['input', 'round'].includes(mode) && o.completa) die('review: --completa solo va con input o round');
+  if ((o.marca || o.limpio) && mode !== 'round') die('review: --marca y --limpio solo van con round');
+  if ((o.limpio && !o.marca) || (o.marca && o.completa)) die('review: --limpio va con round --marca, y --completa con round sin --marca');
   const project = requireProject();
-  if (mode === 'input') return input(project, !!args.values.completa);
-  if (mode === 'mark') return mark(project, n, clean);
+  if (mode === 'round') process.exit(o.marca ? closeRound(project, !!o.limpio) : round(project, !!o.completa));
+  if (mode === 'input') process.exit(input(project, !!o.completa).stop ? 1 : 0);
+  if (mode === 'mark') process.exit(mark(project, n, clean).changed ? 1 : 0);
   const rows = checkReview(project);
   if (!rows.length) console.log('sin tocados en ningún workspace adoptable');
   for (const r of rows) console.log(`${r.ws}: ${r.ok ? 'ok' : 'FALTA'} · ${r.reason}${r.risk.length ? ` · ${RISK}: ${r.risk.join(', ')}` : ''}`);

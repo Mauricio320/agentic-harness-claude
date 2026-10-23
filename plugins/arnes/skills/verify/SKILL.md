@@ -6,43 +6,23 @@ description: Verificar, probar o comprobar un cambio de código antes de cerrar 
 
 # arnes:verify
 
-Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando `timeline.js` imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
+Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando un script imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
-**Después de un merge ya commiteado** (integrate de un worktree, sync), `$ARGUMENTS` trae `--base <commit>`, el primer padre del merge. Contra HEAD no hay nada que verificar: usa ese base en `touched-files.js --workspaces --base <commit>`, en `ci-gate.js --base <commit>` y en `gate-flag.js write <ws> --result pass --base <commit>`. Sin él, el base es HEAD.
+**Después de un merge ya commiteado** (integrate de un worktree, sync, el merge local de ship), `$ARGUMENTS` trae `--base <commit>`, el primer padre del merge: pásalo igual a `verify.js run`. Contra HEAD no habría nada que verificar.
 
 ## Pasos
 
-1. Anota el inicio: `node "S/lib/timeline.js" start verify`.
-
-2. Corre `node "S/touched-files.js" --workspaces`. Sale una línea por workspace con tocados: nombre, cuántos y si es adoptable.
-   - **Sin ninguna línea:** di que no hay nada que verificar, anota `node "S/lib/timeline.js" end verify --result ok --detail "sin tocados"` y termina.
-   - **Los no adoptables:** se reportan y no se verifican.
-
-3. Por cada workspace adoptable de la lista, en el orden en que salieron:
-
-   a. **Código nuevo sin spec:** corre `node "S/test-select.js" --ws <ws> --missing`.
-      - Si lista archivos, arma su entrada con esa misma lista: `node "S/build.js" input --ws <ws> --para test-writer --files <archivo>...`. Deja `.tmp/harness/build/<ws>-test-writer-input.md` con los comandos, la ruta del spec y el código de cada archivo, las reglas que aplican y el plan en lo que toca a ese workspace.
-      - Lanza una sola vez el agente `arnes:test-writer`. Pásale la carpeta del workspace y la ruta de esa entrada. No le pidas nada más.
-      - Al volver, corre `--missing` otra vez. Lo que siga en la lista va al informe con la razón que dio test-writer. No bloquea.
-
-   b. **El gate:** corre `node "S/ci-gate.js" --ws <ws> --base HEAD`. Es lo mismo que corre el CI, sobre los cambios sin commitear:
-      - el typecheck contra una foto del HEAD, con la clave y los conteos de typecheck-baseline; la foto queda en `.tmp/harness/typecheck/` y se reutiliza mientras el HEAD no cambie;
-      - las convenciones del manifiesto (`conventions`) sobre lo que cambió, antes del lint;
-      - el lint de los tocados que son código;
-      - los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.
-
-   c. **La bandera:**
-      - **Si ci-gate salió con 0:** escribe `node "S/gate-flag.js" write <ws> --result pass`.
-      - **Si salió con 1:** no escribas bandera. El código de salida decide: nunca escribas pass porque la salida "parece" verde.
-
-4. Anota el fin: `node "S/lib/timeline.js" end verify --result ok|fail --detail "<ws>: ok|fail, …"`. El resultado es `ok` solo si todos los workspaces verificados salieron con 0.
+1. Corre `node "S/verify.js" run`, con `--base <commit>` si lo trae `$ARGUMENTS`. Es la verificación entera en una llamada: anota el inicio, busca los workspaces con cambios, corre el mismo gate que el CI en cada uno (el typecheck contra una foto del base, las convenciones del manifiesto, el lint de los tocados y los specs de test-select contra la línea base de tests y las fallas conocidas), escribe la bandera de cada workspace que salió en verde, anota el fin y deja el informe con todo.
+   - **Sale con 3 y líneas `test-writer:`:** hay código nuevo sin spec. Por cada línea, lanza un agente `arnes:test-writer` con su carpeta y la ruta de su entrada, y nada más; si son varios workspaces, en paralelo. Cuando vuelvan, corre `node "S/verify.js" run --tras-tests` (con el mismo `--base`). Lo que siga sin spec va al informe con la razón que dio el test-writer; no bloquea.
+   - **Sale con 0:** todos los workspaces en verde, con su bandera escrita; o nada que verificar.
+   - **Sale con 1:** algún workspace en rojo, sin bandera. El código de salida decide: nunca escribas la bandera a mano porque la salida "parece" verde.
 
 ## Si algo falla
 
 - **Un paso en rojo:** repórtalo y termina. Corregir es otro paso, y después de corregir se vuelve a verificar desde el principio.
 - **Una falla de la línea base** (un test borrado o saltado, un salto no declarado, un spec de la base borrado): no se arregla recapturando la base para que cuadre. Recapturar (`test-baseline.js capture <ws>`) es una decisión de la persona, y su commit lleva `gates:` en el asunto.
 - **Una falla `preexistente (<fecha>)`:** no pone rojo. Va al informe con su fecha.
-- **Sin bandera vigente:** el guard niega el `git commit` y el Stop bloquea una vez. No los rodees.
+- **Sin bandera vigente:** el commit se niega y el Stop bloquea una vez. No los rodees.
 
 ## Al terminar en verde
 
@@ -52,5 +32,5 @@ Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`), sigue con 
 
 Lo que lee la persona (docs/PLAN.md §2) es poco, y sin nombres de scripts, códigos de salida, hashes ni rutas del plugin:
 - **En el chat:** una línea por workspace, en palabras (`api: compila, pasa el lint y los 12 tests que tocan lo cambiado`, o qué falló y en qué archivo), y la lista corta de lo que tiene que decidir o hacer ella, si hay algo.
-- **El detalle va al informe:** `node "S/informe.js" path verify` da la ruta. Escribe ahí con Write las líneas de ci-gate de cada workspace sin resumirlas, los specs que escribió test-writer y lo que quedó sin spec con su razón, las fallas preexistentes y la línea de la bandera. En el chat, una línea con esa ruta.
-- **La frase** "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si informe.js dijo `frase: dila`.
+- **El detalle ya está en el informe:** `verify.js run` lo escribe con la salida del gate de cada workspace sin resumir, lo que quedó sin spec y la línea de cada bandera, y dice su ruta en la línea `informe:` (la misma carpeta que da `node "S/informe.js" path verify`). Agrégale con Edit los specs que escribió el test-writer y la razón de lo que quedó sin spec. En el chat, una línea con esa ruta.
+- **La frase** "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si la salida dijo `frase: dila`.

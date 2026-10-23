@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+// La transición de /arnes:verify en una llamada (docs/PLAN.md §6.3): lo determinista de la skill,
+// adentro, y una sola salida.
+//   run [--base <commit>] [--tras-tests]
+//     anota start verify y busca los workspaces con tocados respecto del base (HEAD, o el primer padre
+//     de un merge ya commiteado, que la skill pasa con --base). Sin --tras-tests, si algún workspace
+//     adoptable tiene código nuevo sin spec (test-select.js --missing), arma su entrada de
+//     test-writer (build.js input --para test-writer) y se detiene: la skill lanza un test-writer por
+//     cada entrada y vuelve con --tras-tests, que ya no se detiene y deja en el informe lo que siga
+//     sin spec. Después corre el gate de cada workspace adoptable (ci-gate.js --ws <ws> --base <base>),
+//     escribe su bandera solo si salió con 0 (gate-flag.js write --result pass) y anota end verify,
+//     ok solo si todos salieron con 0. Escribe el informe de la etapa (informe.js), con la salida de
+//     ci-gate de cada workspace tal cual, lo que quedó sin spec y la línea de cada bandera.
+//     Imprime la sección de ci-gate de cada workspace, una línea por workspace con su veredicto, la
+//     ruta del informe, si toca decir la frase del verde y la lista de tareas de la corrida.
+// Uso: node verify.js run [--base <commit>] [--tras-tests]
+// Exit: 0 verde, o nada que verificar · 1 algún workspace en rojo · 3 falta escribir tests: lanza el
+//       test-writer de cada entrada y vuelve con --tras-tests · 2 uso inválido o sin manifiesto
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const { parseArgs } = require('util');
+const { requireProject, harnessDir, posix } = require('./lib/manifest.js');
+const { help, die } = require('./lib/exec.js');
+const { append, read, tasks } = require('./lib/timeline.js');
+const { touched } = require('./touched-files.js');
+const { missingSpecs } = require('./test-select.js');
+const { informe } = require('./informe.js');
+const issues = require('./lib/issues.js');
+
+function node(script, args) {
+  const r = spawnSync(process.execPath, [path.join(__dirname, script), ...args], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1 << 28 });
+  return { status: r.status == null ? -1 : r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+}
+
+function gateSection(out) {
+  const ls = out.split(/\r?\n/);
+  const from = ls.findIndex((l) => l.startsWith('== '));
+  const to = ls.findIndex((l) => l.startsWith('resultado: '));
+  return ls.slice(from < 0 ? 0 : from, to < 0 ? ls.length : to).join('\n').trimEnd();
+}
+
+function firstRed(section) {
+  const l = section.split('\n').find((x) => /^\s{2}\S+\s+FALLA\b/.test(x));
+  return l ? l.trim().replace(/\s+FALLA\s+·\s*/, ': ') : 'el gate salió en rojo';
+}
+
+function run(project, base, afterTests) {
+  if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
+  const found = [];
+  for (const ws of project.workspaces) {
+    const t = touched(ws, base, project);
+    if (t.error) die(`verify: ${t.error}`);
+    if (t.files.length) found.push({ ws, files: t.files.filter((f) => fs.existsSync(path.join(ws.dir, f))) });
+  }
+  const say = (l) => console.log(l);
+  const listTasks = () => {
+    const list = tasks(read(project.root));
+    if (list) say(`tareas: ${JSON.stringify(list)}`);
+  };
+  if (!found.length) {
+    append(project.root, { event: 'end', stage: 'verify', result: 'ok', detail: 'sin tocados' });
+    say('nada que verificar: ningún workspace tiene cambios');
+    listTasks();
+    return 0;
+  }
+  for (const { ws } of found.filter((x) => !x.ws.adoptable)) say(`${ws.name}: no adoptable todavía; tiene cambios, pero no se verifica`);
+  const adoptable = found.filter((x) => x.ws.adoptable);
+  const missing = new Map(adoptable.map(({ ws, files }) => [ws.name, missingSpecs(ws, files)]));
+  if (!afterTests) {
+    const writers = [];
+    for (const { ws } of adoptable) {
+      const files = missing.get(ws.name);
+      if (!files.length) continue;
+      const r = node('build.js', ['input', '--ws', ws.name, '--para', 'test-writer', '--files', ...files]);
+      if (r.status !== 0) die(`verify: no pude armar la entrada del test-writer de ${ws.name}:\n${r.out.trim()}`);
+      writers.push(`test-writer: ${ws.name} · ${files.length} archivo(s) sin spec (${files.join(', ')}) · carpeta ${posix(ws.dir)} · entrada ${posix(path.join(harnessDir(project), 'build', `${ws.name}-test-writer-input.md`))}`);
+    }
+    if (writers.length) {
+      writers.forEach(say);
+      say('siguiente: lanza un arnes:test-writer por cada entrada, con su carpeta y su entrada, y vuelve con verify.js run --tras-tests');
+      return 3;
+    }
+  }
+  const results = [];
+  for (const { ws } of adoptable) {
+    const gate = node('ci-gate.js', ['--ws', ws.name, '--base', base]);
+    const section = gateSection(gate.out);
+    let flag = 'sin bandera: el gate salió en rojo';
+    if (gate.status === 0) {
+      const w = node('gate-flag.js', ['write', ws.name, '--result', 'pass', ...(base === 'HEAD' ? [] : ['--base', base])]);
+      flag = w.status === 0 ? w.out.trim() : `la bandera no se escribió: ${w.out.trim()}`;
+    }
+    results.push({ ws, ok: gate.status === 0, section, flag, left: afterTests ? missingSpecs(ws, adoptable.find((x) => x.ws === ws).files) : [] });
+  }
+  const ok = results.every((r) => r.ok);
+  append(project.root, { event: 'end', stage: 'verify', result: ok ? 'ok' : 'fail', detail: results.map((r) => `${r.ws.name}: ${r.ok ? 'ok' : 'fail'}`).join(', ') });
+  const rep = informe(project.root, 'verify');
+  const body = ['# Verificación', '', `Base: ${base}`, ''];
+  for (const r of results) {
+    body.push(`## ${r.ws.name}`, '', '```', r.section, '```', '', `Bandera: ${r.flag}`);
+    if (r.left.length) body.push(`Sin spec después del test-writer: ${r.left.join(', ')}`);
+    body.push('');
+  }
+  fs.writeFileSync(rep.file, body.join('\n'));
+  issues.record(project, { files: [rep.file] });
+  for (const r of results) say(r.section);
+  for (const r of results) say(`${r.ws.name}: ${r.ok ? 'VERDE · bandera escrita' : `ROJO · ${firstRed(r.section)}`}${r.left.length ? ` · sin spec: ${r.left.join(', ')}` : ''}`);
+  say(`informe: ${posix(rep.file)}`);
+  say(rep.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
+  listTasks();
+  return ok ? 0 : 1;
+}
+
+module.exports = { run };
+
+function main() {
+  let args;
+  try {
+    args = parseArgs({ allowPositionals: true, options: { base: { type: 'string', default: 'HEAD' }, 'tras-tests': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+  } catch (e) {
+    die(`verify: ${e.message}`);
+  }
+  if (args.values.help) help(__filename);
+  const [mode, extra] = args.positionals;
+  if (mode !== 'run' || extra || !args.values.base || args.values.base.startsWith('-')) die('uso: verify.js run [--base <commit>] [--tras-tests]');
+  process.exit(run(requireProject(), args.values.base, args.values['tras-tests']));
+}
+
+if (require.main === module) main();

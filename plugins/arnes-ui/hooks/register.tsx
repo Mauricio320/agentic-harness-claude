@@ -212,7 +212,7 @@ export const register: Register = (on) => {
       if (probe?.gate && r.isError) alert($, `arnes: gate en rojo: ✗ ${probe.label}${failed ? ` (${failed})` : ''}`)
       if (['Bash', 'PowerShell', 'Edit', 'Write'].includes(e.tool)) needsGit = true
       if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
-      if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && /timeline\.js/.test(e.command)) await refresh($, false)
+      if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && /(timeline|plan-state|build|verify|review|ship)\.js/.test(e.command)) await refresh($, false)
       // Al entrar o salir de un worktree cambia el cwd de la sesión, y con él el proyecto y la banda.
       if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) await load($)
     })

@@ -38,14 +38,36 @@
 //           la rama del issue; abort vuelve sin tocar nada. Un conflicto deja todo como estaba y lo
 //           dice como una persona. El push de la rama por defecto lo hace la skill, con un sí
 // Sin contract en ningún workspace, check avisa que el orden de commit es el del manifiesto.
-// Uso: node ship.js check
+//   deliver [--rama <r>] [--solo-commit]
+//           la primera transición de /arnes:ship en una llamada: anota start ship, corre check y lo
+//           deja en el informe de la entrega. Si falta resolver, se detiene o no hay nada que entregar,
+//           lo dice y para; listo, crea o reutiliza la rama (--rama, o la del issue, que es la actual)
+//           y hace el stage de cada workspace en el orden de commit, y pide el mensaje de cada commit en
+//           .tmp/harness/ship/mensajes.json: { "<ws>": { asunto, cuerpo, mr?: { titulo, descripcion } } }
+//   deliver --commit
+//           commitea cada workspace en su orden con su mensaje, solo con su verificación vigente (la
+//           misma regla del guard para un git commit); deja en el informe el log --stat; comprueba lo
+//           commiteado (committed) y, salvo con --solo-commit o con el merge local, arma el título y el
+//           cuerpo de cada MR (zona de riesgo, qué cambia, criterios y prueba manual del plan, verify con
+//           la frase, la revisión y los enlaces a los otros repos) y dice la pregunta del push
+//   deliver --push
+//           con una respuesta de la persona después del commit (la nota "respuesta" de
+//           UserPromptSubmit): push de cada repo, nunca --force; abre cada MR con glab o gh si están
+//           (el ejecutable, sin shell, para que el cuerpo pase entero) y enlaza los de los otros repos;
+//           sin ellos, los cuerpos quedan en el informe para pegar. Deja el issue subido, anota end
+//           ship y lista lo que se creó para el issue (issues.js clean --actual) para la pregunta final
+//   deliver --sin-push
+//           la persona no quiso subir: end ship ok, "commit sin push"
+// Uso: node ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push | deliver --sin-push
+//      node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
 //      node ship.js committed <ws>
 //      node ship.js merge start|finish|abort
-// Exit: 0 listo · 1 falta resolver (ship lo resuelve), nada que entregar, o committed: el commit no
-//       es lo verificado · 2 uso inválido, sin manifiesto, sin bandera o git falló · 3 se detiene: el
-//       gate en rojo, bloqueantes o una zona de riesgo sin revisión humana
+// Exit: 0 listo · 1 falta resolver (ship lo resuelve), nada que entregar, committed: el commit no
+//       es lo verificado, o deliver que no pudo seguir (el motivo en stdout) · 2 uso inválido, sin
+//       manifiesto, sin bandera o git falló · 3 se detiene: el gate en rojo, bloqueantes o una zona de
+//       riesgo sin revisión humana
 
 'use strict';
 
@@ -61,13 +83,16 @@ const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { checkFlag, flagPath, readLast } = require('./gate-flag.js');
 const { checkReview, RISK } = require('./review.js');
-const { read } = require('./lib/timeline.js');
+const { append, read, tasks } = require('./lib/timeline.js');
+const { parseArgs } = require('util');
+const { informe } = require('./informe.js');
+const I = require('./lib/issues.js');
 const entrega = require('./lib/entrega.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const ledger = require('./worktree-ledger.js');
 const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
-const { readPlan, section } = require('./lib/plan.js');
+const { readPlan, section, slugOf } = require('./lib/plan.js');
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
@@ -403,13 +428,325 @@ function mergeEnd(project, finish) {
   return 0;
 }
 
-module.exports = { shipping };
+// ---------- deliver: las transiciones de /arnes:ship, una llamada cada una ----------
+
+const shipDir = (project) => path.join(harnessDir(project), 'ship');
+const deliveryFile = (project) => path.join(shipDir(project), 'entrega.json');
+const messagesFile = (project) => path.join(shipDir(project), 'mensajes.json');
+
+function self(args) {
+  const r = spawnSync(process.execPath, [__filename, ...args], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1 << 28 });
+  return { status: r.status == null ? -1 : r.status, out: `${r.stdout || ''}${r.stderr || ''}`.trimEnd() };
+}
+
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function shipOpen(entries) {
+  const i = entries.map((e) => e.stage === 'ship' && e.event === 'start').lastIndexOf(true);
+  return i >= 0 && !entries.slice(i + 1).some((e) => e.stage === 'ship' && e.event === 'end');
+}
+
+function addToReport(file, title, text) {
+  fs.appendFileSync(file, `\n## ${title}\n\n\`\`\`\n${String(text).trimEnd()}\n\`\`\`\n`);
+}
+
+function finish(project, d, result, detail, say, shown = false) {
+  append(project.root, { event: 'end', stage: 'ship', result, detail });
+  if (d && d.informe && !shown) say(`informe: ${posix(d.informe)}`);
+  if (d && d.informe) say(d.frase ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
+  const list = tasks(read(project.root));
+  if (list) say(`tareas: ${JSON.stringify(list)}`);
+}
+
+function cleanUrl(url) {
+  return url.replace(/^(https?:\/\/)[^@/]+@/, '$1');
+}
+
+function deliverPrepare(project, o, say) {
+  if (!shipOpen(read(project.root))) append(project.root, { event: 'start', stage: 'ship', detail: o.soloCommit ? 'solo commit' : undefined });
+  const prev = readJsonFile(deliveryFile(project));
+  const fresh = !prev || !prev.informe || !fs.existsSync(prev.informe) || !shipOpenSince(project, prev.at);
+  const rep = fresh ? informe(project.root, 'ship') : { file: prev.informe, first: prev.frase };
+  if (fresh) {
+    fs.writeFileSync(rep.file, '# Entrega\n');
+    I.record(project, { files: [rep.file] });
+  }
+  const d = { at: fresh ? new Date().toISOString() : prev.at, informe: rep.file, frase: rep.first, soloCommit: Boolean(o.soloCommit) };
+  const save = (extra = {}) => {
+    fs.mkdirSync(shipDir(project), { recursive: true });
+    fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, ...extra }, null, 2) + '\n');
+  };
+  const c = self(['check']);
+  addToReport(rep.file, 'Comprobación', c.out);
+  say(c.out);
+  say(`informe: ${posix(rep.file)}`);
+  if (c.status === 3) {
+    save();
+    finish(project, d, 'fail', 'se detiene: gate en rojo, bloqueantes o zona de riesgo sin revisión humana', say, true);
+    return 3;
+  }
+  if (/nada que entregar/.test(c.out)) {
+    save();
+    finish(project, d, 'ok', 'nada que entregar', say, true);
+    return 1;
+  }
+  if (c.status === 1) {
+    save();
+    say('siguiente: resuelve cada línea de FALTA RESOLVER en su orden (verify.js run, review.js round) y vuelve a correr ship.js deliver');
+    return 1;
+  }
+  if (/LISTO PARA MERGEAR/.test(c.out)) {
+    save({ order: [] });
+    say('siguiente: el merge local: ship.js merge start, verify.js run --base HEAD^1, y merge finish en verde o merge abort en rojo');
+    return 0;
+  }
+  if (/LISTO PARA SUBIR/.test(c.out)) {
+    const order = unpushed(project).map((x) => x.ws.name);
+    save({ order, committedAt: new Date().toISOString(), risk: {} });
+    if (o.soloCommit) {
+      finish(project, d, 'ok', 'nada que commitear', say, true);
+      return 0;
+    }
+    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR; con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
+    return 0;
+  }
+  const list = shipping(project);
+  const current = list.map((x) => branchOf(x.ws)).find((b) => b && b !== 'HEAD' && !list.some((x) => b === defaultOf(x.ws)));
+  const name = o.rama || current || slugOf(readPlan(project) || '') || 'cambio';
+  const b = self(['branch', name]);
+  addToReport(rep.file, 'Rama', b.out);
+  say(b.out);
+  if (b.status !== 0) {
+    save();
+    finish(project, d, 'fail', 'la rama no quedó lista', say, true);
+    return 1;
+  }
+  for (const { ws } of list) {
+    const s = self(['stage', ws.name]);
+    addToReport(rep.file, `Stage de ${ws.name}`, s.out);
+    say(s.out);
+    if (s.status !== 0) {
+      save();
+      finish(project, d, 'fail', `el stage de ${ws.name} falló`, say, true);
+      return 1;
+    }
+  }
+  const risk = Object.fromEntries(list.map(({ ws, files }) => [ws.name, files.filter((f) => matchAny(ws.riskPaths, f))]));
+  save({ order: list.map((x) => x.ws.name), risk });
+  const order = list.map((x) => `"${x.ws.name}"`).join(', ');
+  say(`siguiente: escribe con Write ${posix(messagesFile(project))} con un mensaje por workspace (${order}): { "<ws>": { "asunto": "…", "cuerpo": "…"${o.soloCommit ? '' : ', "mr": { "titulo": "…", "descripcion": "qué cambia" }'} } }, con la convención de commits de arriba, y corre ship.js deliver --commit`);
+  return 0;
+}
+
+function shipOpenSince(project, at) {
+  const entries = read(project.root);
+  const i = entries.map((e) => e.stage === 'ship' && e.event === 'start').lastIndexOf(true);
+  return i >= 0 && shipOpen(entries) && Date.parse(entries[i].at) <= Date.parse(at) + 1000;
+}
+
+function deliverCommit(project, say) {
+  const d = readJsonFile(deliveryFile(project));
+  if (!d || !Array.isArray(d.order)) die('ship: primero ship.js deliver, que comprueba, prepara la rama y hace el stage');
+  const msgs = readJsonFile(messagesFile(project));
+  if (!msgs) die(`ship: falta ${posix(messagesFile(project))} con el mensaje de cada workspace`);
+  const done = [];
+  for (const name of d.order) {
+    const ws = project.workspaces.find((w) => w.name === name);
+    const m = msgs[name];
+    if (!ws || !m || !m.asunto || !String(m.asunto).trim()) die(`ship: falta el asunto de ${name} en ${posix(messagesFile(project))}`);
+    const flag = checkFlag(project, ws);
+    if (!flag.ok) {
+      say(`FALLA ${name}: sin verificación vigente (${flag.reason || flag.error}); no commiteo`);
+      finish(project, d, 'fail', `${name} sin verificación vigente`, say);
+      return 1;
+    }
+    const r = git(ws.dir, ['commit', '-m', String(m.asunto).trim(), ...(m.cuerpo && String(m.cuerpo).trim() ? ['-m', String(m.cuerpo).trim()] : [])]);
+    if (r.status !== 0) {
+      say(`FALLA ${name}: el commit no se hizo:\n${(r.stderr || r.stdout).trim()}`);
+      finish(project, d, 'fail', `el commit de ${name} falló`, say);
+      return 1;
+    }
+    const log = git(ws.dir, ['log', '-1', '--stat']);
+    addToReport(d.informe, `Commit de ${name}`, log.stdout);
+    const k = self(['committed', name]);
+    addToReport(d.informe, `Lo commiteado en ${name}`, k.out);
+    const files = lines(git(ws.dir, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).stdout).length;
+    say(`${name}: ${git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim()} ${String(m.asunto).trim()} · ${files} archivo(s)`);
+    say(k.out);
+    if (k.status !== 0) {
+      finish(project, d, 'fail', 'el commit no es lo verificado', say);
+      return 1;
+    }
+    done.push(name);
+  }
+  fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, committedAt: new Date().toISOString() }, null, 2) + '\n');
+  if (d.soloCommit) {
+    finish(project, d, 'ok', `solo commit: ${done.join(', ')}`, say);
+    return 0;
+  }
+  if (mergeMode(project) === 'local') {
+    say('siguiente: el merge local: ship.js merge start, verify.js run --base HEAD^1, y merge finish en verde o merge abort en rojo');
+    return 0;
+  }
+  for (const name of done) {
+    const ws = project.workspaces.find((w) => w.name === name);
+    const url = git(ws.gitRoot, ['remote', 'get-url', 'origin']);
+    say(`${name}: rama ${branchOf(ws)} → ${url.status === 0 ? cleanUrl(url.stdout.trim()) : 'sin remoto origin'}`);
+  }
+  const bodies = mrBodies(project, d, msgs, {});
+  for (const [name, b] of Object.entries(bodies)) addToReport(d.informe, `MR de ${name}: ${b.title}`, b.body);
+  say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
+  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba); con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
+  return 0;
+}
+
+function mrBodies(project, d, msgs, links) {
+  const plan = readPlan(project) || '';
+  const criteria = section(plan, /^criterios/i).split('\n').filter((l) => /^\s*(?:[-*]|\d+[.)]|C\d+)/.test(l));
+  const manual = section(plan, /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
+  const rv = readJsonFile(path.join(harnessDir(project), 'review.json')) || {};
+  const out = {};
+  for (const name of d.order) {
+    const m = msgs[name] || {};
+    const mr = m.mr || {};
+    const risk = (d.risk || {})[name] || [];
+    const others = Object.entries(links).filter(([n]) => n !== name).map(([n, l]) => `- ${n}: ${l}`);
+    out[name] = {
+      title: String(mr.titulo || m.asunto || name).trim(),
+      body: [
+        ...(risk.length ? [`${RISK}: ${risk.join(', ')}`, ''] : []),
+        String(mr.descripcion || m.cuerpo || m.asunto || '').trim(),
+        ...(criteria.length ? ['', '## Criterios', ...criteria] : []),
+        ...(manual.length ? ['', '## Prueba manual', ...manual] : []),
+        '',
+        '## Verificación',
+        'Verificado por el arnés: typecheck, convenciones, lint y tests de lo tocado contra la línea base. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.',
+        '',
+        '## Revisión',
+        `Revisión del arnés sin bloqueantes${rv.round ? ` (ronda ${rv.round}, ${rv.mode || 'completa'})` : ''}.`,
+        ...(others.length ? ['', '## En los otros repos', ...others] : []),
+      ].join('\n'),
+    };
+  }
+  return out;
+}
+
+function executable(name) {
+  const file = `${name}${process.platform === 'win32' ? '.exe' : ''}`;
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) if (fs.existsSync(path.join(dir, file))) return path.join(dir, file);
+  return null;
+}
+
+function hostCli(ws) {
+  const url = git(ws.gitRoot, ['config', '--get', 'remote.origin.url']).stdout.trim();
+  const name = /gitlab/i.test(url) ? 'glab' : /github/i.test(url) ? 'gh' : null;
+  const bin = name && executable(name);
+  return bin ? { name, bin } : null;
+}
+
+function openMr(cli, ws, title, body) {
+  const branch = branchOf(ws);
+  const args = cli.name === 'glab'
+    ? ['mr', 'create', '--source-branch', branch, '--target-branch', defaultOf(ws), '--title', title, '--description', body, '--yes']
+    : ['pr', 'create', '--head', branch, '--base', defaultOf(ws), '--title', title, '--body', body];
+  const r = spawnSync(cli.bin, args, { cwd: ws.gitRoot, encoding: 'utf8' });
+  const url = ((r.stdout || '').match(/https?:\/\/\S+/g) || []).pop();
+  return r.status === 0 && url ? { url, ref: (url.match(/(\d+)\/?$/) || [null, url])[1] } : { error: firstLine(r.stderr || r.stdout || (r.error && r.error.message) || 'sin salida') };
+}
+
+function updateMr(cli, ws, ref, body) {
+  const args = cli.name === 'glab' ? ['mr', 'update', ref, '--description', body] : ['pr', 'edit', ref, '--body', body];
+  return spawnSync(cli.bin, args, { cwd: ws.gitRoot, encoding: 'utf8' }).status === 0;
+}
+
+function deliverPush(project, say) {
+  const d = readJsonFile(deliveryFile(project));
+  if (!d || !d.committedAt || !Array.isArray(d.order)) die('ship: no hay commits de esta entrega; corre ship.js deliver y deliver --commit');
+  const answered = read(project.root).some((e) => e.stage === 'turno' && e.result === 'respuesta' && Date.parse(e.at) > Date.parse(d.committedAt));
+  if (!answered) die('ship: el push y los MR necesitan el sí de la persona en un mensaje suyo, después del commit; pregúntale y espera su respuesta', 1);
+  const msgs = readJsonFile(messagesFile(project)) || {};
+  const wss = d.order.map((n) => project.workspaces.find((w) => w.name === n)).filter(Boolean);
+  const seen = new Set();
+  for (const ws of wss.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
+    const p = git(ws.gitRoot, ['push', '-u', 'origin', branchOf(ws)]);
+    addToReport(d.informe, `Push de ${ws.name}`, `${p.stdout}${p.stderr}`);
+    if (p.status !== 0) {
+      say(`FALLA ${ws.name}: el push no salió: ${firstLine(p.stderr)}`);
+      finish(project, d, 'fail', `el push de ${ws.name} falló`, say);
+      return 1;
+    }
+    say(`${ws.name}: ${branchOf(ws)} subida a origin`);
+  }
+  I.setState(project, 'subido', 'push');
+  const links = {};
+  const opened = [];
+  for (const ws of wss) {
+    const cli = hostCli(ws);
+    const b = mrBodies(project, d, msgs, links)[ws.name];
+    if (!cli) {
+      addToReport(d.informe, `MR de ${ws.name}, para pegar: ${b.title}`, b.body);
+      say(`${ws.name}: sin glab ni gh para su remoto; el título y el cuerpo del MR quedaron en el informe, listos para pegar`);
+      continue;
+    }
+    const r = openMr(cli, ws, b.title, b.body);
+    if (r.error) {
+      addToReport(d.informe, `MR de ${ws.name}, para pegar: ${b.title}`, b.body);
+      say(`${ws.name}: ${cli.name} no abrió el MR (${r.error}); el cuerpo quedó en el informe, listo para pegar`);
+      continue;
+    }
+    links[ws.name] = r.url;
+    opened.push({ ws, cli, ref: r.ref });
+    I.record(project, { mr: [{ repo: posix(ws.gitRoot), ref: r.ref }] });
+    I.setState(project, 'subido', `MR ${r.ref}`);
+    say(`${ws.name}: MR ${r.url}`);
+  }
+  for (const o of opened.filter((x) => Object.keys(links).some((n) => n !== x.ws.name))) {
+    if (!updateMr(o.cli, o.ws, o.ref, mrBodies(project, d, msgs, links)[o.ws.name].body)) say(`${o.ws.name}: no pude agregar al MR los enlaces de los otros repos`);
+  }
+  finish(project, d, 'ok', opened.length ? `MR ${opened.map((o) => o.ref).join(', ')}` : 'push sin MR: cuerpos para pegar', say);
+  const c = spawnSync(process.execPath, [path.join(__dirname, 'issues.js'), 'clean', '--actual'], { cwd: process.cwd(), encoding: 'utf8' });
+  say((c.stdout || '').trimEnd());
+  say('pregunta: ¿Borro lo que creé para este issue, o lo dejo? Con el sí, issues.js clean --actual --write');
+  return 0;
+}
+
+function deliver(project, o) {
+  const say = (l) => {
+    if (l) console.log(l);
+  };
+  if (o.commit) return deliverCommit(project, say);
+  if (o.push) return deliverPush(project, say);
+  if (o.sinPush) {
+    finish(project, readJsonFile(deliveryFile(project)), 'ok', 'commit sin push', say);
+    return 0;
+  }
+  return deliverPrepare(project, o, say);
+}
+
+module.exports = { shipping, mrBodies };
 
 function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) help(__filename);
   const [mode, arg, extra] = argv;
-  const usage = 'uso: ship.js check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
+  const usage = 'uso: ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push | deliver --sin-push | check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
+  if (mode === 'deliver') {
+    let o;
+    try {
+      o = parseArgs({ args: argv.slice(1), options: { rama: { type: 'string' }, 'solo-commit': { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' }, 'sin-push': { type: 'boolean' } } }).values;
+    } catch {
+      die(usage);
+    }
+    const phases = [o.commit, o.push, o['sin-push']].filter(Boolean).length;
+    if (phases > 1 || (phases && (o.rama || o['solo-commit']))) die(usage);
+    process.exit(deliver(requireProject(), { rama: o.rama, soloCommit: o['solo-commit'], commit: o.commit, push: o.push, sinPush: o['sin-push'] }));
+  }
   if (mode === 'merge') {
     if (extra || !['start', 'finish', 'abort'].includes(arg)) die(usage);
     const project = requireProject();

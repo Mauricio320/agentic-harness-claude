@@ -10,7 +10,7 @@ export type Entry = { at: number; event: string; stage: string; ws?: string; res
 
 export const MANIFEST = '.claude/harness.json'
 export const CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}']
-const SCRIPTS = /[\\/]scripts[\\/](ci-gate|typecheck-baseline|test-select)\.js/
+const SCRIPTS = /[\\/]scripts[\\/](ci-gate|verify|typecheck-baseline|test-select)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
   memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', timeline: null,
@@ -219,7 +219,8 @@ export const settled = (p: Probe | undefined, wss: Ws[], before: GateRow[], mark
     return [n, col, p?.gate ? (marks.find((m) => m.ws === n)?.[col] ?? prev) : ok ? 'ok' : prev] as const
   })
 
-// Un Bash del modelo es verificación si corre ci-gate, typecheck-baseline o test-select, o si un
+// Un Bash del modelo es verificación si corre ci-gate, verify.js (que imprime las secciones de
+// ci-gate de cada workspace), typecheck-baseline o test-select, o si un
 // segmento (&&, ||, ;, |, salto de línea) empieza por un typecheck o un test del manifiesto: lo que
 // va antes de {files}/{specs}. El workspace sale de la carpeta donde corre el segmento: un `cd` de
 // un segmento anterior, `-C` o `--prefix` en el propio segmento, o el cwd. Si esa carpeta no cae en
@@ -231,7 +232,7 @@ export function classify(cmd: string, wss: Ws[], cwd: string): Probe | undefined
   const s = SCRIPTS.exec(cmd)
   const gateWs = s?.[1] === 'ci-gate' ? /\s--ws\s+("[^"]+"|'[^']+'|\S+)/.exec(cmd) : null
   if (gateWs) return { label: `ci-gate ${unquote(gateWs[1]!)}`, ws: unquote(gateWs[1]!), gate: true }
-  if (s) return s[1] === 'ci-gate' ? { label: 'ci-gate', gate: true } : { label: s[1]! }
+  if (s) return s[1] === 'ci-gate' || s[1] === 'verify' ? { label: s[1], gate: true } : { label: s[1]! }
   let dir = slash(cwd)
   const at = (d: string) => (/^([a-z]:)?\//i.test(slash(d)) ? slash(d) : join(dir, d))
   for (const raw of cmd.split(/&&|\|\||[;|\n]/)) {

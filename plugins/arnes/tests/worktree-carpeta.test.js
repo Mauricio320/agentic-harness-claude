@@ -112,7 +112,7 @@ test('la app del worktree arranca con los puertos en el entorno del proceso, que
   assert.match(h.run('build.js', ['app', '--ws', 'web', '--dry'], { cwd: root }).stdout, /web: levantaría node app\.js desde .*\/web$/m, 'en el principal no hay puertos que poner');
 });
 
-test('al entrar con EnterWorktree trae solo los repos del plan aprobado, y create se lleva el plan del principal', () => {
+test('al entrar con EnterWorktree trae solo los repos del plan aprobado y se lleva el plan del principal; create después no repite nada', () => {
   const root = folder();
   h.write(root, '.tmp/harness/plan.md', '# Plan: Talleres\n\n## Workspaces y orden\n1. api: endpoints\n');
   tl.append(root, { event: 'start', stage: 'plan' });
@@ -128,10 +128,12 @@ test('al entrar con EnterWorktree trae solo los repos del plan aprobado, y creat
   const ctx = start(wt, 'PostToolUse');
   assert.match(ctx, /^arnes: esta sesión ahora trabaja en el worktree talleres/);
   assert.match(ctx, /^- api: lo traje/m);
+  assert.match(ctx, /^- traje el plan aprobado del checkout principal/m);
+  assert.match(ctx, /^- rama: feature\/talleres en api$/m);
   assert.ok(!fs.existsSync(path.join(wt, 'web')), 'web no está en el plan');
   const r = h.run('issue-branch.js', ['create'], { cwd: wt });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /traje el plan aprobado del checkout principal/);
+  assert.doesNotMatch(r.stdout, /traje el plan/, 'el plan ya está adentro');
   assert.match(fs.readFileSync(path.join(wt, '.tmp', 'harness', 'plan.md'), 'utf8'), /^Rama: feature\/talleres en api: la del worktree nativo de Claude Code$/m);
   assert.equal(h.run('plan-state.js', ['status'], { cwd: wt }).status, 0, 'en el worktree el plan sigue aprobado');
   assert.equal(h.run('plan-state.js', ['status'], { cwd: root }).status, 1, 'en el principal ya no hay plan con que escribir código');

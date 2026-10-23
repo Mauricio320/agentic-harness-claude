@@ -24,13 +24,15 @@ const fs = require('fs');
 const path = require('path');
 const { run, context } = require('../lib/hook.js');
 const { loadProject, harnessDir, posix } = require('../lib/manifest.js');
-const { git } = require('../lib/exec.js');
+const { git, onPath } = require('../lib/exec.js');
 const { touched } = require('../touched-files.js');
 const ledger = require('../worktree-ledger.js');
 const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
 const issues = require('../lib/issues.js');
-const { append } = require('../lib/timeline.js');
+const { append, read, planState, tasks } = require('../lib/timeline.js');
+const { planPath } = require('../lib/plan.js');
+const branchFlow = require('../issue-branch.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -73,19 +75,13 @@ function surface(project, input, cwd, now) {
   }
 }
 
-// ¿Está VS Code (code) en el PATH? Entonces se le puede ofrecer a la persona abrir ahí el worktree.
-function hasCode() {
-  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean) : [''];
-  return (process.env.PATH || '').split(path.delimiter).filter(Boolean).some((d) => exts.some((e) => fs.existsSync(path.join(d, `code${e.toLowerCase()}`))));
-}
-
 // Dónde trabaja la sesión en un worktree nativo: la ruta exacta, que es el árbol que se mira y se
-// prueba, y cómo abrirla en VS Code si está.
+// prueba, y cómo abrirla en VS Code si code está en el PATH.
 function whereLines(w) {
   const dir = posix(w.path);
   return [
     `la carpeta de este worktree es ${dir}: el árbol que se mira y se prueba es ese, no el checkout principal; dísela a la persona con la ruta completa`,
-    ...(hasCode() ? [`si la persona usa VS Code, ofrécele abrirla ahí con: code -r "${dir}"`] : []),
+    ...(onPath('code') ? [`si la persona usa VS Code, ofrécele abrirla ahí con: code -r "${dir}"`] : []),
   ];
 }
 
@@ -299,8 +295,17 @@ function sessionStart(input, now = new Date()) {
   return [...head, ...shown, ...tailLines].join('\n');
 }
 
+// ¿El checkout principal tiene un plan aprobado en curso? Es el que se trae al worktree al entrar.
+function approvedIn(dir) {
+  const main = loadProject(dir);
+  return Boolean(main && !main.errors.length && fs.existsSync(planPath(main)) && planState(read(main.root)).approved);
+}
+
 // PostToolUse de EnterWorktree: la sesión ya está en el worktree (el cwd de la entrada es su raíz) y
-// SessionStart no vuelve a correr. Lo deja usable como al arrancar y lo dice.
+// SessionStart no vuelve a correr. Lo deja usable como al arrancar y lo dice. Si la sesión viene de
+// aprobar el plan en el checkout principal, termina la transición ahí mismo (issue-branch.js
+// enterNative): trae el plan y la corrida, trae los repos en una carpeta, anota la rama y devuelve la
+// lista de tareas, sin que el modelo corra nada más.
 function entered(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
@@ -308,7 +313,11 @@ function entered(input) {
   const native = ledger.equipNative(cwd).lines;
   const w = nativeRoot(project);
   if (!w) return null;
-  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...native.map((l) => `- ${l}`)].join('\n');
+  const moved = [];
+  if (!fs.existsSync(planPath(project)) && approvedIn(w.main)) branchFlow.enterNative(loadProject(cwd), w, (l) => moved.push(l));
+  const list = moved.length ? tasks(read(loadProject(cwd).root)) : null;
+  const lines = [...new Set([...native, ...moved])];
+  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...lines.map((l) => `- ${l}`), ...(list ? [`tareas: ${JSON.stringify(list)}`] : [])].join('\n');
 }
 
 module.exports = { MAX_LINES, PROTOCOL, sessionStart, entered, lockSession, unlockSession };

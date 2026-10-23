@@ -63,11 +63,32 @@ test('rondas de review: la skill guarda el reporte que exige mark y lanza las ac
   assert.match(skill, /\.tmp\/harness\/review\/report\.md/);
   assert.match(skill, /ronda acotada, pasa `model: "sonnet"`/);
   assert.match(skill, /Tope: dos rondas de corrección/);
-  assert.ok(skill.indexOf('review.js" input') < skill.indexOf('start review --detail "ronda <n> <modo>"'), 'el inicio se anota después de que review.js decide la ronda');
-  assert.doesNotMatch(skill, /timeline\.js" start review`/, 'sin un inicio anotado antes de decidir');
+  assert.match(skill, /review\.js" round`/, 'la ronda se prepara y se anota en una llamada, que decide antes de anotar');
+  assert.match(skill, /review\.js" round --marca`/);
+  assert.doesNotMatch(skill, /timeline\.js" (start|end) review/, 'la etapa la anota review.js round, no la skill');
   const agent = fs.readFileSync(path.join(PLUGIN, 'agents', 'reviewer.md'), 'utf8');
   assert.match(agent, /^# Ronda acotada$/m);
   assert.match(agent, /### Bloqueantes anteriores/);
+});
+
+test('una llamada por transición: plan, build, verify, review y ship usan sus fachadas y no corren por separado lo que ellas juntan', () => {
+  const skill = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+  const uses = {
+    plan: [/plan-state\.js" start/, /plan-state\.js" finish-draft/, /plan-state\.js" approve/],
+    build: [/build\.js" input --ws/, /build\.js" end --ws/],
+    verify: [/verify\.js" run/],
+    review: [/review\.js" round`/, /review\.js" round --marca/],
+    ship: [/ship\.js" deliver`/, /ship\.js" deliver --commit/, /ship\.js" deliver --push/],
+  };
+  const avoids = {
+    plan: [/timeline\.js" (start|end) plan/, /manifest\.js" show/, /issue-branch\.js" (behind|check|create|stay)/, /plan-state\.js" (tareas|referencias|grafo)/],
+    build: [/timeline\.js" (start|end) build/, /build\.js" after --ws/],
+    verify: [/timeline\.js" (start|end) verify/, /"S\/(ci-gate|gate-flag|touched-files|test-select)\.js"/, /build\.js" input --ws <ws> --para/],
+    review: [/review\.js" (input|mark)/, /timeline\.js" (start|end|note) review/],
+    ship: [/ship\.js" (check|branch|stage|committed)/, /git -C "<carpeta>" commit/, /timeline\.js" start ship/],
+  };
+  for (const [s, list] of Object.entries(uses)) for (const re of list) assert.match(skill(s), re, `${s} no usa ${re}`);
+  for (const [s, list] of Object.entries(avoids)) for (const re of list) assert.doesNotMatch(skill(s), re, `${s} todavía corre ${re} por separado`);
 });
 
 test('verify y review siguen a la etapa siguiente dentro de un issue en curso, aunque el turno empiece con una respuesta', () => {
