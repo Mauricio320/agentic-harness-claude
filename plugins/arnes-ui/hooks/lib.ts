@@ -298,16 +298,24 @@ export function openWorktrees(data: unknown): Worktree[] {
 
 export const wtText = (w: Worktree) => `  ${w.ws} · ${w.branch} → ${w.target}`
 
-// La banda: una línea con la etapa (o Pensando…), los agentes vivos, el gate de cada workspace, los
-// worktrees sin integrar y, al final, el reloj y el costo de la sesión.
-export function bandText(st: Stage | null, isThinking: boolean, ags: Agent[], rows: GateRow[], t: number, wts: Worktree[] = [], ses: Session | null = null): string {
+// El worktree nativo de Claude Code en que trabaja la sesión, por su cwd (<raíz>/.claude/worktrees/
+// <nombre>), o null en el checkout principal.
+export function worktreeOf(cwd: string): string | null {
+  const m = /\/\.claude\/worktrees\/([^/]+)(?:\/|$)/.exec(slash(cwd))
+  return m ? m[1]! : null
+}
+
+// La banda: una línea con la etapa (o Pensando…), el worktree en que trabaja la sesión, los agentes
+// vivos, el gate de cada workspace, los worktrees sin integrar y, al final, el reloj y el costo de la
+// sesión.
+export function bandText(st: Stage | null, isThinking: boolean, ags: Agent[], rows: GateRow[], t: number, wts: Worktree[] = [], ses: Session | null = null, wt: string | null = null): string {
   const head = st ? `${label(st)} ${clock(t - st.startedAt)}` : isThinking ? 'Pensando…' : 'listo'
   const live = ags.filter((a) => !a.endedAt).map((a) => `${short(a.type, a.model)} ${clock(t - a.startedAt)}`)
   const flag = (r: GateRow) => (!r.flag ? '' : !fresh(r, t) ? 'flag vencida' : r.flag.result === 'pass' ? '✓flag' : '✗flag')
   const marks = rows.map((r) =>
     [r.ws, ...(['tsc', 'tests', 'review'] as const).filter((c) => r[c]).map((c) => sym(r[c]) + c), r.edited.length ? `✎${r.edited.length}` : '', flag(r)]
       .filter(Boolean).join(' '))
-  return ['arnes ▸ ' + head, ...live, ...marks, ...(wts.length ? [`${wts.length} wt sin integrar`] : []), ...(ses ? [sessionText(ses, t)] : [])].join(' · ')
+  return ['arnes ▸ ' + head, ...(wt ? [`en worktree ${wt}`] : []), ...live, ...marks, ...(wts.length ? [`${wts.length} wt sin integrar`] : []), ...(ses ? [sessionText(ses, t)] : [])].join(' · ')
 }
 
 // El texto del panel: la cronología de la corrida (etapas con duración y costo, la abierta con su

@@ -88,3 +88,15 @@ test('adopt propone el .worktreeinclude de cada repo con .env, y adoption-check 
   assert.match(h.run('adopt.js', ['worktreeinclude'], { cwd: dir }).stdout, /ya tiene su \.worktreeinclude/);
   assert.match(h.run('adoption-check.js', [], { cwd: dir }).stdout, /INFO\s+los \.env de cada repo llegan a los worktrees nativos/);
 });
+
+test('en un worktree, SessionStart da la ruta exacta del árbol que se mira y, con VS Code en el PATH, el comando para abrirla; y responde en el idioma de la persona', () => {
+  const dir = repo();
+  const wt = native(dir, 'talleres');
+  const env = h.withPath(h.fakeBin(h.tmp('bin-code'), 'code', 'process.exit(0);\n'));
+  const ctx = h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's-code', cwd: wt }, { env }).out.hookSpecificOutput.additionalContext;
+  const at = wt.split(path.sep).join('/');
+  const lines = ctx.split('\n');
+  assert.ok(lines.includes(`- la carpeta de este worktree es ${at}: el árbol que se mira y se prueba es ese, no el checkout principal; dísela a la persona con la ruta completa`), ctx);
+  assert.ok(lines.includes(`- si la persona usa VS Code, ofrécele abrirla ahí con: code -r "${at}"`), ctx);
+  assert.ok(lines.some((l) => l.startsWith('8. Responde en el idioma del pedido de la persona')), 'la línea fija del idioma');
+});

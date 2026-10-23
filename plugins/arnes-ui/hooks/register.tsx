@@ -8,7 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Agent, Corrida, Files, GateRow, Mark, Run } from '../types'
 import { CODE_GLOBS, MANIFEST, agentText, blankRow, bandText, classify, columns, corrida, entries, gateMarks, globRe, headText, idOf, join, key,
   label, locate, mins, nextStep, openWorktrees, paneText, parseStatus, planTitle, settled, since, slash, stageOf, summary, timelineLines,
-  tokensOf, wtText } from './lib'
+  tokensOf, worktreeOf, wtText } from './lib'
 import type { Probe, Ws } from './lib'
 
 type $ = EngineInterface
@@ -213,6 +213,8 @@ export const register: Register = (on) => {
       if (['Bash', 'PowerShell', 'Edit', 'Write'].includes(e.tool)) needsGit = true
       if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
       if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && /timeline\.js/.test(e.command)) await refresh($, false)
+      // Al entrar o salir de un worktree cambia el cwd de la sesión, y con él el proyecto y la banda.
+      if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) await load($)
     })
     return r
   }).catch(($, e, next) => next(e))
@@ -262,7 +264,7 @@ export const register: Register = (on) => {
     if (e.props.hasSurvey || !(await read($, project))) return next(e)
     const { Text } = $.ui.resolve(e)
     const [r, t] = [await read($, run), await read($, now)]
-    const text = bandText(r.open, await read($, thinking), await read($, agents), await read($, gate), t, (await read($, files)).worktrees, await read($, session))
+    const text = bandText(r.open, await read($, thinking), await read($, agents), await read($, gate), t, (await read($, files)).worktrees, await read($, session), worktreeOf(cwd))
     return <Text dimColor wrap="truncate">{text}</Text>
   })
 

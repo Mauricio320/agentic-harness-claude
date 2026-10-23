@@ -47,7 +47,24 @@ const PROTOCOL = [
   '5. Se niega siempre: git reset --hard, push forzado, clean -f, borrar una rama o un worktree con commits sin integrar, y leer secretos (.env, llaves). Con la configuración, además: lo prohibido del workspace y un git add masivo con .env o logs.',
   '6. Antes de entregar, revisa el cambio; si toca rutas de riesgo, va REVISIÓN HUMANA OBLIGATORIA. Los worktrees del issue con commits los integra la persona con /arnes:worktree integrate <slug>, y entrega con /arnes:ship.',
   '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Se dice una vez por corrida.',
+  '8. Responde en el idioma del pedido de la persona, también en los resúmenes y al cerrar un turno; si todavía no hay pedido, en español.',
 ];
+
+// ¿Está VS Code (code) en el PATH? Entonces se le puede ofrecer a la persona abrir ahí el worktree.
+function hasCode() {
+  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean) : [''];
+  return (process.env.PATH || '').split(path.delimiter).filter(Boolean).some((d) => exts.some((e) => fs.existsSync(path.join(d, `code${e.toLowerCase()}`))));
+}
+
+// Dónde trabaja la sesión en un worktree nativo: la ruta exacta, que es el árbol que se mira y se
+// prueba, y cómo abrirla en VS Code si está.
+function whereLines(w) {
+  const dir = posix(w.path);
+  return [
+    `la carpeta de este worktree es ${dir}: el árbol que se mira y se prueba es ese, no el checkout principal; dísela a la persona con la ruta completa`,
+    ...(hasCode() ? [`si la persona usa VS Code, ofrécele abrirla ahí con: code -r "${dir}"`] : []),
+  ];
+}
 
 function branchOf(ws) {
   const r = git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -248,7 +265,7 @@ function sessionStart(input, now = new Date()) {
   const pruned = carpeta.pruneOrphans(w ? loadProject(w.main) : project);
   // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
   if (native.length) project = loadProject(cwd);
-  const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`] : [];
+  const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`, ...whereLines(w).map((l) => `- ${l}`)] : [];
   const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
   const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...rescueLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
@@ -267,7 +284,7 @@ function entered(input) {
   const native = ledger.equipNative(cwd).lines;
   const w = nativeRoot(project);
   if (!w) return null;
-  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...native.map((l) => `- ${l}`)].join('\n');
+  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...native.map((l) => `- ${l}`)].join('\n');
 }
 
 module.exports = { MAX_LINES, PROTOCOL, sessionStart, entered, lockSession, unlockSession };

@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { bandText, classify, corrida, entries, gateMarks, openWorktrees, parseStatus, planTitle, since, timelineLines } from '../hooks/lib'
+import { bandText, classify, corrida, entries, gateMarks, openWorktrees, parseStatus, planTitle, since, timelineLines, worktreeOf } from '../hooks/lib'
 import type { Ws } from '../hooks/lib'
 
 const ROOT = 'C:/p/academico'
@@ -304,6 +304,9 @@ test('lib: el workspace sale del comando y del cwd; git cuenta solo el código; 
   const never = `${STATUS}? graphify-out/graph.json\n? node_modules\n? paquete/node_modules/x.js\n? .tmp/otra/cosa.ts\n`
   expect(parseStatus(never, both[1]!).paths).toEqual(['src/a.ts', 'notas.md'])
   expect(bandText(null, true, [], [], 0)).toBe('arnes ▸ Pensando…')
+  expect(worktreeOf('C:\\p\\contable\\.claude\\worktrees\\totales\\api')).toBe('totales')
+  expect(worktreeOf(`${ROOT}/api`)).toBeNull()
+  expect(bandText(null, false, [], [], 0, [], null, 'totales')).toBe('arnes ▸ listo · en worktree totales')
   expect(openWorktrees(null)).toEqual([])
   expect(openWorktrees({ worktrees: 'roto' })).toEqual([])
   expect(openWorktrees({ worktrees: [{ ws: 'api', branch: 'wt/a/b', target: 'a', status: 'abierto' }, { status: 'cerrado' }] })).toEqual([{ ws: 'api', branch: 'wt/a/b', target: 'a' }])
