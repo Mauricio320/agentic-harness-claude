@@ -30,10 +30,13 @@ export type Tokens = { fresh: number; cached: number }
 // lo que marcaba /cost al lanzarlo y cost la diferencia al terminar: la fórmula de las etapas.
 export type Agent = { id: string; type: string; model: string; startedAt: number; usd?: number; endedAt?: number; lastTool?: string; tokens?: Tokens; cost?: number }
 
-// La bandera de .tmp/harness/gate/<ws>.json, con `at` en milisegundos.
-export type Flag = { result: string; at: number; head?: string }
+// La bandera de verificación, como la dice gate-flag.js status --json: su resultado, cuándo se
+// escribió (en milisegundos) y si sigue vigente, que juzga el plugin base con la misma regla del guard.
+export type Flag = { result: string; at: number; vigente: boolean }
 
-// Una fila del gate por workspace: git (rama, HEAD, cambios), lo que el mod vio correr y la bandera.
+// Una fila del gate por workspace, de gate-flag.js status --json (rama, HEAD, cambios, la bandera, la
+// última corrida de ci-gate y la revisión), más lo que el mod vio: lo que corre ahora (⏳) y los
+// archivos editados con Edit o Write.
 export type GateRow = {
   ws: string
   branch?: string
@@ -41,19 +44,17 @@ export type GateRow = {
   changed: number
   code: number
   edited: string[]
-  editedAt: number
-  changedAt?: number
   tsc?: Mark
   tests?: Mark
   review?: Mark
   flag?: Flag
 }
 
-// Un worktree abierto del registro .tmp/harness/worktrees.json, el de worktree-ledger.js.
+// Un worktree abierto del registro de worktree-ledger.js, como lo dice gate-flag.js status --json.
 export type Worktree = { ws: string; branch: string; target: string }
 
-// Lo leído de .tmp/harness: la primera línea de plan.md, las últimas líneas de la timeline y los
-// worktrees sin integrar.
+// Lo que dice el plugin base de .tmp/harness: la primera línea de plan.md, las últimas entradas de la
+// timeline como texto y los worktrees sin integrar.
 export type Files = { plan?: string; timeline: { at: number; text: string }[]; worktrees: Worktree[] }
 
 // Una corrida cerrada al terminar ship: sus etapas.

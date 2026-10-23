@@ -1,12 +1,12 @@
-// Lo puro de arnes-mod: qué mensaje se pregunta, cómo se lee la respuesta y si hay plan en curso.
-// Sin $, para que los tests lo prueben directo.
+// Lo puro de arnes-mod: qué mensaje se pregunta, cómo se lee la respuesta y dónde está el plugin base.
+// Sin $, para que los tests lo prueben directo. El estado del plan no se calcula aquí: lo dice el
+// resumen de la timeline que imprime el plugin base (timeline.js summary --json).
 
-export const MANIFEST = '.claude/harness.json'
-export const TIMELINE = '.tmp/harness/timeline.jsonl'
 // Debajo de esto es una respuesta corta ("sí", "dale", "el 2"): no se pregunta al modelo.
 export const MIN_WORDS = 5
 export const MODEL = 'haiku'
 export const TIMEOUT_MS = 8000
+export const SUMMARY = 'scripts/lib/timeline.js'
 
 // Lo que se adjunta al prompt cuando pide un cambio. Va como context porque reescribir el texto con
 // /arnes:plan delante no dispara la skill: el CLI resuelve el comando antes de prompt.submit, y el
@@ -47,45 +47,22 @@ export const isQuestion = (text: string) => QUESTION.test(text) && !CHANGE.test(
 // Sin \b: en JS la í no es letra para \b, y "Sí." no pasaría.
 export const isYes = (reply: string) => /^[^\p{L}]*s[ií](?!\p{L})/iu.test(reply.trim())
 
-type Entry = { at?: string; event?: string; stage?: string; result?: string }
+// Lo que el mod lee del resumen de la timeline del plugin base.
+export type Summary = { file: string; plan: { open: boolean }; prep: string | null }
 
-// Una línea que no se lee se ignora, como en lib/timeline.js.
-function entriesOf(timeline: string): Entry[] {
-  const entries: Entry[] = []
-  for (const line of timeline.split(/\r?\n/)) {
-    try {
-      if (line.trim()) entries.push(JSON.parse(line))
-    } catch {}
+export function parseSummary(stdout: string): Summary | null {
+  try {
+    const s = JSON.parse(stdout)
+    return s && typeof s.file === 'string' && s.plan ? s : null
+  } catch {
+    return null
   }
-  return entries
 }
 
-// La misma regla que planState de lib/timeline.js: hay plan en curso si hubo un start plan y después
-// no hubo un end ship ok, ni la nota con que el plan se llevó a un worktree nativo.
-export function planOpen(timeline: string): boolean {
-  const entries = entriesOf(timeline)
-  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true)
-  const closed = (e: Entry) =>
-    (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && e.result === 'movido')
-  return i >= 0 && !entries.slice(i + 1).some(closed)
-}
-
-// La misma regla que prepOpen de lib/timeline.js: init o setup en curso, su último start sin un end
-// después y de menos de dos horas. Sus respuestas no son pedidos de código.
-const PREP = ['init', 'setup']
-const PREP_MS = 2 * 60 * 60 * 1000
-export function prepOpen(timeline: string, now = Date.now()): boolean {
-  const entries = entriesOf(timeline)
-  const i = entries.map((e) => PREP.includes(e.stage ?? '') && e.event === 'start').lastIndexOf(true)
-  if (i < 0) return false
-  const { stage, at } = entries[i]!
-  if (entries.slice(i + 1).some((e) => e.stage === stage && e.event === 'end')) return false
-  return now - new Date(at ?? 0).getTime() < PREP_MS
-}
+// ¿Se pregunta a haiku? Solo con un proyecto del arnés, sin plan en curso y sin init ni setup en curso.
+export const asks = (s: Summary | null) => Boolean(s && !s.plan.open && !s.prep)
 
 export const slash = (p: string) => p.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')
-const key = (p: string) => (/^[a-z]:/i.test(p) ? p.toLowerCase() : p)
-export const same = (a: string, b: string) => key(a) === key(b)
 
 export function join(...parts: string[]): string {
   const out: string[] = []
@@ -94,4 +71,14 @@ export function join(...parts: string[]): string {
     else if (seg !== '.' && !(seg === '' && out.length)) out.push(seg)
   }
   return out.join('/')
+}
+
+// Dónde está el plugin base, sin que un mod conozca la carpeta de otro plugin (docs/PLAN.md §3): junto
+// al mod, con --plugin-dir sobre el repo del arnés; o en la caché de plugins, en la versión del mod,
+// o la más alta instalada (`versions`, las carpetas de la caché del base).
+export function baseCandidates(root: string, versions: string[] = []): string[] {
+  const cache = join(root, '..', '..', 'arnes')
+  const n = (v: string) => v.split('.').map((x) => Number(x) || 0)
+  const desc = [...versions].sort((a, b) => n(b).reduce((r, x, i) => r || x - (n(a)[i] ?? 0), 0))
+  return [join(root, '..', 'arnes'), join(cache, slash(root).split('/').pop()!), ...desc.map((v) => join(cache, v))]
 }

@@ -1,16 +1,17 @@
-// Lo puro de arnes-ui: rutas, globs, formatos y la lectura de comandos y de git. No toca $: lo usan
-// register.tsx y los tests.
+// Lo puro de arnes-ui: rutas, formatos y la lectura de comandos. No toca $: lo usan register.tsx y los
+// tests. Lo que es del arnés (el manifiesto, la timeline, los globs, la bandera y la última corrida de
+// ci-gate) no se calcula aquí: lo dicen los scripts del plugin base en JSON (manifest.js show --json,
+// timeline.js summary --json y gate-flag.js status --json), y esto solo lo dibuja.
 import type { Agent, Corrida, GateRow, Mark, Run, Session, Stage, StageDone, Tokens, Worktree } from '../types'
 
-export type Ws = { name: string; dir: string; gitRoot: string; commands: Record<string, unknown>; riskPaths: string[]; codeGlobs: string[] }
+export type Ws = { name: string; dir: string; gitRoot: string; commands: Record<string, unknown>; risk: RegExp[] }
 export type Col = 'tsc' | 'tests'
-// gate: es ci-gate, que marca las dos columnas de su workspace (o de todos, sin --ws).
+// gate: es ci-gate o verify.js, que marcan las dos columnas de su workspace (o de todos, sin --ws).
 export type Probe = { label: string; ws?: string; col?: Col; gate?: boolean }
-export type Entry = { at: number; event: string; stage: string; ws?: string; result?: string; detail?: string; usd?: number }
 
-export const MANIFEST = '.claude/harness.json'
-export const CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}']
 const SCRIPTS = /[\\/]scripts[\\/](ci-gate|verify|typecheck-baseline|test-select)\.js/
+// Los scripts del plugin base que anotan la timeline o la bandera: después de correr uno, se relee.
+export const WRITERS = /[\\/]scripts[\\/](lib[\\/]timeline|plan-state|build|verify|review|ship|gate-flag|ci-gate)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
   memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', timeline: null,
@@ -29,6 +30,21 @@ export function join(...parts: string[]): string {
   return out.join('/')
 }
 
+// Dónde está el plugin base, sin que un mod conozca la carpeta de otro plugin (docs/PLAN.md §3): junto
+// al mod, con --plugin-dir sobre el repo del arnés; o en la caché de plugins, en la versión del mod,
+// o la más alta instalada (`versions`, las carpetas de la caché del base).
+export function baseCandidates(root: string, versions: string[] = []): string[] {
+  const cache = join(root, '..', '..', 'arnes')
+  const n = (v: string) => v.split('.').map((x) => Number(x) || 0)
+  const desc = [...versions].sort((a, b) => n(b).reduce((r, x, i) => r || x - (n(a)[i] ?? 0), 0))
+  return [join(root, '..', 'arnes'), join(cache, slash(root).split('/').pop()!), ...desc.map((v) => join(cache, v))]
+}
+
+// Los workspaces de manifest.js show --json: los adoptables, con sus riskPaths ya en regex.
+export function workspacesOf(shown: { workspaces?: { name: string; dir: string; gitRoot: string; adoptable: boolean; commands?: Record<string, unknown>; re?: { risk?: string[] } }[] } | null): Ws[] {
+  return (shown?.workspaces ?? []).filter((w) => w.adoptable).map((w) => ({ name: w.name, dir: slash(w.dir), gitRoot: slash(w.gitRoot), commands: w.commands ?? {}, risk: (w.re?.risk ?? []).map((s) => new RegExp(s)) }))
+}
+
 // El workspace de un archivo y su ruta relativa a él; una ruta relativa se resuelve contra el cwd,
 // que en una carpeta multi-repo es la de la composición.
 export function locate(file: string, wss: Ws[], cwd: string): { w: Ws; rel: string } | undefined {
@@ -37,7 +53,48 @@ export function locate(file: string, wss: Ws[], cwd: string): { w: Ws; rel: stri
   return w && { w, rel: abs.slice(w.dir.length + 1) }
 }
 
-export const blankRow = (ws: string): GateRow => ({ ws, changed: 0, code: 0, edited: [], editedAt: 0 })
+export const blankRow = (ws: string): GateRow => ({ ws, changed: 0, code: 0, edited: [] })
+
+export type StatusWs = {
+  name: string; branch?: string | null; head?: string | null; changed: number; code: number
+  flag?: { result: string; at: number; vigente: boolean } | null
+  last?: { result: string; current: boolean; steps: Record<string, string> } | null
+  review?: { ok: boolean; motivo?: string } | null
+}
+const step = (s?: string): Mark | undefined => (s === 'ok' ? 'ok' : s === 'falla' ? 'fail' : undefined)
+
+// La fila del gate de un workspace según gate-flag.js status --json. Las columnas tsc y tests salen de
+// la última corrida de ci-gate del contenido de ahora: el rojo y el verde los dice el gate, que ya
+// juzgó la línea base y los rojos conocidos. La revisión, de review.js check: hecha y sin bloqueantes,
+// o con bloqueantes; si falta, nada.
+export function rowOf(s: StatusWs, prev: GateRow = blankRow(s.name)): GateRow {
+  const current = s.last?.current ? s.last.steps : {}
+  return {
+    ...prev,
+    ws: s.name,
+    branch: s.branch ?? undefined,
+    head: s.head ?? undefined,
+    changed: s.changed,
+    code: s.code,
+    flag: s.flag ? { result: s.flag.result, at: s.flag.at, vigente: s.flag.vigente } : undefined,
+    tsc: step(current.typecheck),
+    tests: step(current.tests),
+    review: s.review?.ok ? 'ok' : /bloqueante/.test(s.review?.motivo ?? '') ? 'fail' : undefined,
+  }
+}
+
+// La corrida de timeline.js summary --json, con el nombre de cada etapa para la vista.
+type Raw = { stage: string; ws?: string; note?: string; ms?: number; usd?: number; startedAt?: number; id?: string }
+export function corridaOf(c: { since: number; stages: Raw[]; open: Raw | null; wait: Corrida['wait']; last?: { at: number; stages: Raw[] } }): Corrida {
+  const done = (s: Raw): StageDone => ({ name: SKILLS[s.stage] ?? s.stage, ...(s.ws ? { detail: s.ws } : {}), ...(s.note ? { note: s.note } : {}), ms: s.ms ?? 0, ...(s.usd !== undefined ? { usd: s.usd } : {}) })
+  const open: Stage | null = c.open ? { name: SKILLS[c.open.stage] ?? c.open.stage, ...(c.open.ws ? { detail: c.open.ws } : {}), ...(c.open.note ? { note: c.open.note } : {}), startedAt: c.open.startedAt ?? 0, id: c.open.id } : null
+  return { since: c.since, stages: c.stages.map(done), open, wait: c.wait, ...(c.last ? { last: { at: c.last.at, stages: c.last.stages.map(done) } } : {}) }
+}
+
+// La etapa que abre o cierra una entrada de la timeline: la de su skill, y nada para las de los
+// hooks (stop-gate, turno) o las que no son etapa (timeline).
+export const stageOf = (x: { stage: string }) => (Object.hasOwn(SKILLS, x.stage) ? SKILLS[x.stage] : null)
+export const idOf = (x: { stage: string; ws?: string }) => `${x.stage}|${x.ws ?? ''}`
 
 // Los tokens de un agente, sumados sobre todos sus requests: `fresh` es entrada, salida y escritura
 // de caché; `cached` son las lecturas de caché, que cada request repite sobre el contexto ya armado
@@ -45,11 +102,6 @@ export const blankRow = (ws: string): GateRow => ({ ws, changed: 0, code: 0, edi
 export const tokensOf = (u?: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }): Tokens | undefined =>
   u ? { fresh: u.input_tokens + u.output_tokens + u.cache_creation_input_tokens, cached: u.cache_read_input_tokens } : undefined
 const kilo = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1000)}k`)
-
-// Los mismos globs que lib/glob.js del plugin base: **, *, ? y {a,b}.
-export const globRe = (g: string) =>
-  new RegExp('^' + g.replace(/[.+^$()|[\]\\]/g, '\\$&').replace(/\{([^}]*)\}/g, (_, a: string) => `(${a.split(',').join('|')})`)
-    .replace(/\*\*\/|\*\*|\*|\?/g, (t) => ({ '**/': '(.*/)?', '**': '.*', '*': '[^/]*', '?': '[^/]' })[t] ?? t) + '$')
 
 const two = (n: number) => String(n).padStart(2, '0')
 export const clock = (ms: number, s = Math.max(0, Math.round(ms / 1000))) =>
@@ -60,137 +112,8 @@ export const label = (s: { name: string; detail?: string; note?: string }) => `$
 export const short = (type: string, model: string) => `${type.replace(/^arnes:/, '')} ${model.replace(/^claude-/, '').split('-')[0]}`
 export const sym = (m?: Mark) => (m === 'ok' ? '✓' : m === 'fail' ? '✗' : m === 'run' ? '⏳' : '–')
 
-// Vigente para la vista: mismo HEAD y sin Edit/Write después; no vence por tiempo. La vigencia exacta
-// (la lista de tocados) la juzgan el guard y el Stop del plugin base.
-// Cualquier edición de un archivo cambiado la vence, venga de un Edit, de un Bash o de la persona:
-// changedAt es la fecha de modificación más reciente de los archivos que lista git.
-export const fresh = (r: GateRow, t: number) =>
-  !!r.flag && (!r.head || r.flag.head === r.head) && Math.max(r.editedAt, r.changedAt ?? 0) <= r.flag.at
 export const flagText = (r: GateRow, t: number) =>
-  !r.flag ? 'sin bandera' : fresh(r, t) ? `bandera ${r.flag.result} hace ${mins(t - r.flag.at)}` : `bandera vencida (${r.flag.result})`
-
-// `git status --porcelain=v2 --branch -- .` de un workspace: rama, HEAD y cambios, los de código
-// según codeGlobs, y las rutas cambiadas, relativas al workspace. Como touched-files, deja fuera
-// lo que cae dentro de `skip` (el .tmp/harness del proyecto): si no, escribir la bandera la vencería.
-// Y como touched-files, lo que nunca es código del issue aunque el repo no lo ignore: graphify-out,
-// .tmp y node_modules, en cualquier nivel.
-const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules)(\/|$)/
-export function parseStatus(stdout: string, w: Ws, skip = ''): Partial<GateRow> & { paths: string[] } {
-  const prefix = w.dir.length > w.gitRoot.length ? w.dir.slice(w.gitRoot.length + 1) + '/' : ''
-  const fields: Record<string, number> = { '1': 8, '2': 9, u: 10 }
-  const paths = stdout.split('\n').filter((l) => /^[12?u] /.test(l)).map((l) => {
-    const p = l[0] === '?' ? l.slice(2) : l.split(' ').slice(fields[l[0]!]).join(' ').split('\t')[0]!
-    return p.startsWith(prefix) ? p.slice(prefix.length) : p
-  }).filter((p) => (!skip || !key(join(w.dir, p)).startsWith(key(skip) + '/')) && !NEVER.test(p))
-  const code = w.codeGlobs.map(globRe)
-  return {
-    branch: /^# branch\.head (.+)$/m.exec(stdout)?.[1],
-    head: /^# branch\.oid (\S+)$/m.exec(stdout)?.[1],
-    changed: paths.length,
-    code: paths.filter((p) => code.some((re) => re.test(p))).length,
-    paths,
-  }
-}
-
-// Las entradas de timeline.jsonl; una línea cortada se salta. De ellas salen la etapa (los start y
-// end de las skills) y el aviso del Stop (la nota "bloqueado"), no de los hooks skill.prompt y
-// classic.Stop de un mod, que un plugin interno del CLI salta (docs/PLAN.md §3).
-export function entries(text: string): Entry[] {
-  return text.split('\n').flatMap((l) => {
-    try {
-      const x = JSON.parse(l)
-      return [{ at: Date.parse(x.at), event: String(x.event), stage: String(x.stage), ws: x.ws, result: x.result, detail: x.detail, usd: typeof x.usd === 'number' ? x.usd : undefined }]
-    } catch {
-      return []
-    }
-  })
-}
-
-// Las entradas posteriores a `seen` y el `seen` nuevo. La primera lectura (seen = Infinity) solo fija
-// desde dónde: lo viejo no abre etapas ni levanta avisos.
-export function since(all: Entry[], seen: number): [Entry[], number] {
-  const from = seen === Infinity ? 0 : seen
-  return [seen === Infinity ? [] : all.filter((x) => x.at > seen), all.reduce((m, x) => (x.at > m ? x.at : m), from)]
-}
-
-// La etapa que abre o cierra una entrada de la timeline: la de su skill, y nada para las de los
-// hooks (stop-gate, turno) o las que no son etapa (timeline).
-export const stageOf = (x: Entry) => (Object.hasOwn(SKILLS, x.stage) ? SKILLS[x.stage] : null)
-export const idOf = (x: { stage: string; ws?: string }) => `${x.stage}|${x.ws ?? ''}`
-
-// La corrida es la del último `start plan` de la timeline, o la de la sesión si no hubo plan. Trae
-// las etapas cerradas con su duración y su costo (la nota "costo" que sigue a su fin), la abierta
-// más reciente y la espera de la persona (las notas del turno). No depende de los turnos del hilo
-// principal: con los agentes en segundo plano, el turno cierra apenas los lanza (docs/PLAN.md §6.5b).
-// Si esa corrida ya cerró con ship antes de esta sesión, va como `last` y la actual empieza en la
-// sesión: la cronología queda vacía hasta el próximo start de plan.
-export function corrida(all: Entry[], sessionStart: number): Corrida {
-  const plan = all.map((x) => x.stage === 'plan' && x.event === 'start').lastIndexOf(true)
-  const from = plan >= 0 ? all[plan]!.at : sessionStart
-  const shipped = all.findLast((x) => x.at >= from && x.stage === 'ship' && x.event === 'end' && x.result === 'ok')
-  if (plan < 0 || !shipped || !sessionStart || shipped.at >= sessionStart) return walk(all.filter((e) => e.at >= from), from)
-  const prev = walk(all.filter((e) => e.at >= from && e.at < sessionStart), from)
-  return { ...walk(all.filter((e) => e.at >= sessionStart), sessionStart), last: { at: shipped.at, stages: prev.stages } }
-}
-
-// Lo que el plan consultó al grafo, para la etapa: las notas "consulta" que el guard anota por cada
-// graphify query, explain o path, y la nota "grafo" que deja plan al cerrar. Con el grafo presente y
-// ninguna consulta, la etapa lo marca.
-export function graphNote(queries: number, closing?: string): string | undefined {
-  if (queries) return `grafo ${queries} consulta${queries === 1 ? '' : 's'}`
-  return closing && /grafo presente/.test(closing) ? 'grafo sin consultar ⚠' : undefined
-}
-
-function walk(list: Entry[], from: number): Corrida {
-  const open = new Map<string, Entry>()
-  const stages: (StageDone & { id: string })[] = []
-  const wait: Corrida['wait'] = { ms: 0, n: 0, since: null }
-  const graph = { queries: 0, closing: undefined as string | undefined }
-  for (const x of list) {
-    if (x.stage === 'grafo' && x.result === 'consulta') graph.queries++
-    if (x.stage === 'plan' && x.event === 'note' && x.result === 'grafo') graph.closing = x.detail
-    if (x.stage === 'turno') {
-      if (x.result === 'cerrado') wait.since = x.at
-      if (x.result === 'respuesta' && wait.since !== null) Object.assign(wait, { ms: wait.ms + x.at - wait.since, n: wait.n + 1, since: null })
-      continue
-    }
-    const name = stageOf(x)
-    const id = idOf(x)
-    if (!name) continue
-    if (x.event === 'start') open.set(id, x)
-    if (x.event === 'end' && open.has(id)) stages.push({ name, detail: x.ws, ms: x.at - open.get(id)!.at, id })
-    if (x.event === 'end') open.delete(id)
-    const done = x.event === 'note' && x.result === 'costo' ? stages.findLast((s) => s.id === id && s.usd === undefined) : undefined
-    if (done) done.usd = x.usd
-  }
-  const last = [...open.values()].sort((a, b) => b.at - a.at)[0]
-  const note = (stage: string) => (stage === 'plan' ? graphNote(graph.queries, graph.closing) : undefined)
-  return {
-    since: from,
-    stages: stages.map(({ id, ...s }) => ({ ...s, ...(note(id.split('|')[0]!) ? { note: note(id.split('|')[0]!) } : {}) })),
-    open: last ? { name: stageOf(last)!, detail: last.ws, note: note(last.stage), startedAt: last.at, id: idOf(last) } : null,
-    wait,
-  }
-}
-
-// Las marcas de tsc y tests de cada workspace en la salida de ci-gate (`== ws (ruta)` y una línea
-// por paso). El rojo lo dice el gate, que ya juzgó la línea base y los rojos conocidos de
-// tests/known-failures.txt, no el código de salida de jest o tsc. `failed` son los pasos en FALLA.
-export function gateMarks(out: string): { ws: string; tsc?: Mark; tests?: Mark; failed: string[] }[] {
-  const res: { ws: string; tsc?: Mark; tests?: Mark; failed: string[] }[] = []
-  for (const l of out.split(/\r?\n/)) {
-    const ws = /^== (\S+) \(/.exec(l)
-    if (ws) res.push({ ws: ws[1]!, failed: [] })
-    const step = /^ {2}(typecheck|convenciones|lint|tests|FALLA)\s+(ok|FALLA)?/.exec(l)
-    const cur = res[res.length - 1]
-    if (ws || !step || !cur || (step[1] !== 'FALLA' && !step[2])) continue
-    if (step[1] === 'FALLA' || step[2] === 'FALLA') cur.failed.push(step[1] === 'FALLA' ? 'base' : step[1]!)
-    const mark: Mark = step[2] === 'ok' ? 'ok' : 'fail'
-    if (step[1] === 'typecheck') cur.tsc = mark
-    if (step[1] === 'tests') cur.tests = mark
-  }
-  return res
-}
+  !r.flag ? 'sin bandera' : r.flag.vigente ? `bandera ${r.flag.result} hace ${mins(t - r.flag.at)}` : `bandera vencida (${r.flag.result})`
 
 // La primera línea de plan.md para el panel, que ya pone "Plan:" delante: sin BOM, sin las marcas
 // de título ni el "Plan:" que escribe la skill, sin `*` ni backticks, sin caracteres de control,
@@ -204,25 +127,16 @@ export function planTitle(text: string, max = 60): string | undefined {
   return !cps.length ? undefined : cps.length > max ? `${cps.slice(0, max - 1).join('')}…` : clean
 }
 
-// Las columnas del gate que marca una verificación: ci-gate, tsc y tests de su workspace o, sin
-// --ws, de todos; un tsc o un test del manifiesto, la suya; lo demás, ninguna.
+// Las columnas que muestran ⏳ mientras corre una verificación: ci-gate o verify.js, tsc y tests de su
+// workspace o, sin --ws, de todos; un tsc o un test del manifiesto, la suya; lo demás, ninguna. Al
+// terminar, la marca la dice la última corrida de ci-gate (rowOf).
 export const columns = (p: Probe | undefined, wss: Ws[]): (readonly [string, Col])[] =>
   p?.gate ? (p.ws ? [p.ws] : wss.map((w) => w.name)).flatMap((n) => [[n, 'tsc'] as const, [n, 'tests'] as const])
     : p?.ws && p.col ? [[p.ws, p.col] as const] : []
 
-// La marca de cada columna al terminar una verificación. ci-gate pone la suya, que es la que manda.
-// Un tsc o un jest suelto pone ✓ si pasó; si falló, la columna queda como estaba, porque su rojo
-// puede ser de rojos conocidos que el gate absuelve. `before` son las filas de antes de correr.
-export const settled = (p: Probe | undefined, wss: Ws[], before: GateRow[], marks: ReturnType<typeof gateMarks>, ok: boolean) =>
-  columns(p, wss).map(([n, col]) => {
-    const prev = before.find((b) => b.ws === n)?.[col]
-    return [n, col, p?.gate ? (marks.find((m) => m.ws === n)?.[col] ?? prev) : ok ? 'ok' : prev] as const
-  })
-
-// Un Bash del modelo es verificación si corre ci-gate, verify.js (que imprime las secciones de
-// ci-gate de cada workspace), typecheck-baseline o test-select, o si un
-// segmento (&&, ||, ;, |, salto de línea) empieza por un typecheck o un test del manifiesto: lo que
-// va antes de {files}/{specs}. El workspace sale de la carpeta donde corre el segmento: un `cd` de
+// Un Bash del modelo es verificación si corre ci-gate, verify.js, typecheck-baseline o test-select, o
+// si un segmento (&&, ||, ;, |, salto de línea) empieza por un typecheck o un test del manifiesto: lo
+// que va antes de {files}/{specs}. El workspace sale de la carpeta donde corre el segmento: un `cd` de
 // un segmento anterior, `-C` o `--prefix` en el propio segmento, o el cwd. Si esa carpeta no cae en
 // un workspace que declare el comando, la etapa va sin workspace y no se marca ningún gate.
 // ci-gate toma el workspace de su --ws.
@@ -263,16 +177,6 @@ function commandOf(seg: string, w: Ws): { tool: string; col: 'tsc' | 'tests' } |
   return undefined
 }
 
-// Las últimas entradas de timeline.jsonl como texto, con las palabras de `timeline.js print`. Las
-// notas del turno y las de costo no van: la cronología ya muestra la espera y el costo.
-const EVENT: Record<string, string> = { start: 'inicio', end: 'fin', note: 'nota' }
-export function timelineLines(text: string, n = 5): { at: number; text: string }[] {
-  return entries(text).filter((x) => x.stage !== 'turno' && x.result !== 'costo').slice(-n).map((x) => ({
-    at: x.at,
-    text: [x.stage, EVENT[x.event] ?? x.event, x.result, x.ws && `· ${x.ws}`, x.detail && `· ${x.detail}`].filter(Boolean).join(' '),
-  }))
-}
-
 // El resumen de una corrida por etapa, con la más lenta y la más cara; sin costos, sin la más cara.
 export function summary(stages: StageDone[]): string {
   const by = new Map<string, { name: string; ms: number; usd: number }>()
@@ -287,15 +191,6 @@ export function summary(stages: StageDone[]): string {
 export const headText = (name: string, st: Stage | null, ses: Session | null, t: number) =>
   `arnes · ${name} · ${st ? label(st) : 'listo'}${ses ? ` · sesión ${sessionText(ses, t)}` : ''}`
 const sessionText = (ses: Session, t: number) => `${clock(t - ses.startedAt)}${ses.usd !== undefined ? ` ${money(ses.usd)}` : ''}`
-
-// Los abiertos de worktrees.json ({ version, worktrees: [{ ws, branch, target, status, … }] }):
-// abierto es sin integrar, como en `worktree-ledger.js pending`. Sin registro, ninguno.
-export function openWorktrees(data: unknown): Worktree[] {
-  const list = (data as { worktrees?: unknown } | null)?.worktrees
-  return (Array.isArray(list) ? list : [])
-    .filter((e) => e?.status === 'abierto')
-    .map((e) => ({ ws: String(e.ws), branch: String(e.branch), target: String(e.target) }))
-}
 
 export const wtText = (w: Worktree) => `  ${w.ws} · ${w.branch} → ${w.target}`
 
@@ -312,7 +207,7 @@ export function worktreeOf(cwd: string): string | null {
 export function bandText(st: Stage | null, isThinking: boolean, ags: Agent[], rows: GateRow[], t: number, wts: Worktree[] = [], ses: Session | null = null, wt: string | null = null): string {
   const head = st ? `${label(st)} ${clock(t - st.startedAt)}` : isThinking ? 'Pensando…' : 'listo'
   const live = ags.filter((a) => !a.endedAt).map((a) => `${short(a.type, a.model)} ${clock(t - a.startedAt)}`)
-  const flag = (r: GateRow) => (!r.flag ? '' : !fresh(r, t) ? 'flag vencida' : r.flag.result === 'pass' ? '✓flag' : '✗flag')
+  const flag = (r: GateRow) => (!r.flag ? '' : !r.flag.vigente ? 'flag vencida' : r.flag.result === 'pass' ? '✓flag' : '✗flag')
   const marks = rows.map((r) =>
     [r.ws, ...(['tsc', 'tests', 'review'] as const).filter((c) => r[c]).map((c) => sym(r[c]) + c), r.edited.length ? `✎${r.edited.length}` : '', flag(r)]
       .filter(Boolean).join(' '))
@@ -361,11 +256,11 @@ export function lastText(last: NonNullable<Corrida['last']>, t: number): string 
 export const agentText = (a: Agent, t: number) =>
   `  ${short(a.type, a.model)} ${clock((a.endedAt ?? t) - a.startedAt)}${a.lastTool ? ` · ${a.lastTool}` : ''}${a.tokens ? ` · ${kilo(a.tokens.fresh)} tok + ${kilo(a.tokens.cached)} de caché` : ''}${a.cost !== undefined ? ` · ${money(a.cost)}` : ''} `
 
-export function nextStep(rows: GateRow[], t: number, wts: Worktree[] = []): string {
-  const bad = rows.find((r) => r.tsc === 'fail' || r.tests === 'fail' || (fresh(r, t) && r.flag?.result === 'fail'))
+export function nextStep(rows: GateRow[], wts: Worktree[] = []): string {
+  const bad = rows.find((r) => r.tsc === 'fail' || r.tests === 'fail' || (r.flag?.vigente && r.flag.result === 'fail'))
   if (bad) return `corregir y volver a verificar ${bad.ws}`
   if (wts.length) return `falta integrar ${wts[0]!.branch}${wts.length > 1 ? ` y ${wts.length - 1} más` : ''} (/arnes:worktree integrate)`
-  const pending = rows.find((r) => r.code > 0 && !(fresh(r, t) && r.flag?.result === 'pass'))
+  const pending = rows.find((r) => r.code > 0 && !(r.flag?.vigente && r.flag.result === 'pass'))
   if (pending) return `falta verificar ${pending.ws} (${pending.code} archivo(s) de código)`
   return rows.some((r) => r.code > 0) ? 'verificado: listo para commit' : 'nada pendiente'
 }

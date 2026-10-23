@@ -5,8 +5,13 @@
 //
 // Uso: node timeline.js start <etapa> [--ws <nombre>] [--detail <texto>]
 //      node timeline.js end <etapa> [--result <ok|fail|texto>] [--ws <nombre>] [--detail <texto>]
-//      node timeline.js note <etapa> [--result <texto>] [--ws <nombre>] [--detail <texto>]
+//      node timeline.js note <etapa> [--result <texto>] [--ws <nombre>] [--detail <texto>] [--usd <n>]
 //      node timeline.js print
+//      node timeline.js summary --json [--desde-sesion <ms>] [--desde <ms>]
+//        lo que leen los mods en vez de parsear la timeline (docs/PLAN.md §6.5b): el plan en curso,
+//        init o setup en curso, la lista de tareas, la cronología de la corrida, las últimas entradas
+//        como texto y las posteriores a --desde, con el cursor para la siguiente
+// --usd anota el costo de una etapa (note <etapa> --result costo), que deja arnes-ui.
 // --dir <carpeta> resuelve el proyecto desde esa carpeta en vez del cwd. init y setup preparan un
 // proyecto que puede no tener manifiesto todavía: sus etapas se anotan igual, en la carpeta.
 // Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"?, "usd"? }
@@ -168,6 +173,87 @@ function format(entries) {
   return out;
 }
 
+// La cronología de la corrida, la que dibuja arnes-ui (docs/PLAN.md §6.5b): desde el último start de
+// plan, o desde que empezó la sesión si no hubo plan; las etapas cerradas con su duración, su costo
+// (la nota "costo" que sigue a su fin) y, en plan, lo que consultó al grafo; la abierta más reciente; y
+// la espera de la persona (las notas del turno). Si la corrida ya cerró con ship antes de la sesión, va
+// como last, y la de ahora empieza en la sesión. Los tiempos van en milisegundos.
+const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree'];
+const msOf = (e) => Date.parse(e.at) || 0;
+
+function graphNote(queries, closing) {
+  if (queries) return `grafo ${queries} consulta${queries === 1 ? '' : 's'}`;
+  return closing && /grafo presente/.test(closing) ? 'grafo sin consultar ⚠' : undefined;
+}
+
+function walk(list, from) {
+  const open = new Map();
+  const stages = [];
+  const wait = { ms: 0, n: 0, since: null };
+  const graph = { queries: 0, closing: undefined };
+  for (const x of list) {
+    const at = msOf(x);
+    if (x.stage === 'grafo' && x.result === 'consulta') graph.queries++;
+    if (x.stage === 'plan' && x.event === 'note' && x.result === 'grafo') graph.closing = x.detail;
+    if (x.stage === 'turno') {
+      if (x.result === 'cerrado') wait.since = at;
+      if (x.result === 'respuesta' && wait.since !== null) Object.assign(wait, { ms: wait.ms + at - wait.since, n: wait.n + 1, since: null });
+      continue;
+    }
+    if (!STAGES.includes(x.stage)) continue;
+    const id = `${x.stage}|${x.ws || ''}`;
+    if (x.event === 'start') open.set(id, x);
+    if (x.event === 'end' && open.has(id)) stages.push({ stage: x.stage, ...(x.ws ? { ws: x.ws } : {}), ms: at - msOf(open.get(id)), id });
+    if (x.event === 'end') open.delete(id);
+    const done = x.event === 'note' && x.result === 'costo' ? stages.findLast((s) => s.id === id && s.usd === undefined) : undefined;
+    if (done && Number.isFinite(x.usd)) done.usd = x.usd;
+  }
+  const last = [...open.values()].sort((a, b) => msOf(b) - msOf(a))[0];
+  const note = (stage) => (stage === 'plan' ? graphNote(graph.queries, graph.closing) : undefined);
+  return {
+    since: from,
+    stages: stages.map(({ id, ...s }) => (note(s.stage) ? { ...s, note: note(s.stage) } : s)),
+    open: last ? { stage: last.stage, ...(last.ws ? { ws: last.ws } : {}), ...(note(last.stage) ? { note: note(last.stage) } : {}), startedAt: msOf(last), id: `${last.stage}|${last.ws || ''}` } : null,
+    wait,
+  };
+}
+
+function corrida(entries, sessionStart = 0) {
+  const plan = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  const from = plan >= 0 ? msOf(entries[plan]) : sessionStart;
+  const shipped = entries.findLast((x) => msOf(x) >= from && x.stage === 'ship' && x.event === 'end' && x.result === 'ok');
+  if (plan < 0 || !shipped || !sessionStart || msOf(shipped) >= sessionStart) return walk(entries.filter((e) => msOf(e) >= from), from);
+  const prev = walk(entries.filter((e) => msOf(e) >= from && msOf(e) < sessionStart), from);
+  return { ...walk(entries.filter((e) => msOf(e) >= sessionStart), sessionStart), last: { at: msOf(shipped), stages: prev.stages } };
+}
+
+// Lo que leen los mods en vez de leer la timeline por su cuenta: el plan en curso (su estado y la
+// primera línea de plan.md), init o setup en curso, la lista de tareas, la cronología, las últimas
+// cinco entradas como texto (sin las notas del turno ni las de costo), las entradas posteriores a
+// since (sin since, ninguna: la primera lectura solo fija desde dónde) y el cursor para la siguiente.
+function summary(root, { sessionStart = 0, since } = {}) {
+  const entries = read(root);
+  const planFile = path.join(root, '.tmp', 'harness', 'plan.md');
+  const title = fs.existsSync(planFile) ? fs.readFileSync(planFile, 'utf8').split(/\r?\n/).find((l) => l.trim()) || '' : null;
+  const lines = entries.filter((x) => x.stage !== 'turno' && x.result !== 'costo').slice(-5).map((x) => ({
+    at: msOf(x),
+    text: [x.stage, EVENT[x.event] || x.event, x.result, x.ws && `· ${x.ws}`, x.detail && `· ${x.detail}`].filter(Boolean).join(' '),
+  }));
+  const pick = (x) => ({ at: msOf(x), event: x.event, stage: x.stage, ws: x.ws, result: x.result, detail: x.detail, usd: x.usd });
+  return {
+    file: path.join(root, '.tmp', 'harness', FILE).split(path.sep).join('/'),
+    gate: path.join(root, '.tmp', 'harness', 'gate').split(path.sep).join('/'),
+    root: root.split(path.sep).join('/'),
+    plan: { ...planState(entries), title },
+    prep: prepOpen(entries),
+    tasks: tasks(entries),
+    corrida: corrida(entries, sessionStart),
+    lines,
+    events: since === undefined ? [] : entries.filter((x) => msOf(x) > since).map(pick),
+    cursor: entries.reduce((m, x) => Math.max(m, msOf(x)), since || 0),
+  };
+}
+
 // Antes de borrar un worktree nativo, lo que su timeline anotó vuelve a la del checkout principal: la
 // corrida del issue (la lista de tareas, build, verify, review, ship) no se pierde con la carpeta.
 // Solo las entradas que el principal no tiene, en su orden. → cuántas volvieron
@@ -180,14 +266,24 @@ function bringBack(fromRoot, toRoot) {
   return back.length;
 }
 
-module.exports = { FILE, PREP, append, read, format, planState, prepOpen, tasks, bringBack };
+module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, tasks, corrida, summary, bringBack };
 
 function main() {
   let args;
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, result: { type: 'string' }, detail: { type: 'string' }, dir: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: {
+        ws: { type: 'string' },
+        result: { type: 'string' },
+        detail: { type: 'string' },
+        dir: { type: 'string' },
+        usd: { type: 'string' },
+        json: { type: 'boolean' },
+        'desde-sesion': { type: 'string' },
+        desde: { type: 'string' },
+        help: { type: 'boolean', short: 'h' },
+      },
     });
   } catch (e) {
     die(`timeline: ${e.message}`);
@@ -195,6 +291,16 @@ function main() {
   if (args.values.help) help(__filename);
   const [event, stage] = args.positionals;
   const dir = path.resolve(args.values.dir || process.cwd());
+  const num = (v) => (v === undefined ? undefined : Number(v));
+  if (event === 'summary' && !stage) {
+    const [sessionStart, since] = [num(args.values['desde-sesion']), num(args.values.desde)];
+    if (!args.values.json || [sessionStart, since].some((n) => n !== undefined && !Number.isFinite(n))) die('uso: timeline.js summary --json [--desde-sesion <ms>] [--desde <ms>] [--dir d]');
+    console.log(JSON.stringify(summary(requireProject(dir).root, { sessionStart, since })));
+    return;
+  }
+  const usd = num(args.values.usd);
+  if (args.values.json || args.values['desde-sesion'] || args.values.desde) die('timeline: --json, --desde-sesion y --desde solo van con summary');
+  if (usd !== undefined && !(event === 'note' && args.values.result === 'costo' && Number.isFinite(usd))) die('timeline: --usd va con note <etapa> --result costo y un número');
   if (event === 'print' && !stage) {
     const project = requireProject(dir);
     const entries = read(project.root);
@@ -213,6 +319,7 @@ function main() {
     ws: args.values.ws,
     result: args.values.result,
     detail: args.values.detail,
+    usd,
   });
   const list = event === 'note' ? null : tasks(read(root));
   if (list) console.log(`tareas: ${JSON.stringify(list)}`);

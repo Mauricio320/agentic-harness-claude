@@ -99,6 +99,7 @@ agentic-harness/
         lib/plan.js                      # lo que varios scripts leen del plan: nombre corto, workspaces, secciones
         lib/worktree-nativo.js           # reconocer los worktrees nativos de Claude Code
         lib/node-test-reporter.js        # reporter de node --test que deja el contrato de resultados de tests (§6.1)
+        lib/huella.js                    # la huella de los tocados que comparan la bandera, la revisión y ci-gate
         init-draft.js                    # detección determinista de arnes:init: repos, stack, comandos, specPattern; escribe los dos niveles de §5
         touched-files.js                 # modificados + untracked por workspace
         typecheck-baseline.js            # foto y diff por diagnóstico (parser tsc; interfaz para otros)
@@ -122,14 +123,14 @@ agentic-harness/
       .claude-plugin/plugin.json         # solo interfaz: banda, panel, status, toasts (§6.5b)
       hooks/hooks.json                   # { "modules": ["./register.tsx"] }
       hooks/register.tsx                 # hooks y dibujo (≤ 300 líneas)
-      hooks/lib.ts                       # lo puro: rutas, globs, formatos, comandos y git
+      hooks/lib.ts                       # lo puro: rutas, formatos y comandos; lo del arnés lo dicen los JSON del base (§6.5b)
       types/index.d.ts                   # contrato de $.state
       tests/arnes-ui.test.ts             # claude plugin test
     arnes-mod/
       .claude-plugin/plugin.json         # comportamiento: depende de arnes
       hooks/hooks.json                   # { "modules": ["./register.ts"] }
       hooks/register.ts                  # prompt.submit: la cuarta capa del plan obligatorio (§6.5)
-      hooks/lib.ts                       # lo puro: qué mensaje se pregunta, la respuesta y el plan en curso
+      hooks/lib.ts                       # lo puro: qué mensaje se pregunta y la respuesta; el plan en curso lo dice el base
       tests/arnes-mod.test.ts            # claude plugin test
   .gitlab-ci.yml / .github/workflows     # validate + tests + plugin test contra versión fijada del CLI
 ```
@@ -491,6 +492,15 @@ Cambio de la segunda ronda antes del piloto (2026-10-20), por la primera corrida
 Cambio de la fase 3 (2026-10-20): `arnes-ui` lee `.tmp/harness/worktrees.json` en cada refresco. La banda suma `N wt sin integrar`, el panel lista cada worktree abierto con su rama y su destino, y "Lo que sigue" pide `/arnes:worktree integrate` antes que verificar. Abierto es sin integrar, como en `worktree-ledger.js pending`; el mod no cuenta commits.
 
 Cambio de la fase de setup (2026-10-21): **la corrida de ayer no es la de hoy.** Al abrir una sesión nueva, el panel mostró como cronología la corrida del día anterior, completa, con `hace 1068m` en la timeline y `Lo que sigue: nada pendiente`. Ahora, si la corrida del último `start plan` cerró con `end ship --result ok` antes de que empezara la sesión, `lib.corrida` la devuelve aparte como `last` y la actual empieza en la sesión. El panel la resume en una línea bajo la cronología, `última corrida, cerrada con ship hace 17h: Planeando 2m · Construyendo (api) 13m · Entregando 2m · $2.75`, y la cronología queda vacía hasta el próximo `start plan`. Un ship que terminó en fail no cierra la corrida.
+
+Cambio de la consolidación A (2026-10-23, rama `feature/consolidacion-a`): **una sola fuente de lógica.** La revisión externa vio que los tres plugins repetían la misma lógica en dos lenguajes y que ya divergía: arnes-ui resolvía el manifiesto, armaba la cronología de la timeline, traducía globs, leía `git status` contando el código con sus propios `codeGlobs` y una copia de la regla de touched-files, y parseaba la salida de ci-gate; arnes-mod resolvía el manifiesto y repetía `planState` y `prepOpen`. Ahora los mods no reimplementan nada de eso: leen lo que imprimen los scripts del plugin base en JSON.
+- **`manifest.js show --json`**: el proyecto y cada workspace con sus carpetas, sus comandos, sus riskPaths y sus codeGlobs, y esos globs ya traducidos a regex por `lib/glob.js` (`re.risk`, `re.code`), así que ningún mod tiene un traductor de globs propio.
+- **`timeline.js summary --json [--desde-sesion <ms>] [--desde <ms>]`**: el plan en curso (su estado y la primera línea de `plan.md`), init o setup en curso, la lista de tareas, la cronología de la corrida (`corrida`, que pasó de arnes-ui a `lib/timeline.js` con sus reglas: desde el último start de plan o desde la sesión, la nota del grafo, la espera de la persona y la corrida cerrada en otra sesión como `last`), las últimas cinco entradas como texto, las posteriores a `--desde` y el cursor para la siguiente, y las rutas de la timeline y de la carpeta del gate. `note --usd` anota el costo de una etapa.
+- **`gate-flag.js status --json`**: por workspace adoptable, la rama, el HEAD, cuántos tocados y cuántos de código (touched-files), la bandera con su vigencia exacta (`checkFlag`, la regla del guard, en vez del cálculo aproximado por fechas de modificación que hacía arnes-ui), la última corrida de ci-gate con el estado de cada paso y si es del contenido de ahora, y la revisión (`review.js check`); y los worktrees abiertos del registro. Para que gate-flag pudiera usar la revisión sin un require circular (review usaba la huella de gate-flag), la huella pasó a `lib/huella.js`.
+- **Dónde está el base.** §3 sigue valiendo: un mod no tiene `require` ni la carpeta de otro plugin. Los dos mods buscan el base por su ubicación relativa: junto al mod con `--plugin-dir` sobre el repo (`plugins/arnes`), o en la caché de plugins, en la misma versión del mod o la más alta instalada (`lib.baseCandidates`), y lo corren con `$.process.run(['node', …])`.
+- **arnes-mod** pide el resumen al arrancar y otra vez solo cuando cambió la fecha de la timeline (un `stat`), y pregunta a haiku solo con un proyecto del arnés, sin plan en curso y sin init ni setup en curso.
+- **arnes-ui** pide el proyecto al arrancar y al entrar o salir de un worktree; la timeline y el gate, después de una herramienta que los cambia y cuando cambia la fecha de la timeline o de la carpeta del gate. Las columnas tsc y tests salen de la última corrida de ci-gate del contenido de ahora: el verde, como el rojo, lo dice el gate, y un tsc o un jest a mano solo muestra ⏳ mientras corre. La revisión sale de `review.js check`. El título del plan lo sigue limpiando el mod, porque es presentación (el ancho que dibuja la terminal).
+- Un test de `tests/estado-json.test.js`, que corre en el CI con los del plugin base, lee las fuentes de los dos mods y niega en ellas un traductor de globs, `timeline.jsonl`, `harness.json`, `.tmp/harness` y las funciones del base (`planOpen`, `prepOpen`, `corrida`, `parseStatus`, `gateMarks`…). El mismo archivo prueba los tres JSON y la cronología que antes probaba arnes-ui. Los tests de los mods pasan a un motor que hace de plugin base con lo que fija cada escenario.
 
 Tamaño objetivo: un `register.tsx` de 200–300 líneas más el contrato de tipos. Se construye justo después de la fase 2, antes que `arnes-mod`, porque es la mejor herramienta para depurar las fases 3 y 4: ver las etapas hace visible lo que el arnés está haciendo.
 

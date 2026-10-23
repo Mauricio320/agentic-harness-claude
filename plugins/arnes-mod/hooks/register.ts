@@ -2,31 +2,45 @@
 // cuarta capa del plan obligatorio: sin plan en curso, un mensaje de la persona que pide un cambio de
 // código lleva adjunta la instrucción de cargar arnes:plan. Decide con una pregunta cerrada al modelo
 // más barato, salvo una pregunta evidente, que pasa sin llamarlo (lib.isQuestion), y no pregunta
-// mientras init o setup están en curso (lib.prepOpen). Falla abierto: si
-// algo falla o el modelo no responde, el prompt sigue tal cual y lo atajan las otras tres capas, que viven en el plugin base (el guard de Edit y Write, la línea de
-// UserPromptSubmit y /arnes:plan --trivial).
+// mientras init o setup están en curso. Si hay plan o init en curso lo dice el plugin base, con
+// timeline.js summary --json: el mod lo pide al arrancar y otra vez solo cuando la timeline cambió, y
+// no reimplementa ni el manifiesto ni la timeline. Falla abierto: si algo falla o el modelo no
+// responde, el prompt sigue tal cual y lo atajan las otras tres capas, que viven en el plugin base (el
+// guard de Edit y Write, la línea de UserPromptSubmit y /arnes:plan --trivial).
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ASK, LOAD_PLAN, MANIFEST, MODEL, TIMELINE, TIMEOUT_MS, candidate, isQuestion, isYes, join, planOpen, prepOpen, same, slash } from './lib'
+import { ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, slash } from './lib'
+import type { Summary } from './lib'
 
 type $ = EngineInterface
 
-const readText = async ($: $, file: string) => ((await $.fs.exists(file)) ? $.fs.read(file) : '')
+let base: string | null | undefined
+let cache: { cwd: string; mtime: number; s: Summary | null } | null = null
 
-// La raíz del proyecto como la resuelve lib/manifest.js: el primer manifiesto subiendo desde el cwd y,
-// si es de repo, la composición de más arriba que lo liste. Sin manifiesto no es un proyecto del arnés.
-async function rootOf($: $): Promise<string | null> {
-  let dir = slash(await $.session.cwd())
-  while (!(await $.fs.exists(join(dir, MANIFEST)))) {
-    if (same(join(dir, '..'), dir)) return null
-    dir = join(dir, '..')
-  }
-  let root = dir
-  for (let up = join(dir, '..'); !same(up, dir); dir = up, up = join(up, '..')) {
-    const c = JSON.parse((await readText($, join(up, MANIFEST))) || 'null')
-    if (c?.repos?.some((r: { path: string }) => same(join(up, r.path), root))) root = up
-  }
-  return root
+async function findBase($: $): Promise<string | null> {
+  if (base !== undefined) return base
+  const root = slash($.plugin.root)
+  const installed = join(root, '..', '..', 'arnes')
+  const versions = (await $.fs.exists(installed)) ? (await $.fs.list(installed)).filter((e) => e.kind === 'dir').map((e) => e.name) : []
+  for (const c of baseCandidates(root, versions)) if (await $.fs.exists(join(c, SUMMARY))) return (base = c)
+  return (base = null)
+}
+
+const mtimeOf = ($: $, file: string) => $.fs.stat(file).then((s) => s.mtimeMs, () => 0)
+
+async function summaryOf($: $, cwd: string): Promise<Summary | null> {
+  const b = await findBase($)
+  if (!b) return null
+  const r = await $.process.run(['node', join(b, SUMMARY), 'summary', '--json'], { cwd, timeoutMs: TIMEOUT_MS })
+  return r.exitCode === 0 ? parseSummary(r.stdout) : null
+}
+
+async function state($: $): Promise<Summary | null> {
+  const cwd = slash(await $.session.cwd())
+  if (cache?.s && cache.cwd === cwd && (await mtimeOf($, cache.s.file)) === cache.mtime) return cache.s
+  const s = await summaryOf($, cwd)
+  cache = { cwd, s, mtime: s ? await mtimeOf($, s.file) : 0 }
+  return s
 }
 
 async function asksForCode($: $, text: string): Promise<boolean> {
@@ -35,11 +49,15 @@ async function asksForCode($: $, text: string): Promise<boolean> {
 }
 
 export const register: Register = (on) => {
+  on('session.start', async ($, e, next) => {
+    const r = await next(e)
+    await state($).catch(() => null)
+    return r
+  }).catch(($, e, next) => next(e))
+
   on('prompt.submit', async ($, e, next) => {
     if (!candidate(e) || isQuestion(e.text)) return next(e)
-    const root = await rootOf($)
-    const timeline = root ? await readText($, join(root, TIMELINE)) : ''
-    if (!root || planOpen(timeline) || prepOpen(timeline)) return next(e)
+    if (!asks(await state($))) return next(e)
     if (!(await asksForCode($, e.text))) return next(e)
     return next({ ...e, context: [...(e.context ?? []), LOAD_PLAN] })
   }).catch(($, e, next) => next(e))

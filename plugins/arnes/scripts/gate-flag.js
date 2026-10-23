@@ -19,9 +19,15 @@
 // <ws>-ultimo.json, con la misma huella, el resultado y el primer error con su archivo y su línea
 // (writeLast, readLast): es lo que ship lee para decir por qué no entrega.
 //
+// status --json es lo que leen los mods en vez de calcularlo por su cuenta (docs/PLAN.md §6.5b): por
+// workspace adoptable, la rama y el HEAD, cuántos tocados hay y cuántos son código (touched-files),
+// la bandera con su vigencia exacta (check), la última corrida de ci-gate con el estado de cada paso y
+// si es del contenido de ahora, y la revisión (review.js check); y los worktrees abiertos del registro.
+//
 // Uso: node gate-flag.js write <ws> --result pass|fail [--base <ref>]
 //      node gate-flag.js check <ws>
-// Exit: write 0 escrita · check 0 vigente · check 1 ausente, vencida o en fail (motivo en
+//      node gate-flag.js status --json
+// Exit: write 0 escrita · check 0 vigente · status 0 · check 1 ausente, vencida o en fail (motivo en
 //       stderr) · 2 uso inválido, sin manifiesto, workspace desconocido o no adoptable, o git falló
 
 'use strict';
@@ -34,25 +40,15 @@ const { spawnSync } = require('child_process');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
+const { matchAny } = require('./lib/glob.js');
+const { stateOf } = require('./lib/huella.js');
+const { checkReview } = require('./review.js');
+const ledger = require('./worktree-ledger.js');
 
 const RESULTS = ['pass', 'fail'];
 
 function flagPath(project, ws) {
   return path.join(harnessDir(project), 'gate', `${ws.name}.json`);
-}
-
-// touched() con el proyecto excluye .tmp/harness/: si no, escribir la bandera dentro del
-// workspace cambiaría la lista de tocados y la dejaría vencida al instante.
-function stateOf(project, ws, base = 'HEAD') {
-  const head = git(ws.gitRoot, ['rev-parse', 'HEAD']);
-  if (head.status !== 0) return { error: `git rev-parse HEAD falló en ${ws.name}: ${firstLine(head.stderr)}` };
-  const t = touched(ws, base, project);
-  if (t.error) return { error: t.error };
-  const sha = (data) => crypto.createHash('sha256').update(data).digest('hex');
-  const file = (f) => path.join(ws.dir, f);
-  const touchedHash = sha(t.files.join('\n'));
-  const contentHash = sha(t.files.map((f) => `${f}\0${fs.existsSync(file(f)) ? sha(fs.readFileSync(file(f))) : '-'}`).join('\n'));
-  return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files };
 }
 
 // El blob de cada tocado, por ruta relativa al workspace. hash-object con --stdin-paths lee rutas
@@ -160,18 +156,56 @@ function readLast(project, ws) {
   return { ...last, current: !s.error && s.head === last.head && s.touchedHash === last.touchedHash && s.contentHash === last.contentHash };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnChanged };
+function readFlag(project, ws) {
+  try {
+    return JSON.parse(fs.readFileSync(flagPath(project, ws), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function status(project) {
+  const reviews = new Map(checkReview(project).map((r) => [r.ws, r]));
+  const workspaces = project.workspaces.filter((w) => w.adoptable).map((ws) => {
+    const t = touched(ws, 'HEAD', project);
+    const files = t.files || [];
+    const flag = readFlag(project, ws);
+    const valid = flag ? checkFlag(project, ws) : null;
+    const last = readLast(project, ws);
+    const rev = reviews.get(ws.name);
+    return {
+      name: ws.name,
+      branch: git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() || null,
+      head: git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim() || null,
+      changed: files.length,
+      code: files.filter((f) => matchAny(ws.codeGlobs, f)).length,
+      flag: flag && { result: flag.result, at: Date.parse(flag.at), vigente: Boolean(valid.ok), motivo: valid.ok ? null : valid.reason || valid.error },
+      last: last && { result: last.result, at: Date.parse(last.at), current: last.current, steps: Object.fromEntries((last.steps || []).map((s) => [s.name, s.status])) },
+      review: rev ? { ok: rev.ok, motivo: rev.reason } : null,
+    };
+  });
+  const worktrees = ledger.pendingEntries(project, ledger.readLedger(project)).map((e) => ({ ws: e.ws, branch: e.branch, target: e.target }));
+  return { root: posix(project.root), workspaces, worktrees };
+}
+
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnChanged, status };
 
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { result: { type: 'string' }, base: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { result: { type: 'string' }, base: { type: 'string' }, json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`gate-flag: ${e.message}`);
   }
   if (args.values.help) help(__filename);
   const [mode, wsName] = args.positionals;
-  if (!['write', 'check'].includes(mode) || !wsName || (mode === 'check' && args.values.base)) die('uso: gate-flag.js write <ws> --result pass|fail [--base <ref>] | check <ws>');
+  const usage = 'uso: gate-flag.js write <ws> --result pass|fail [--base <ref>] | check <ws> | status --json';
+  if (mode === 'status') {
+    if (wsName || !args.values.json || args.values.base || args.values.result) die(usage);
+    console.log(JSON.stringify(status(requireProject())));
+    return;
+  }
+  if (!['write', 'check'].includes(mode) || !wsName || (mode === 'check' && args.values.base) || args.values.json) die(usage);
   if (mode === 'write' && !RESULTS.includes(args.values.result)) die('gate-flag: write necesita --result pass|fail');
 
   const project = requireProject();

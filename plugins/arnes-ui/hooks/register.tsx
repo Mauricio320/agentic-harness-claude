@@ -2,14 +2,17 @@
 // cada hook devuelve lo que resolvió next(e), toda excepción propia va a $.ui.log y el .catch de
 // cada registro replica next(e), así que si el mod falla el arnés sigue igual. Lo único que escribe
 // es la nota de costo de cada etapa en la timeline: un dato para medir, no un cambio del flujo.
+// Lo que es del arnés lo dicen los scripts del plugin base en JSON, y el mod no lo recalcula: el
+// proyecto (manifest.js show --json), la timeline (timeline.js summary --json) y el gate
+// (gate-flag.js status --json). Se piden al arrancar, después de una herramienta que los cambia, y
+// cuando cambia la fecha de la timeline o de la carpeta del gate.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Agent, Corrida, Files, GateRow, Mark, Run } from '../types'
-import { CODE_GLOBS, MANIFEST, agentText, blankRow, bandText, classify, columns, corrida, entries, gateMarks, globRe, headText, idOf, join, key,
-  label, locate, mins, nextStep, openWorktrees, paneText, parseStatus, planTitle, settled, since, slash, stageOf, summary, timelineLines,
-  tokensOf, worktreeOf, wtText } from './lib'
-import type { Probe, Ws } from './lib'
+import { WRITERS, agentText, bandText, baseCandidates, blankRow, classify, columns, corridaOf, headText, idOf, join, label, locate, mins, nextStep, paneText, planTitle,
+  rowOf, slash, stageOf, summary, tokensOf, workspacesOf, worktreeOf, wtText } from './lib'
+import type { Probe, StatusWs, Ws } from './lib'
 
 type $ = EngineInterface
 
@@ -29,8 +32,10 @@ const APPEND = "require('fs').appendFileSync(process.argv[1], process.argv[2] + 
 
 // Variables del módulo: una recarga las pierde y session.start las vuelve a llenar.
 let ws: Ws[] = []
-let [root, cwd] = ['', '']
-let [needsGit, ticks, seen] = [false, 0, Infinity]
+let [root, cwd, base, timelineFile, gateDir] = ['', '', '', '', '']
+let seen: number | undefined
+let ticks = 0
+const stamps = { timeline: -1, gate: -1 }
 const [said, warned] = [new Set<string>(), new Set<string>()]
 // Lo que marcaba /cost al ver el start de cada etapa (etapa|workspace): con eso se anota su costo.
 const usdAt = new Map<string, number>()
@@ -47,71 +52,90 @@ async function safe($: $, what: string, fn: () => unknown): Promise<void> {
 
 // Los avisos que importan van también al transcript: en algunas superficies el toast no se dibuja.
 const alert = ($: $, text: string) => ($.ui.toast(text, { timeoutMs: 8000 }), $.ui.log(text))
-
-const readText = async ($: $, file: string) => ((await $.fs.exists(file)) ? $.fs.read(file) : '')
-const readJson = async ($: $, file: string): Promise<any> => JSON.parse((await readText($, file)) || 'null')
-const timelineFile = () => join(root, '.tmp/harness/timeline.jsonl')
 const usd = async ($: $) => (await $.session.usage()).cost?.usd ?? 0
 
-// La misma resolución que lib/manifest.js: el primer manifiesto subiendo desde el cwd y, si es de
-// repo, la composición de más arriba que lo liste. Un repo sin manifiesto propio no se muestra.
-async function load($: $): Promise<void> {
-  ;[ws, root, cwd] = [[], '', slash(await $.session.cwd())]
-  let [dir, m]: [string, any] = [cwd, null]
-  for (; !(m = await readJson($, join(dir, MANIFEST))); dir = join(dir, '..')) if (join(dir, '..') === dir) return void (await update($, project, () => null))
-  root = dir
-  for (let up = join(dir, '..'); m.workspaces && up !== dir; dir = up, up = join(up, '..')) {
-    const c = await readJson($, join(up, MANIFEST))
-    if (c?.repos?.some((r: { path: string }) => key(join(up, r.path)) === key(root))) [root, m] = [up, c]
+async function findBase($: $): Promise<string> {
+  const me = slash($.plugin.root)
+  const installed = join(me, '..', '..', 'arnes')
+  const versions = (await $.fs.exists(installed)) ? (await $.fs.list(installed)).filter((e) => e.kind === 'dir').map((e) => e.name) : []
+  for (const c of baseCandidates(me, versions)) if (await $.fs.exists(join(c, 'scripts/lib/manifest.js'))) return c
+  return ''
+}
+
+// Un script del plugin base que imprime JSON, desde la carpeta de la sesión. null si no pudo.
+async function json($: $, script: string, args: string[]): Promise<any> {
+  if (!base) return null
+  const r = await $.process.run(['node', join(base, 'scripts', script), ...args], { cwd, timeoutMs: 20000 })
+  try {
+    return r.exitCode === 0 ? JSON.parse(r.stdout) : null
+  } catch {
+    return null
   }
-  for (const repo of m.repos ? m.repos.map((r: { path: string }) => join(root, r.path)) : [root])
-    for (const w of (m.repos ? await readJson($, join(repo, MANIFEST)) : m)?.workspaces ?? []) {
-      const d = join(repo, w.path)
-      ws.push({ name: w.name, dir: d, gitRoot: join(d, w.git ?? '.'), commands: w.commands ?? {}, riskPaths: w.riskPaths ?? [], codeGlobs: w.codeGlobs ?? CODE_GLOBS })
-    }
-  await update($, project, () => ({ name: m.name, root }))
+}
+
+async function load($: $): Promise<void> {
+  cwd = slash(await $.session.cwd())
+  base ||= await findBase($)
+  const m = await json($, 'lib/manifest.js', ['show', '--json'])
+  ;[ws, root, seen, timelineFile, gateDir] = [workspacesOf(m), m ? slash(m.root) : '', undefined, '', '']
+  stamps.timeline = stamps.gate = -1
+  await update($, project, () => (m ? { name: m.name, root } : null))
 }
 
 const setRow = ($: $, name: string, fn: (r: GateRow) => GateRow) => update($, gate, (rows) => rows.map((r) => (r.ws === name ? fn(r) : r)))
 
-// git de solo lectura: --no-optional-locks para que status no reescriba el índice.
-async function gitState($: $, w: Ws): Promise<Partial<GateRow>> {
-  const argv = ['git', '-c', 'core.quotePath=false', '-C', w.dir, '--no-optional-locks', 'status', '--porcelain=v2', '--branch', '--untracked-files=all', '--', '.']
-  const g = await $.process.run(argv, { timeoutMs: 10000 })
-  if (g.exitCode !== 0) return {}
-  const { paths, ...row } = parseStatus(g.stdout, w, join(root, '.tmp/harness'))
-  const mtimes = await Promise.all(paths.map((p) => $.fs.stat(join(w.dir, p)).then((s) => s.mtimeMs, () => 0)))
-  return { ...row, changedAt: Math.max(0, ...mtimes) }
-}
-
-// Relee .tmp/harness (banderas, plan.md, timeline, worktrees.json) y, si hace falta, el git de cada
-// workspace. La cronología es la corrida que sale de la timeline, no la del turno.
-async function refresh($: $, withGit: boolean): Promise<void> {
+// La timeline según el plugin base: la cronología, el plan, las últimas entradas y, desde lo visto,
+// las nuevas (follow). La primera lectura solo fija desde dónde: lo viejo no abre etapas ni avisa.
+async function timeline($: $): Promise<void> {
   if (!root) return
-  const dir = join(root, '.tmp/harness')
-  const patch = new Map<string, Partial<GateRow>>()
-  for (const w of ws) {
-    const f = await readJson($, join(dir, 'gate', `${w.name}.json`))
-    const flag = f ? { result: String(f.result), at: Date.parse(f.at), head: f.head } : undefined
-    patch.set(w.name, { flag, ...(withGit ? await gitState($, w) : {}) })
-  }
-  for (const r of await read($, gate))
-    if (patch.get(r.ws)?.flag?.result === 'fail' && patch.get(r.ws)?.flag?.at !== r.flag?.at) alert($, `arnes: gate en rojo en ${r.ws}: la bandera es fail`)
-  await update($, gate, (rows) => ws.map((w) => ({ ...(rows.find((r) => r.ws === w.name) ?? blankRow(w.name)), ...patch.get(w.name) })))
-  await follow($, await readText($, join(dir, 'timeline.jsonl')))
-  const text = await readText($, join(dir, 'timeline.jsonl')) // otra vez: follow pudo anotar un costo
-  const r = corrida(entries(text), (await read($, session))?.startedAt ?? 0)
+  const ses = await read($, session)
+  const s = await json($, 'lib/timeline.js', ['summary', '--json', '--desde-sesion', String(ses?.startedAt ?? 0), ...(seen === undefined ? [] : ['--desde', String(seen)])])
+  if (!s) return
+  const first = seen === undefined
+  ;[seen, timelineFile, gateDir] = [s.cursor, s.file, s.gate]
+  stamps.timeline = await mtime($, timelineFile)
+  if (!first && (await follow($, s.events))) return void (await timeline($))
+  const r = corridaOf(s.corrida)
   if (r.open?.id) r.open.usd = usdAt.get(r.open.id)
   await update($, run, () => r)
-  const next: Files = { plan: planTitle(await readText($, join(dir, 'plan.md'))), timeline: timelineLines(text), worktrees: openWorktrees(await readJson($, join(dir, 'worktrees.json'))) }
+  const next: Files = { ...(await read($, files)), plan: s.plan.title === null ? undefined : planTitle(s.plan.title), timeline: s.lines }
   if (JSON.stringify(next) !== JSON.stringify(await read($, files))) await update($, files, () => next)
 }
 
-// Lo nuevo de la timeline (lib.since): el start guarda lo que marca /cost, el end anota el costo y el de
-// ship cierra la corrida; el Stop bloqueado avisa. `seen` se mueve antes de todo await.
-async function follow($: $, text: string): Promise<void> {
-  const [news, last] = since(entries(text), seen)
-  seen = last
+// El gate según el plugin base: por workspace, la rama, los cambios, la bandera con su vigencia, la
+// última corrida de ci-gate y la revisión; y los worktrees abiertos del registro.
+async function gateStatus($: $): Promise<void> {
+  if (!root) return
+  const st = await json($, 'gate-flag.js', ['status', '--json'])
+  if (!st) return
+  stamps.gate = await dirStamp($)
+  const before = await read($, gate)
+  const reviewing = (await read($, agents)).some((a) => a.type === 'arnes:reviewer' && !a.endedAt)
+  const rows = (st.workspaces as StatusWs[]).map((s) => {
+    const prev = before.find((r) => r.ws === s.name)
+    const row = rowOf(s, prev)
+    const running = (c: 'tsc' | 'tests') => (prev?.[c] === 'run' ? { [c]: 'run' as Mark } : {})
+    return { ...row, ...running('tsc'), ...running('tests'), ...(reviewing ? { review: 'run' as Mark } : {}) }
+  })
+  for (const r of rows as GateRow[]) {
+    const was = before.find((b) => b.ws === r.ws)
+    if (r.flag?.result === 'fail' && r.flag.at !== was?.flag?.at) alert($, `arnes: gate en rojo en ${r.ws}: la bandera es fail`)
+  }
+  await update($, gate, () => rows)
+  const wts = st.worktrees ?? []
+  if (JSON.stringify(wts) !== JSON.stringify((await read($, files)).worktrees)) await update($, files, (f) => ({ ...f, worktrees: wts }))
+}
+
+const mtime = ($: $, file: string) => (file ? $.fs.stat(file).then((s) => s.mtimeMs, () => 0) : Promise.resolve(0))
+async function dirStamp($: $): Promise<number> {
+  if (!gateDir || !(await $.fs.exists(gateDir))) return 0
+  return (await $.fs.list(gateDir)).reduce((m, e) => Math.max(m, e.mtimeMs), 0)
+}
+
+// Lo nuevo de la timeline: el start guarda lo que marca /cost, el end anota el costo y el de ship
+// cierra la corrida; el Stop bloqueado avisa. → true si anotó un costo, para releer.
+async function follow($: $, news: { at: number; event: string; stage: string; ws?: string; result?: string; detail?: string }[]): Promise<boolean> {
+  let wrote = false
   for (const x of news) {
     if (x.stage === 'stop-gate' && x.result === 'bloqueado') alert($, `arnes: el Stop bloqueó el turno · ${x.detail ?? ''}`)
     const name = stageOf(x)
@@ -125,34 +149,41 @@ async function follow($: $, text: string): Promise<void> {
     }
     const from = usdAt.get(id)
     usdAt.delete(id)
-    if (from !== undefined) await note($, { stage: x.stage, ws: x.ws, result: 'costo', usd: Math.round(((await usd($)) - from) * 10000) / 10000 })
+    if (from !== undefined) wrote = (await note($, { stage: x.stage, ws: x.ws, result: 'costo', usd: Math.round(((await usd($)) - from) * 10000) / 10000 })) || wrote
     $.ui.status('listo')
     if (x.stage === 'ship') await closeRun($)
   }
+  return wrote
 }
 
-async function note($: $, entry: Record<string, unknown>): Promise<void> {
+async function note($: $, entry: Record<string, unknown>): Promise<boolean> {
+  if (!timelineFile) return false
   const line = JSON.stringify({ at: new Date(await $.clock.now()).toISOString(), event: 'note', ...entry })
-  await $.process.run(['node', '-e', APPEND, timelineFile(), line], { timeoutMs: 10000 })
+  await $.process.run(['node', '-e', APPEND, timelineFile, line], { timeoutMs: 10000 })
+  return true
 }
 
 // Al terminar ship, la corrida con su costo va a $.store (las últimas 20) y su resumen al transcript.
 async function closeRun($: $): Promise<void> {
-  const r = corrida(entries(await readText($, timelineFile())), (await read($, session))?.startedAt ?? 0)
-  if (!r.stages.length) return
+  const ses = await read($, session)
+  const s = await json($, 'lib/timeline.js', ['summary', '--json', '--desde-sesion', String(ses?.startedAt ?? 0)])
+  const r = s ? corridaOf(s.corrida) : null
+  if (!r?.stages.length) return
   const runs: Run[] = [...(await read($, history)), { at: await $.clock.now(), reason: 'ship', stages: r.stages }].slice(-20)
   await update($, history, () => runs)
   await $.store.set('runs', runs)
   $.ui.log(summary(r.stages))
 }
 
-// Cada 3 s, sin pasar por el modelo: la sesión, .tmp/harness, y git tras una herramienta o cada 15 s.
+// Cada 3 s, sin pasar por el modelo: el reloj y el costo de la sesión, y la fecha de la timeline y de
+// la carpeta del gate; solo si cambió se pide al plugin base. Cada 15 s, el gate, por las ediciones que
+// no pasan por una herramienta.
 async function tick($: $): Promise<void> {
   if (!root) return
   const u = await $.session.usage()
   await update($, session, () => ({ startedAt: u.startedAt, usd: u.cost?.usd }))
-  await refresh($, needsGit || ++ticks % 5 === 0)
-  needsGit = false
+  if (!timelineFile || (await mtime($, timelineFile)) !== stamps.timeline) await timeline($)
+  if (++ticks % 5 === 0 || (await dirStamp($)) !== stamps.gate) await gateStatus($)
   const t = await $.clock.now()
   await update($, now, () => t)
 }
@@ -160,11 +191,15 @@ async function tick($: $): Promise<void> {
 async function edited($: $, file: string): Promise<void> {
   const { w, rel } = locate(file, ws, cwd) ?? {}
   if (!w || rel === undefined) return
-  const t = await $.clock.now()
-  await setRow($, w.name, (r) => ({ ...r, edited: r.edited.includes(rel) ? r.edited : [...r.edited, rel], editedAt: t }))
-  if (warned.has(rel) || !w.riskPaths.some((g) => globRe(g).test(rel))) return
+  await setRow($, w.name, (r) => ({ ...r, edited: r.edited.includes(rel) ? r.edited : [...r.edited, rel] }))
+  if (warned.has(rel) || !w.risk.some((re) => re.test(rel))) return
   warned.add(rel)
   alert($, `arnes: zona de riesgo tocada en ${w.name} (${rel}) · revisión humana obligatoria`)
+}
+
+async function refreshAll($: $): Promise<void> {
+  await timeline($)
+  await gateStatus($)
 }
 
 export const register: Register = (on) => {
@@ -175,7 +210,7 @@ export const register: Register = (on) => {
       const runs = await $.store.get('runs')
       if (!(await read($, history)).length && Array.isArray(runs)) await update($, history, () => runs as Run[])
       await load($)
-      needsGit = true
+      await update($, gate, () => ws.map((w) => blankRow(w.name)))
       await tick($)
       $.clock.every(3000, () => void safe($, 'reloj', () => tick($)))
       if (!root) return
@@ -191,30 +226,25 @@ export const register: Register = (on) => {
     return { text: opened.isPlaced ? 'Panel del arnés abierto.' : `El panel no se pudo mostrar: ${opened.reason}` }
   }).catch(() => ({ text: 'arnes-ui: el panel falló; el arnés sigue igual.' }))
 
-  // Solo las herramientas del hilo principal marcan el gate (lib.settled): un tsc del dev no es el
-  // gate. Ninguna herramienta ni agente abre etapas: eso es de la timeline, releída tras timeline.js.
+  // Solo las herramientas del hilo principal muestran ⏳ en el gate: un tsc del dev no es el gate. La
+  // marca final la dice la última corrida de ci-gate, que se relee al terminar la herramienta.
   on('tool.call', async ($, e, next) => {
     let probe: Probe | undefined
-    let before: GateRow[] = []
     await safe($, 'tool.call', async () => {
       if (e.agentId) await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, lastTool: e.tool } : a)))
       if (!e.agentId && (e.tool === 'Bash' || e.tool === 'PowerShell')) probe = classify(e.command, ws, cwd)
-      if (!probe) return
-      before = await read($, gate)
       for (const [name, col] of columns(probe, ws)) await setRow($, name, (r) => ({ ...r, [col]: 'run' }))
     })
     const r = await next(e)
     await safe($, 'tool.call', async () => {
       const ok = r.deny === undefined && !r.isError
-      const marks = probe?.gate && r.deny === undefined ? gateMarks(String((r as { result?: { stdout?: unknown } }).result?.stdout ?? '')) : []
-      for (const [name, col, mark] of settled(probe, ws, before, marks, ok)) await setRow($, name, (row) => ({ ...row, [col]: mark }))
-      const failed = marks.flatMap((m) => m.failed).join(', ')
-      if (probe?.gate && r.isError) alert($, `arnes: gate en rojo: ✗ ${probe.label}${failed ? ` (${failed})` : ''}`)
-      if (['Bash', 'PowerShell', 'Edit', 'Write'].includes(e.tool)) needsGit = true
+      for (const [name, col] of columns(probe, ws)) await setRow($, name, (row) => ({ ...row, [col]: undefined }))
+      if (probe?.gate && r.isError) alert($, `arnes: gate en rojo: ✗ ${probe.label}`)
       if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
-      if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && /(timeline|plan-state|build|verify|review|ship)\.js/.test(e.command)) await refresh($, false)
       // Al entrar o salir de un worktree cambia el cwd de la sesión, y con él el proyecto y la banda.
-      if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) await load($)
+      if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) return void (await load($), await refreshAll($))
+      if ((e.tool === 'Bash' || e.tool === 'PowerShell') && root && WRITERS.test(e.command)) await refreshAll($)
+      else if (probe) await gateStatus($)
     })
     return r
   }).catch(($, e, next) => next(e))
@@ -234,13 +264,11 @@ export const register: Register = (on) => {
     const r = await next(e)
     await safe($, 'turn.complete', async () => {
       if (e.agentId === undefined) {
-        needsGit = true
-        return update($, thinking, () => false)
+        await update($, thinking, () => false)
+        return gateStatus($)
       }
-      const [t, was, u, tokens] = [await $.clock.now(), (await read($, agents)).find((a) => a.id === e.agentId), await usd($), tokensOf(e.usage)]
+      const [t, u, tokens] = [await $.clock.now(), await usd($), tokensOf(e.usage)]
       await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, endedAt: t, tokens, cost: a.usd === undefined ? undefined : u - a.usd } : a)))
-      const review: Mark = e.reason === 'answer' ? 'ok' : 'fail'
-      if (was?.type === 'arnes:reviewer') await update($, gate, (rows) => rows.map((g) => ({ ...g, review })))
     })
     return r
   }).catch(($, e, next) => next(e))
@@ -296,7 +324,7 @@ export const register: Register = (on) => {
         {fl.plan && line(`Plan: ${fl.plan}`)}
         {fl.timeline.length > 0 && <Text bold>Timeline</Text>}
         {fl.timeline.map((x) => line(`  hace ${mins(Math.max(0, t - x.at))} · ${x.text}`, true))}
-        <Text color="suggestion" wrap="truncate">{`Lo que sigue: ${nextStep(rows, t, fl.worktrees)}`}</Text>
+        <Text color="suggestion" wrap="truncate">{`Lo que sigue: ${nextStep(rows, fl.worktrees)}`}</Text>
       </Box>
     )
   })

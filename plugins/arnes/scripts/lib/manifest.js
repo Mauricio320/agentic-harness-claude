@@ -8,6 +8,10 @@
 //                                            se resuelve subiendo desde el cwd
 //      node manifest.js which <ruta>          workspace al que pertenece una ruta
 //      node manifest.js show                  proyecto resuelto: raíz y workspaces
+//      node manifest.js show --json           lo mismo en JSON, para los mods (docs/PLAN.md §6.5b): cada
+//                                             workspace con sus carpetas, sus comandos, sus riskPaths y
+//                                             codeGlobs, y esos globs ya en regex (re.risk, re.code),
+//                                             para que nadie más los traduzca
 // Exit: 0 ok · 1 manifiesto inválido, o ruta fuera de todo workspace · 2 uso inválido o sin manifiesto
 
 'use strict';
@@ -15,6 +19,7 @@
 const fs = require('fs');
 const path = require('path');
 const SCHEMA = require('../../schema/harness.schema.json');
+const { globToRegExp } = require('./glob.js');
 
 const MANIFEST = path.join('.claude', 'harness.json');
 const DEFAULT_CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}'];
@@ -338,9 +343,32 @@ function selectWorkspaces(project, names) {
   });
 }
 
+function shown(project) {
+  const res = (globs) => (globs || []).map((g) => globToRegExp(g).source);
+  return {
+    name: project.name,
+    kind: project.kind,
+    root: posix(project.root),
+    workspaces: project.workspaces.map((ws) => ({
+      name: ws.name,
+      rel: ws.rel || '.',
+      dir: posix(ws.dir),
+      gitRoot: posix(ws.gitRoot),
+      repo: posix(ws.repo),
+      adoptable: ws.adoptable,
+      stack: ws.stack || null,
+      commands: ws.commands,
+      riskPaths: ws.riskPaths || [],
+      codeGlobs: ws.codeGlobs,
+      re: { risk: res(ws.riskPaths), code: res(ws.codeGlobs) },
+    })),
+  };
+}
+
 module.exports = {
   MANIFEST,
   DEFAULT_CODE_GLOBS,
+  shown,
   validate,
   validateDef,
   findUp,
@@ -373,6 +401,10 @@ function main() {
     process.exit(0);
   }
   if (project.errors.length) die(`manifiesto inválido:\n  ${project.errors.join('\n  ')}`);
+  if (mode === 'show' && arg === '--json') {
+    console.log(JSON.stringify(shown(project)));
+    process.exit(0);
+  }
   if (mode === 'show') {
     console.log(`${project.name} · ${project.kind === 'folder' ? 'carpeta' : 'repo'} · raíz ${project.root}`);
     for (const ws of project.workspaces) {
