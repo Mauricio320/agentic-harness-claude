@@ -2,6 +2,27 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.8] - sin etiquetar
+
+Ronda del worktree de carpeta seguro: que nada sin commitear se pierda cuando Claude Code borra el worktree de una carpeta sin pasar por el arnés (`docs/PLAN.md` §7). Rama `feature/worktree-carpeta-seguro`, probada con Claude Code 2.1.308 y 2.1.309 (se actualizó solo a mitad de la corrida) y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre la carpeta de prueba con dos repos.
+
+### Añadido
+- El rescate: después de cada turno y al arrancar, en el worktree de una carpeta, lo que cada repo de adentro tiene sin commitear se guarda en `refs/arnes/rescate/<nombre>` de su propio repo, con un índice aparte y sin tocar el del worktree (`lib/rescate.js`, `worktree-carpeta.js protect`, Stop y SessionStart). Sobrevive al borrado de la carpeta.
+- El marcador `.arnes-trabajo-pendiente` en la raíz del worktree de carpeta mientras algún repo tenga cambios sin commitear o commits sin subir: Claude Code lo cuenta como trabajo y pregunta antes de borrar. El arnés no lo cuenta como trabajo del repo de carpeta.
+- SessionStart y `worktree-ledger.js pending` avisan de los rescates que quedaron sin su worktree; el registro del issue los lista; `issues.js recover <slug>` los devuelve en un worktree nuevo del repo, en su rama y con los cambios como estaban; `clean --con-cambios` los descarta; `/arnes:limpiar` los ofrece aparte, recomendando recuperarlos, aunque el issue no esté entregado.
+- Al aprobar el plan en el worktree nativo de un repo solo, la rama `worktree-<nombre>` pasa a la del issue (`feature/<nombre>`) con `git branch -m`, solo si todavía no se subió; si ya está en origin, no se renombra y se dice.
+
+### Cambiado
+- El guard niega `git worktree remove` del worktree de carpeta mientras tenga enlaces: con git 2.53 en Windows, `git worktree remove --force` sigue las junctions y vacía lo que hay detrás.
+- `issues.js clean` deja el worktree de una carpeta con un repo sucio salvo con `--con-cambios`, que lo borra con su rescate.
+- La ruta de un workspace se compara por la ruta real (`realpathSync.native`), también para un archivo que todavía no existe.
+
+### Corregido
+- El test del lock de una sesión muerta fallaba de vez en cuando porque Windows reusa enseguida el pid de un hijo que salió: ahora usa un pid sin proceso, probado como lo prueba SessionStart.
+
+### Descartado
+- El worktree de cada repo fuera de la carpeta, en `<repo>/.claude/worktrees/<nombre>`, visto por un enlace: Claude Code 2.1.308 limita las escrituras de una sesión en worktree a su carpeta por la ruta real y niega escribir por el enlace, así que el dev no pudo construir. Quedó en la historia (`c26b1bf`) y se revirtió en `4782958`.
+
 ## [0.6.7] - sin etiquetar
 
 Ronda de plan al estilo del escritorio: el flujo que la persona vio en una sesión del escritorio sin el arnés, y los remates de la prueba de init (`docs/PLAN.md` §6.3, §7 y §8). Rama `feature/plan-escritorio`, probada con Claude Code 2.1.308 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre una carpeta de prueba con dos repos.
