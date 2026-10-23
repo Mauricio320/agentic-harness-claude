@@ -177,3 +177,18 @@ test('un lock con el mismo pid es de esta misma sesión (un /clear cambia el ses
   assert.doesNotMatch(text(as(dir, 'despues', process.pid)), /Aviso/);
   assert.ok(!fs.existsSync(lockPath(dir, 'antes')));
 });
+
+test('SessionStart anota la superficie de la sesión en la timeline y en el informe de la sesión', () => {
+  const dir = h.tmp('start-superficie');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api') });
+  const env = { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode', TERM_PROGRAM: 'vscode', CLAUDE_CODE_SESSION_ATTENDED: '1', CLAUDE_CODE_CHILD_SESSION: '0' };
+  h.hook('session-start', { hook_event_name: 'SessionStart', source: 'resume', session_id: 'abc-123', cwd: dir }, { env });
+  const note = fs.readFileSync(path.join(dir, '.tmp', 'harness', 'timeline.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((e) => e.stage === 'sesion');
+  assert.equal(note.result, 'superficie');
+  assert.equal(note.detail, 'resume · CLAUDE_CODE_ENTRYPOINT=claude-vscode · TERM_PROGRAM=vscode · CLAUDE_CODE_SESSION_ATTENDED=1 · CLAUDE_CODE_CHILD_SESSION=0');
+  const informes = path.join(dir, '.tmp', 'harness', 'informes');
+  const [file] = fs.readdirSync(informes).filter((f) => f.startsWith('sesion-'));
+  const md = fs.readFileSync(path.join(informes, file), 'utf8');
+  assert.match(md, /^# Sesión abc-123$/m);
+  assert.match(md, /^- CLAUDE_CODE_ENTRYPOINT: claude-vscode\n- TERM_PROGRAM: vscode\n- CLAUDE_CODE_SESSION_ATTENDED: 1\n- CLAUDE_CODE_CHILD_SESSION: 0$/m);
+});

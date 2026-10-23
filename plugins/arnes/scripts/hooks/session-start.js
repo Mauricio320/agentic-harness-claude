@@ -30,6 +30,7 @@ const ledger = require('../worktree-ledger.js');
 const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
 const issues = require('../lib/issues.js');
+const { append } = require('../lib/timeline.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -49,6 +50,28 @@ const PROTOCOL = [
   '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Se dice una vez por corrida.',
   '8. Responde en el idioma del pedido de la persona, también en los resúmenes y al cerrar un turno; si todavía no hay pedido, en español.',
 ];
+
+// La superficie en que corre la sesión: la terminal, la extensión de VS Code, el escritorio o -p. Las
+// cuatro variables que la dicen se anotan en la timeline (nota "superficie" de sesion) y en el informe
+// de la sesión, .tmp/harness/informes/sesion-<HHMMSS>.md, para decidir en una ronda próxima qué
+// mostrar en cada una. Todavía no cambia nada de lo que se muestra. Nunca falla hacia afuera.
+const SURFACE = ['CLAUDE_CODE_ENTRYPOINT', 'TERM_PROGRAM', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_CHILD_SESSION'];
+const pad2 = (n) => String(n).padStart(2, '0');
+
+function surface(project, input, cwd, now) {
+  try {
+    const values = SURFACE.map((k) => [k, process.env[k] === undefined ? '(no está)' : process.env[k]]);
+    const source = input.source || 'startup';
+    append(project.root, { event: 'note', stage: 'sesion', result: 'superficie', detail: `${source} · ${values.map(([k, v]) => `${k}=${v}`).join(' · ')}` }, now);
+    const dir = path.join(harnessDir(project), 'informes');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `sesion-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}.md`);
+    const text = [`# Sesión ${input.session_id || '(sin id)'}`, '', `Arrancó: ${now.toISOString()} (${source})`, `Carpeta: ${posix(cwd)}`, '', '## Superficie', '', ...values.map(([k, v]) => `- ${k}: ${v}`), ''];
+    fs.writeFileSync(file, text.join('\n'));
+  } catch {
+    /* anotar la superficie nunca frena el arranque */
+  }
+}
 
 // ¿Está VS Code (code) en el PATH? Entonces se le puede ofrecer a la persona abrir ahí el worktree.
 function hasCode() {
@@ -258,6 +281,7 @@ function sessionStart(input, now = new Date()) {
   if (project.errors.length) {
     return [`arnes: la configuración del arnés no es válida, así que no verifica nada hasta corregirla:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), 'Corrígela, o la persona la rehace con /arnes:init.'].join('\n');
   }
+  surface(project, input, cwd, now);
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
   const native = ledger.equipNative(cwd).lines;
   const w = nativeRoot(project);
