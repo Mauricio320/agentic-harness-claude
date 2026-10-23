@@ -10,6 +10,8 @@ Ronda corta de limpieza segura antes de soltar la 0.6.8 a los probadores: los hu
 - `build.js app stop`, que la persona pide con "para la app": para el árbol del PID raíz que anotó `build.js app` (`taskkill /PID <pid> /T /F` en Windows, el grupo de procesos en el resto), solo si el proceso todavía lleva la marca que se le puso al lanzarlo; nunca por nombre de imagen ni un proceso ajeno (`lib/app.js`).
 - La ruta exacta del worktree en el aviso al mudarse y al arrancar en uno, con `code -r "<ruta>"` si VS Code está en el PATH; la banda de arnes-ui dice `en worktree <nombre>`.
 - Una línea fija en el protocolo de SessionStart: responder en el idioma del pedido de la persona, en español si no hay pedido.
+- La negativa de leer un `.env` (Read, Grep, `cat`, `Get-Content`) trae su contenido enmascarado: los nombres completos y, de cada valor, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host y el puerto sin usuario ni clave (`lib/env-mask.js`). `envReveal` en el workspace lista lo que se muestra entero.
+- SessionStart anota en la timeline y en el informe de la sesión la superficie en que corre (`CLAUDE_CODE_ENTRYPOINT`, `TERM_PROGRAM`, `CLAUDE_CODE_SESSION_ATTENDED`, `CLAUDE_CODE_CHILD_SESSION`), y la skill plan ofrece siempre el `code -r` al mudarse a un worktree.
 
 ### Cambiado
 - `issues.js clean` y `close`, el borrado de un worktree nativo, ExitWorktree y el registro de worktrees paran antes la app que levantó el arnés ahí; si no pueden, no borran.
