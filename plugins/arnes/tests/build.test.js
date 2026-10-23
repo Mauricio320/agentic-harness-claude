@@ -63,7 +63,8 @@ test('input del dev: comandos, riesgo, forbidden, convenciones, reglas que aplic
     /1\. api: endpoints y servicio/,
     /- C1 \[literal\] listar talleres/,
   ]) assert.match(md, re);
-  assert.doesNotMatch(md, /2\. front: la vista|front\/src\/app|Contrato del back|C2 \[inferido\]/, 'lo que es solo del front no va');
+  assert.doesNotMatch(md, /front\/src\/app|Contrato del back/, 'la ruta del front no va');
+  assert.match(md, /- C2 \[inferido\] el front muestra la tabla/, 'una palabra suelta como "front" no recorta el plan');
 });
 
 test('input del front: el contrato textual del back, o el aviso de que falta', () => {
@@ -78,7 +79,47 @@ test('input del front: el contrato textual del back, o el aviso de que falta', (
   const md = read(root, 'front-input.md');
   assert.match(md, /--- contrato del back ---\n## Contrato resultante\nGET \/talleres · response: Taller\[\]\n--- fin del contrato ---/);
   assert.match(md, /- src\/app\/talleres\/page\.tsx/);
-  assert.doesNotMatch(md, /1\. api: endpoints/);
+  assert.doesNotMatch(md, /api\/src\/talleres/, 'las rutas del back no van');
+});
+
+test('el plan del front conserva lo que dice de la api con palabras, y solo se van las líneas con rutas del back', () => {
+  const root = folder();
+  h.write(root, '.tmp/harness/plan.md', [
+    '# Plan: CRUD de talleres', '',
+    '## Workspaces y orden',
+    '1. api: el endpoint GET /talleres',
+    '2. front: la vista de talleres, que consume el endpoint de la api con el cliente de siempre', '',
+    '## Archivos previstos',
+    '- api/src/talleres/talleres.controller.ts',
+    '- front/src/app/talleres/page.tsx: llama a la api', '',
+  ].join('\n'));
+  assert.equal(build(root, ['input', '--ws', 'front']).status, 0);
+  const md = read(root, 'front-input.md');
+  assert.match(md, /2\. front: la vista de talleres, que consume el endpoint de la api con el cliente de siempre/);
+  assert.match(md, /1\. api: el endpoint GET \/talleres/, 'el orden de los workspaces también le sirve al front');
+  assert.match(md, /- front\/src\/app\/talleres\/page\.tsx: llama a la api/);
+  assert.doesNotMatch(md, /talleres\.controller\.ts/);
+});
+
+test('archivos previstos: los de la raíz del repo cuentan, y uno sin prefijo que está en los dos repos no se asigna a ninguno', () => {
+  const root = folder();
+  for (const r of ['api', 'front']) h.write(root, `${r}/src/index.ts`, 'x\n');
+  h.write(root, 'api/Dockerfile', 'FROM node\n');
+  h.write(root, '.tmp/harness/plan.md', [
+    '# Plan: Talleres', '',
+    '## Archivos previstos',
+    '- front/middleware.ts: el guard de la ruta',
+    '- `Dockerfile`',
+    '- src/index.ts', '',
+  ].join('\n'));
+  let r = build(root, ['input', '--ws', 'front']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^aviso: el plan nombra src\/index\.ts sin el repo delante, y está en más de un repo o en ninguno; no se lo asigno a front/m);
+  let md = read(root, 'front-input.md');
+  assert.match(md, /## Archivos previstos en el plan\n\n- middleware\.ts\n\nSin asignar: el plan nombra src\/index\.ts sin el repo delante/, 'middleware.ts, en la raíz del front');
+  r = build(root, ['input', '--ws', 'api']);
+  md = read(root, 'api-input.md');
+  assert.match(md, /## Archivos previstos en el plan\n\n- Dockerfile\n\nSin asignar: el plan nombra src\/index\.ts/, 'el Dockerfile está solo en la api, sin duda; el repetido no se asigna');
 });
 
 test('input del test-writer: los archivos con la ruta de su spec y las reglas de los specs', () => {

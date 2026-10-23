@@ -14,7 +14,9 @@
 //            .tmp/harness/build/contrato.md);
 //          - el texto de las reglas de .claude/rules que aplican a los archivos previstos del plan
 //            (o a los de --files, y a sus specs), con la misma función que review.js input;
-//          - el plan, sin las líneas que nombran solo a otro workspace.
+//          - el plan, sin las líneas que solo nombran archivos de otro workspace (una ruta con su
+//            prefijo); una palabra suelta como "api" no cuenta. Un archivo previsto sin prefijo que
+//            existe en más de un workspace, o en ninguno, no se asigna: la entrada pide el prefijo.
 //   after --ws <ws>
 //          los comandos de afterBuild del workspace, que la skill build corre al cerrarlo, uno por
 //          uno desde su carpeta. Con onlyIfLocalDb, solo si el valor de esa variable en el .env del
@@ -59,10 +61,30 @@ const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
+// Un archivo en la raíz del repo: con extensión (middleware.ts), un punto al inicio (.env.example) o
+// uno de los nombres sin extensión de siempre (Dockerfile).
+const ROOT_FILE = /^(?:[\w@-][\w@.-]*\.[A-Za-z][A-Za-z0-9]{0,9}|\.[\w.-]+|Dockerfile|Makefile|Procfile|Jenkinsfile|Gemfile|Rakefile)$/;
+const fileLike = (t) => (t.includes('/') ? /\/[^/]+$/.test(t) && !/\s/.test(t) : ROOT_FILE.test(t));
 
-const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const mentions = (line, name) => new RegExp(`(^|[^\\w-])${escape(name)}([^\\w-]|$)`).test(line);
 const namesOf = (w) => [w.name, w.rel].filter((x) => x && x !== '.');
+
+// Los archivos que nombra una línea del plan: las rutas con carpeta, lo que va entre comillas
+// invertidas y el primer término de un ítem de lista (- middleware.ts: …).
+function filesIn(line) {
+  const out = new Set(line.match(FILE_RE) || []);
+  for (const m of line.matchAll(/`([^`\s]+)`/g)) if (fileLike(m[1])) out.add(m[1]);
+  const item = /^\s*(?:[-*+]|\d+[.)])\s+([^\s:`,;]+)/.exec(line);
+  if (item && fileLike(item[1])) out.add(item[1]);
+  return [...out];
+}
+
+// El workspace al que pertenece una ruta del plan por su prefijo (el nombre o la carpeta del
+// workspace, como api/src/x.ts), con el más largo, o null si no lleva ninguno.
+function ownerOf(project, p) {
+  let best = null;
+  for (const w of project.workspaces) for (const n of namesOf(w)) if (p.startsWith(`${n}/`) && (!best || n.length > best.n.length)) best = { w, n };
+  return best;
+}
 
 // Las secciones "## " del plan: { título: [líneas] }.
 function sections(text) {
@@ -76,33 +98,56 @@ function sections(text) {
   return out;
 }
 
-// El plan sin las líneas que nombran a otro workspace y no a este. En un proyecto de un workspace,
-// el plan entero.
+// El plan para el dev de ws: entero, salvo las líneas que solo nombran archivos de otro workspace por
+// su prefijo (web/src/x.ts) y ninguno de este ni sin prefijo. Una palabra suelta como "api" no cuenta:
+// "consumir el endpoint de la api" es parte del trabajo del front. En un proyecto de un workspace, el
+// plan entero.
 function planFor(project, ws, text) {
-  const others = project.workspaces.filter((w) => w.name !== ws.name).flatMap(namesOf);
-  const mine = namesOf(ws);
+  if (project.workspaces.length < 2) return text.trim();
   return text
     .split(/\r?\n/)
-    .filter((l) => !others.some((n) => mentions(l, n)) || mine.some((n) => mentions(l, n)))
+    .filter((l) => {
+      const files = filesIn(l);
+      return !files.length || files.some((f) => {
+        const o = ownerOf(project, f);
+        return !o || o.w.name === ws.name;
+      });
+    })
     .join('\n')
     .trim();
 }
 
-// Los archivos de "## Archivos previstos" que son de este workspace, relativos a su carpeta.
-function planned(project, ws, text) {
+// Los archivos de "## Archivos previstos" de este workspace, relativos a su carpeta: los que llevan
+// su prefijo y, sin prefijo, los de un proyecto de un workspace, o los que existen en este y en ningún
+// otro. Uno sin prefijo que existe en más de uno, o en ninguno (un archivo nuevo), no se asigna: va a
+// ambiguous, y la entrada pide el prefijo. → { files, ambiguous }
+function plannedDetail(project, ws, text) {
   const s = Object.entries(sections(text)).find(([k]) => /^archivos previstos/i.test(k));
-  if (!s) return [];
-  const others = project.workspaces.filter((w) => w.name !== ws.name).flatMap(namesOf);
-  const out = new Set();
+  if (!s) return { files: [], ambiguous: [] };
+  const others = project.workspaces.filter((w) => w.name !== ws.name);
+  const files = new Set();
+  const ambiguous = new Set();
   for (const l of s[1]) {
-    if (others.some((n) => mentions(l, n)) && !namesOf(ws).some((n) => mentions(l, n))) continue;
-    for (const m of l.match(FILE_RE) || []) {
-      const prefix = namesOf(ws).find((n) => m.startsWith(`${n}/`));
-      out.add(prefix ? m.slice(prefix.length + 1) : m);
+    for (const m of filesIn(l)) {
+      const o = ownerOf(project, m);
+      if (o) {
+        if (o.w.name === ws.name) files.add(m.slice(o.n.length + 1));
+        continue;
+      }
+      if (!others.length) {
+        files.add(m);
+        continue;
+      }
+      const here = fs.existsSync(path.join(ws.dir, m));
+      const there = others.some((w) => fs.existsSync(path.join(w.dir, m)));
+      if (here && !there) files.add(m);
+      else if (here || !there) ambiguous.add(m);
     }
   }
-  return [...out];
+  return { files: [...files], ambiguous: [...ambiguous] };
 }
+
+const planned = (project, ws, text) => plannedDetail(project, ws, text).files;
 
 // La ruta del spec de un archivo según el primer specPattern del workspace.
 function specOf(ws, file) {
@@ -149,7 +194,8 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   const planFile = path.join(harnessDir(project), 'plan.md');
   const plan = fs.existsSync(planFile) ? fs.readFileSync(planFile, 'utf8') : '';
   const tests = para === 'test-writer';
-  const targets = tests ? list(files) : planned(project, ws, plan);
+  const detail = plannedDetail(project, ws, plan);
+  const targets = tests ? list(files) : detail.files;
   const specs = tests ? targets.map((f) => specOf(ws, f)).filter(Boolean) : [];
   const rl = rulesBlock(ws, [...targets, ...specs]);
   const c = ws.commands;
@@ -180,6 +226,7 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   } else {
     out.push('## CLAUDE.md del workspace', '', ...claudeMd(ws));
     out.push('## Archivos previstos en el plan', '', ...(targets.length ? targets.map((f) => `- ${f}`) : ['- el plan no los lista']), '');
+    if (detail.ambiguous.length) out.push(`Sin asignar: el plan nombra ${detail.ambiguous.join(', ')} sin el repo delante, y está en más de un repo o en ninguno. No lo toques hasta que el orquestador diga de cuál es: el plan tiene que escribirlo con el prefijo (${ws.name}/…).`, '');
   }
   if (consumes) {
     out.push('## Contrato del back', '');
@@ -196,6 +243,7 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   const regen = regenerates(ws, targets);
   if (regen.length) console.log(`aviso: ${ws.name} tiene las dependencias enlazadas del checkout principal, y el plan toca ${regen.join(', ')}, que las regenera: regenerarlas aquí pisaría las del principal. Propón instalarlas adentro antes de construir (build.js deps --ws ${ws.name} --write)`);
   console.log(`${ws.name}: ${targets.length} archivo(s), ${rl.lines.filter((l) => l.startsWith('#### ')).length} regla(s) que aplican${rl.omitted.length ? `, ${rl.omitted.length} omitida(s) por el tope` : ''}`);
+  if (!tests && detail.ambiguous.length) console.log(`aviso: el plan nombra ${detail.ambiguous.join(', ')} sin el repo delante, y está en más de un repo o en ninguno; no se lo asigno a ${ws.name}. Corrige el plan con el prefijo de cada repo en "## Archivos previstos" antes de construir`);
   console.log(`entrada: ${file}`);
   return 0;
 }
@@ -330,7 +378,7 @@ function stop(project, wsName) {
   return apps.blocking(results).length ? 1 : 0;
 }
 
-module.exports = { planFor, planned, specOf, after, regenerates, appCommand, portEnv };
+module.exports = { planFor, planned, plannedDetail, filesIn, specOf, after, regenerates, appCommand, portEnv };
 
 function main() {
   let args;
