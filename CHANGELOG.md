@@ -2,6 +2,27 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.6.9] - sin etiquetar
+
+Ronda corta de limpieza segura antes de soltar la 0.6.8 a los probadores: los huecos que dejó anotados la corrida C y los que confirmó una revisión externa leyendo el código (`docs/PLAN.md` §7). Rama `feature/limpieza-segura`, probada con Claude Code 2.1.309 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre la carpeta de prueba con dos repos.
+
+### Añadido
+- `build.js app stop`, que la persona pide con "para la app": para el árbol del PID raíz que anotó `build.js app` (`taskkill /PID <pid> /T /F` en Windows, el grupo de procesos en el resto), solo si el proceso todavía lleva la marca que se le puso al lanzarlo; nunca por nombre de imagen ni un proceso ajeno (`lib/app.js`).
+- La ruta exacta del worktree en el aviso al mudarse y al arrancar en uno, con `code -r "<ruta>"` si VS Code está en el PATH; la banda de arnes-ui dice `en worktree <nombre>`.
+- Una línea fija en el protocolo de SessionStart: responder en el idioma del pedido de la persona, en español si no hay pedido.
+
+### Cambiado
+- `issues.js clean` y `close`, el borrado de un worktree nativo, ExitWorktree y el registro de worktrees paran antes la app que levantó el arnés ahí; si no pueden, no borran.
+- Recuperar el rescate de una carpeta vuelve a crear el worktree de carpeta entero, con sus repos adentro, enlaces, puertos y el rescate aplicado en cada uno, en vez de un worktree suelto por repo.
+- `limpiar` y `cerrar` se juntan en `/arnes:cerrar`: cierra lo mergeado, recupera o descarta rescates y borra lo que sobre, con una sola pregunta. `limpiar` desaparece.
+- El plan de cada workspace se recorta por rutas con prefijo, nunca por palabras sueltas; `planned` acepta archivos en la raíz del repo y no asigna a nadie un archivo sin prefijo que está en dos repos. La skill plan escribe los archivos previstos con el repo delante.
+- Un `git fetch` de origin por repo cada dos minutos, compartido por behind, check y materialize y por los worktrees del repo.
+- Cada edición en el worktree de una carpeta también guarda el rescate, como mucho una vez por minuto.
+
+### Corregido
+- Un worktree con el lock de una sesión `claude -p --worktree` que ya terminó se desbloquea y se borra; con la sesión viva, o un lock sin PID, no se toca.
+- La rama `worktree-<nombre>` del repo de carpeta que queda tras un borrado por fuera entra en lo que `clean` lista y borra.
+
 ## [0.6.8] - sin etiquetar
 
 Ronda del worktree de carpeta seguro: que nada sin commitear se pierda cuando Claude Code borra el worktree de una carpeta sin pasar por el arnés (`docs/PLAN.md` §7). Rama `feature/worktree-carpeta-seguro`, probada con Claude Code 2.1.308 y 2.1.309 (se actualizó solo a mitad de la corrida) y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y corridas de punta a punta con `claude -p` sobre la carpeta de prueba con dos repos.
