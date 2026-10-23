@@ -20,8 +20,8 @@ const inside = (child, parent) => {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 };
 
-// git worktree list --porcelain → [{ path, head, branch, detached, locked, prunable }], el principal
-// primero. prunable: su carpeta ya no existe y git puede limpiar su registro.
+// git worktree list --porcelain → [{ path, head, branch, detached, locked, lockReason, prunable }], el
+// principal primero. prunable: su carpeta ya no existe y git puede limpiar su registro.
 function list(dir) {
   const r = git(dir, ['worktree', 'list', '--porcelain']);
   if (r.status !== 0) return [];
@@ -30,12 +30,12 @@ function list(dir) {
   for (const l of lines(r.stdout)) {
     const [k, ...rest] = l.split(' ');
     const v = rest.join(' ');
-    if (k === 'worktree') out.push((cur = { path: path.resolve(v), head: null, branch: null, detached: false, locked: false, prunable: false }));
+    if (k === 'worktree') out.push((cur = { path: path.resolve(v), head: null, branch: null, detached: false, locked: false, lockReason: null, prunable: false }));
     else if (!cur) continue;
     else if (k === 'HEAD') cur.head = v;
     else if (k === 'branch') cur.branch = v.replace(/^refs\/heads\//, '');
     else if (k === 'detached') cur.detached = true;
-    else if (k === 'locked') cur.locked = true;
+    else if (k === 'locked') Object.assign(cur, { locked: true, lockReason: v || null });
     else if (k === 'prunable') cur.prunable = true;
   }
   return out;
@@ -71,4 +71,23 @@ function nativeRoot(project) {
   return w && key(w.path) === key(project.root) ? w : null;
 }
 
-module.exports = { DIR, key, inside, list, nativeWorktrees, nativeWorktree, nativeRoot };
+// El bloqueo de un worktree (git worktree lock): Claude Code bloquea el de cada sesión con el motivo
+// "claude session <nombre> (pid <n>)", y una sesión claude -p --worktree que terminó lo deja puesto.
+// → null sin bloqueo, o { reason, pid, dead }: dead si el lock dice un PID que ya no existe como
+// proceso; sin PID en el motivo, no se sabe de quién es y no cuenta como muerto.
+function lockOf(main, wtPath) {
+  const e = list(main).find((x) => key(x.path) === key(wtPath));
+  if (!e || !e.locked) return null;
+  const m = /\bpid[ :=]?(\d+)/i.exec(e.lockReason || '');
+  const pid = m ? Number(m[1]) : null;
+  return { reason: e.lockReason || 'sin motivo', pid, dead: pid !== null && !require('./app.js').alive(pid) };
+}
+
+// Por qué no se puede borrar un worktree bloqueado, o null si no está bloqueado o su bloqueo es de un
+// proceso que ya no existe (entonces se desbloquea antes de borrar).
+function lockWhy(lock) {
+  if (!lock || lock.dead) return null;
+  return lock.pid !== null ? `lo tiene abierto el proceso ${lock.pid} (${lock.reason}); no lo toco mientras siga vivo` : `está bloqueado (${lock.reason}) y el bloqueo no dice qué proceso lo tiene; no lo toco`;
+}
+
+module.exports = { DIR, key, inside, list, nativeWorktrees, nativeWorktree, nativeRoot, lockOf, lockWhy };

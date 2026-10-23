@@ -43,7 +43,7 @@ const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { unlink, isLink } = require('./lib/links.js');
-const { nativeWorktree, list: worktreeList, key, inside } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy } = require('./lib/worktree-nativo.js');
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
 const apps = require('./lib/app.js');
@@ -128,10 +128,12 @@ function plan(project, r, conCambios = false) {
     const own = ledger().dirtyIn(w.path, ledger().liveLinks(w.path));
     const kept = nested.map((x) => [x, ledger().dirtyIn(x.path, ledger().liveLinks(x.path))]).filter(([, d]) => d.length);
     const lost = kept.map(([x, d]) => `${path.basename(x.repo)} tiene ${d.length} archivo(s) sin commitear (${d.slice(0, 3).join(', ')})`).join(' y ');
+    const lock = lockOf(w.main, w.path);
     if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, size, action: 'se borra saliendo de él', exit: true });
+    else if (lockWhy(lock)) items.push({ what: 'carpeta', label: posix(w.path), size, why: lockWhy(lock) });
     else if (own.length) items.push({ what: 'carpeta', label: posix(w.path), size, why: `tiene cambios sin commitear (${own.slice(0, 3).join(', ')})` });
     else if (kept.length && !conCambios) items.push({ what: 'carpeta', label: posix(w.path), size, why: `${lost}; se borra solo si dices que esos cambios se pierden`, dirty: true });
-    else items.push({ what: 'carpeta', label: posix(w.path), size, action: kept.length ? `se borra, y se pierde lo que ${lost.replace(/ tiene /g, ' tenía ')}` : 'se borra', run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
+    else items.push({ what: 'carpeta', label: posix(w.path), size, action: `${kept.length ? `se borra, y se pierde lo que ${lost.replace(/ tiene /g, ' tenía ')}` : 'se borra'}${lock ? `; estaba bloqueado por un proceso que ya no existe (${lock.pid}), y se desbloquea` : ''}`, run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
   }
   // Los rescates que quedaron sin su worktree: Claude Code borró el worktree de carpeta con trabajo sin
   // commitear adentro. Se recuperan con recover; con conCambios se descartan.
@@ -168,9 +170,13 @@ function linksIn(dir, depth = 3) {
 }
 
 // Un worktree nativo que no es el de esta sesión: primero los repos que trajo y los enlaces, sin
-// seguirlos; si queda un enlace que nadie registró, no se borra. Después git worktree remove desde su
-// checkout principal y, si su rama no es la del issue y no tiene commits propios, la rama.
+// seguirlos; si queda un enlace que nadie registró, no se borra. Bloqueado por un proceso vivo, no se
+// toca; por uno que ya no existe, se desbloquea después de desenlazar (git worktree remove --force
+// sigue las junctions). Después git worktree remove desde su checkout principal y, si su rama no es la
+// del issue y no tiene commits propios, la rama.
 function removeNative(w, isIssueBranch, conCambios = false) {
+  const lock = lockOf(w.main, w.path);
+  if (lockWhy(lock)) return { status: 1, stderr: lockWhy(lock) };
   const pending = carpeta().dematerialize(w.path, { force: conCambios, check: true });
   if (pending.refused.length) return { status: 1, stderr: pending.refused.join('; ') };
   const alive = apps.blocking(apps.stopUnder(w.path));
@@ -183,6 +189,10 @@ function removeNative(w, isIssueBranch, conCambios = false) {
   }
   const left = linksIn(w.path);
   if (left.length) return { status: 1, stderr: `hay un enlace en ${posix(left[0])} que no registró el arnés; no borro la carpeta` };
+  if (lock) {
+    const u = git(w.main, ['worktree', 'unlock', w.path]);
+    if (u.status !== 0) return { status: 1, stderr: `no pude desbloquearlo: ${firstLine(u.stderr)}` };
+  }
   require('./lib/timeline.js').bringBack(w.path, w.main);
   fs.rmSync(path.join(w.path, '.tmp', 'harness'), { recursive: true, force: true });
   const rm = git(w.main, ['worktree', 'remove', '--force', w.path]);

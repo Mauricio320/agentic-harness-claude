@@ -133,3 +133,41 @@ test('SessionStart avisa de los issues entregados hace más de siete días con a
   assert.doesNotMatch(h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's3', cwd: dir }).out.hookSpecificOutput.additionalContext, /entregado\(s\) hace más de 7 días/);
   tl.append(dir, { event: 'start', stage: 'plan' });
 });
+
+// Un pid sin proceso, probado como lo prueba lockOf.
+function deadPid() {
+  for (let pid = 4194300; pid > 4096; pid -= 4) {
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      if (e.code === 'ESRCH') return pid;
+    }
+  }
+  throw new Error('no encontré un pid sin proceso');
+}
+
+test('un worktree con el lock de una sesión que ya terminó se desenlaza, se desbloquea y se borra; con la sesión viva no se toca', () => {
+  const dir = h.tmp('issues-lock');
+  h.repo(dir, { '.gitignore': '.tmp/\nnode_modules\n.claude/worktrees/\n', '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', defaultBranch: 'main' })), 'src/a.ts': 'a\n' });
+  h.write(dir, 'node_modules/paquete/centinela.js', 'module.exports = 1;\n');
+  const wt = h.nativeWorktree(dir, 'cobros');
+  h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's1', cwd: wt });
+  h.write(wt, '.tmp/harness/plan.md', PLAN);
+  assert.equal(h.run('issue-branch.js', ['create'], { cwd: wt }).status, 0);
+  h.git(dir, 'worktree', 'lock', '--reason', `claude session cobros (pid ${process.pid})`, wt);
+  let r = issues(dir, 'clean', 'cobros');
+  assert.match(r.stdout, new RegExp(`^- carpeta .*/cobros · .* · se queda: lo tiene abierto el proceso ${process.pid} \\(claude session cobros \\(pid ${process.pid}\\)\\); no lo toco mientras siga vivo$`, 'm'), r.stdout);
+  issues(dir, 'clean', 'cobros', '--write');
+  assert.ok(fs.existsSync(wt), 'con la sesión viva, no se toca');
+  assert.ok(isLink(path.join(wt, 'node_modules')), 'ni se desenlaza');
+  h.git(dir, 'worktree', 'unlock', wt);
+  const dead = deadPid();
+  h.git(dir, 'worktree', 'lock', '--reason', `claude session cobros (pid ${dead})`, wt);
+  r = issues(dir, 'clean', 'cobros');
+  assert.match(r.stdout, new RegExp(`/cobros · .* · se borra; estaba bloqueado por un proceso que ya no existe \\(${dead}\\), y se desbloquea$`, 'm'), r.stdout);
+  r = issues(dir, 'clean', 'cobros', '--write');
+  assert.match(r.stdout, /^borrado carpeta .*\/cobros$/m, r.stdout + r.stderr);
+  assert.ok(!fs.existsSync(wt));
+  assert.doesNotMatch(h.git(dir, 'worktree', 'list'), /cobros/);
+  assert.ok(sentinel(dir), 'el node_modules del principal sigue: se desenlazó antes del remove --force');
+});
