@@ -51,12 +51,14 @@ test('respeta la defaultBranch del manifiesto', () => {
   assert.match(r.out.hookSpecificOutput.permissionDecisionReason, /no están en develop/);
 });
 
-test('con el registro, el destino es la rama del issue registrada, no la rama por defecto', () => {
+test('con el registro de un set viejo, el destino es la rama del issue registrada, no la rama por defecto', () => {
   const dir = h.tmp('wtrm-ledger');
   h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
   h.git(dir, 'checkout', '-q', '-b', 'feature/x');
-  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: dir }).status, 0);
   const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarea');
+  h.git(dir, 'worktree', 'add', '-q', '-b', 'wt/feature/x/tarea', wt);
+  const e = { ws: 'api', path: wt.split(path.sep).join('/'), branch: 'wt/feature/x/tarea', target: 'feature/x', issue: 'feature/x', openedAt: new Date().toISOString(), status: 'abierto', links: [] };
+  h.write(dir, '.tmp/harness/worktrees.json', JSON.stringify({ version: 1, worktrees: [e] }));
   h.write(wt, 'b.ts', 'b\n');
   h.commitAll(wt, 'trabajo');
   const r = exitWorktree(wt, 'remove', { discard_changes: true });

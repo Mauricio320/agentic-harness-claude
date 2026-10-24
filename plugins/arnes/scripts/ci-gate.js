@@ -39,6 +39,7 @@ const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
 const conventions = require('./conventions.js');
 const { writeLast } = require('./gate-flag.js');
+const issues = require('./lib/issues.js');
 
 // El primer error de cada paso en rojo, para decirlo en palabras: { file, line, what } y, en los
 // tests, cuántos fallan y en qué specs.
@@ -149,7 +150,7 @@ function stepTypecheck(project, ws, base) {
   if (!cached) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, `${before.out}BASELINE: ${base.hash}\nTYPECHECK_EXIT: ${before.exit}\n`);
-    require('./lib/issues.js').record(project, { files: [file] });
+    issues.record(project, { files: [file] });
   }
   const photo = `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
   const now = tb.runTypecheck(cmds, ws.dir);

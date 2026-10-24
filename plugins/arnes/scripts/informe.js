@@ -20,6 +20,7 @@ const { parseArgs } = require('util');
 const { loadProject, requireProject, posix } = require('./lib/manifest.js');
 const { help, die } = require('./lib/exec.js');
 const { append, read, PREP } = require('./lib/timeline.js');
+const issues = require('./lib/issues.js');
 
 const STARTS = ['plan', ...PREP];
 const pad = (n) => String(n).padStart(2, '0');
@@ -55,7 +56,7 @@ function main() {
   const found = PREP.includes(stage) ? loadProject(dir) : null;
   const root = found && !found.errors.length ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;
   const r = informe(root, stage);
-  if (found || !PREP.includes(stage)) require('./lib/issues.js').record(found || requireProject(dir), { files: [r.file] });
+  if (found || !PREP.includes(stage)) issues.record(found || requireProject(dir), { files: [r.file] });
   console.log(`informe: ${posix(r.file)}`);
   console.log(r.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
 }

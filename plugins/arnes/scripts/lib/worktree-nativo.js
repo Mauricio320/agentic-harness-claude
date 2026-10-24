@@ -3,15 +3,18 @@
 // el escritorio o EnterWorktree, en <checkout principal>/.claude/worktrees/<nombre>, por defecto en la
 // rama worktree-<nombre>. Son el camino para trabajar un issue, en un repo solo y en una carpeta
 // multi-repo, cuyo repo de carpeta también tiene los suyos (worktree-carpeta.js materializa adentro
-// cada repo); los worktrees por set del registro (worktree-ledger.js) quedan para dividir un mismo
-// issue en tareas que chocan en los mismos archivos.
+// cada repo). Los subagentes con isolation: worktree tienen los suyos en el mismo lugar, con el
+// nombre agent-<id> y la rama worktree-agent-<id> (verificado en 2.1.309), desde el HEAD de la sesión
+// que los lanzó: su trabajo lo integra en la rama del issue el registro (worktree-ledger.js).
 // Se reconocen por la ruta, con git worktree list --porcelain: la primera entrada es el checkout
 // principal. Lo usan session-start, issue-branch (plan), ship, el ledger y el guard.
 
 const path = require('path');
 const { git, lines } = require('./exec.js');
+const { alive } = require('./app.js');
 
 const DIR = path.join('.claude', 'worktrees');
+const AGENT = /^agent-[0-9a-z]+$/i;
 
 // Clave de comparación de rutas: en Windows, sin distinguir mayúsculas ni el tipo de barra.
 const key = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
@@ -82,7 +85,7 @@ function lockOf(main, wtPath) {
   if (!e || !e.locked) return null;
   const m = /\bpid[ :=]?(\d+)/i.exec(e.lockReason || '');
   const pid = m ? Number(m[1]) : null;
-  return { reason: e.lockReason || 'sin motivo', pid, dead: pid !== null && !require('./app.js').alive(pid) };
+  return { reason: e.lockReason || 'sin motivo', pid, dead: pid !== null && !alive(pid) };
 }
 
 // Por qué no se puede borrar un worktree bloqueado, o null si no está bloqueado o su bloqueo es de un
@@ -92,4 +95,10 @@ function lockWhy(lock) {
   return lock.pid !== null ? `lo tiene abierto el proceso ${lock.pid} (${lock.reason}); no lo toco mientras siga vivo` : `está bloqueado (${lock.reason}) y el bloqueo no dice qué proceso lo tiene; no lo toco`;
 }
 
-module.exports = { DIR, key, inside, list, nativeWorktrees, nativeWorktree, nativeRoot, lockOf, lockWhy };
+// El worktree de un subagente lanzado con isolation: worktree que contiene dir, o null.
+function agentWorktree(dir) {
+  const w = nativeWorktree(dir);
+  return w && AGENT.test(w.name) ? w : null;
+}
+
+module.exports = { DIR, AGENT, key, inside, list, nativeWorktrees, nativeWorktree, agentWorktree, nativeRoot, lockOf, lockWhy };

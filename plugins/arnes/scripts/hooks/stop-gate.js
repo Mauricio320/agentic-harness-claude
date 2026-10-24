@@ -2,15 +2,16 @@
 // Stop (docs/PLAN.md §6.2, §7). Impide cerrar el turno, con decision "block" y reason, si
 //   (a) algún workspace adoptable tiene archivos de codeGlobs tocados sin bandera de verificación
 //       vigente, o
-//   (b) el registro de worktrees tiene ramas del issue con commits sin integrar: las abiertas cuyo
-//       destino es la rama en que está el checkout principal de su workspace.
+//   (b) el registro de worktrees tiene trabajo sin integrar en la rama del issue: los worktrees de
+//       agentes aislados (o de sets viejos) abiertos, con commits o archivos sin commitear, cuyo
+//       destino es la rama en que está el checkout que los lanzó.
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
 // turno cambió algo: para (a), la lista o el contenido de los tocados respecto de la foto que dejó
-// prompt-context; para (b), un commit en la rama del worktree después de esa foto. Si no, solo avisa
-// con systemMessage. Sin foto bloquea. Un solo bloqueo por turno: si la entrada trae
+// prompt-context; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
+// solo avisa con systemMessage. Sin foto bloquea. Un solo bloqueo por turno: si la entrada trae
 // stop_hook_active (el turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el
-// pendiente en la timeline. Una sesión dentro de un worktree no juzga (b): integrar le toca a la del
-// checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
+// pendiente en la timeline. Una sesión dentro del worktree de un set viejo no juzga (b): integrar le
+// toca a la del checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
 // no bloquea. Cuando el turno cierra de verdad (no lo bloquea), anota en la timeline la nota
 // "cerrado" del turno, de donde sale la espera de la persona; y si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea "verificado, falta review", sin bloquear. Con trabajo en
@@ -34,6 +35,7 @@ const { touched } = require('../touched-files.js');
 const { checkFlag, turnChanged, turnStart } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
+const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 
@@ -52,16 +54,17 @@ function unverified(project) {
   return out;
 }
 
-// (b) El commit más nuevo de la rama cuenta como de este turno si es posterior a la foto, con un
-// segundo de margen porque git guarda la fecha en segundos.
+// (b) El trabajo más nuevo del worktree (su último commit o el último archivo que tocó) cuenta como de
+// este turno si es posterior a la foto, con un segundo de margen porque git guarda la fecha en
+// segundos. Una sesión en el worktree de un set viejo no juzga: integrar le toca al checkout principal.
 function pendingWorktrees(cwd, since) {
-  if (ledger.linkedWorktree(cwd)) return [];
+  if (ledger.linkedWorktree(cwd) && !nativeWorktree(cwd)) return [];
   const project = ledger.projectFor(cwd);
   if (!project) return [];
   return ledger
     .pendingEntries(project, ledger.readLedger(project))
-    .filter((p) => p.workspace && p.ahead && p.ahead.length && ledger.currentBranch(p.workspace.gitRoot) === p.target)
-    .map((p) => ({ ws: p.ws, branch: p.branch, target: p.target, ahead: p.ahead.length, changed: since == null || p.last.getTime() > since - 1000 }));
+    .filter((p) => p.repo && p.ahead && (p.ahead.length || p.dirty.length) && ledger.currentBranch(p.repo) === p.target)
+    .map((p) => ({ ws: p.ws || p.name, branch: p.branch, target: p.target, ahead: p.ahead.length, dirty: p.dirty.length, changed: since == null || p.last.getTime() > since - 1000 }));
 }
 
 // Lo que sigue en marcha: los build de la corrida con start sin end (de menos de dos horas, para que
@@ -85,8 +88,11 @@ function describe(items) {
     .join('; ');
 }
 
+// "2 commit(s) y 1 archivo(s) sin commitear", lo que un worktree tiene sin integrar.
+const workWt = (w) => [w.ahead && `${w.ahead} commit(s)`, w.dirty && `${w.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
+
 function describeWt(items) {
-  return items.map((w) => `${w.ws} ${w.branch} (${w.ahead} commit(s) fuera de ${w.target})`).join('; ');
+  return items.map((w) => `${w.ws} ${w.branch} (${workWt(w)} fuera de ${w.target})`).join('; ');
 }
 
 // "sin verificar: …; sin integrar: …" para la timeline, y la frase para los avisos.
@@ -101,11 +107,11 @@ function plain(items) {
 }
 
 function plainWt(items) {
-  return items.map((w) => `${w.ws}, rama ${w.branch}, ${w.ahead} commit(s)`).join('; ');
+  return items.map((w) => `${w.ws}, rama ${w.branch}, ${workWt(w)}`).join('; ');
 }
 
 function pendingText(code, wts) {
-  return [code.length && `cambios sin verificar en ${plain(code)}`, wts.length && `commits sin integrar en ${plainWt(wts)}`].filter(Boolean).join(', y ');
+  return [code.length && `cambios sin verificar en ${plain(code)}`, wts.length && `trabajo sin integrar en ${plainWt(wts)}`].filter(Boolean).join(', y ');
 }
 
 // Bandera vigente pero sin revisión de ese contenido: los workspaces del aviso "verificado, falta
@@ -163,8 +169,9 @@ function block(project, code, wts) {
   }
   if (wts.length) {
     parts.push(
-      `hay worktrees del issue con commits sin integrar: ${plainWt(wts)}. Pídele a la persona que escriba ` +
-        `/arnes:worktree integrate <slug>, que los integra en la rama del issue.`,
+      `hay worktrees del issue con trabajo sin integrar: ${plainWt(wts)}. Si son de un dev que ya ` +
+        `entregó, intégralos al cerrar su workspace; si no, pídele a la persona que escriba ` +
+        `/arnes:worktree integrate <nombre>, que los integra en la rama del issue.`,
     );
   }
   return {

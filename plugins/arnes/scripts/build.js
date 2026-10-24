@@ -19,7 +19,11 @@
 //            existe en más de un workspace, o en ninguno, no se asigna: la entrada pide el prefijo.
 //          La entrada del dev abre además el build del workspace en la timeline (start build --ws),
 //          si no estaba abierto en la corrida, e imprime la lista de tareas.
-//   end --ws <ws> [--result ok|parcial|fail]
+//   end --ws <ws> [--result ok|parcial|fail] [--worktree <ruta>]
+//          con --worktree, primero integra en la rama del issue el worktree del dev que build lanzó con
+//          isolation: worktree (worktree-ledger.js integrate: commitea lo que dejó, merge --no-ff y
+//          borra worktree y rama); si no puede, por un conflicto o un checkout en otra rama, lo dice y
+//          sale con 1 sin cerrar nada. Después, o sin --worktree,
 //          cierra el build del workspace (end build --ws; ok lo deja construido en el registro del
 //          issue), lista sus comandos de afterBuild como after, y cuando ya cerró el último workspace
 //          del plan da la ruta del informe de build y si toca decir la frase del verde
@@ -69,6 +73,8 @@ const { append, read, tasks } = require('./lib/timeline.js');
 const { planWorkspaces } = require('./lib/plan.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
+const { envFiles, NATIVE_PORTS } = require('./lib/puertos.js');
+const ledger = require('./worktree-ledger.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
 // Un archivo en la raíz del repo: con extensión (middleware.ts), un punto al inicio (.env.example) o
@@ -277,8 +283,18 @@ function tasksLine(project) {
   if (t) console.log(`tareas: ${JSON.stringify(t)}`);
 }
 
-function end(project, wsName, result) {
+function end(project, wsName, result, worktree) {
   const [ws] = selectWorkspaces(project, [wsName]);
+  if (worktree) {
+    try {
+      for (const l of ledger.integrate(project, worktree)) console.log(l);
+    } catch (e) {
+      if (!(e instanceof ledger.Refused)) throw e;
+      console.log(`sin integrar: ${e.message}`);
+      console.log(`el build de ${ws.name} sigue abierto hasta integrar su worktree`);
+      return 1;
+    }
+  }
   append(project.root, { event: 'end', stage: 'build', ws: ws.name, result });
   if (result === 'ok') issues.setState(project, 'construido', ws.name);
   const code = after(project, ws.name);
@@ -362,7 +378,6 @@ function appCommand(ws) {
 // las de una base) que ya llevan el puerto corrido, y las que apuntan a localhost:<puerto corrido>.
 // Fuera de un worktree nativo, ninguna: la app usa su .env.
 function portEnv(project, ws) {
-  const { envFiles, NATIVE_PORTS } = require('./worktree-ledger.js');
   let ports = null;
   try {
     ports = JSON.parse(fs.readFileSync(path.join(harnessDir(project), NATIVE_PORTS), 'utf8'));
@@ -411,7 +426,7 @@ function app(project, wsName, dry) {
   child.unref();
   fs.closeSync(fd);
   fs.writeFileSync(path.join(dir, `${ws.name}.json`), JSON.stringify({ pid: child.pid, token: mark, cmd, dir: posix(ws.dir), env, at: new Date().toISOString() }, null, 2) + '\n');
-  require('./lib/issues.js').record(project, { files: [log, path.join(dir, `${ws.name}.json`)] });
+  issues.record(project, { files: [log, path.join(dir, `${ws.name}.json`)] });
   console.log(`${ws.name}: la levanté desde ${posix(ws.dir)} con ${cmd}${vars ? `, con ${vars} en su entorno` : ''}; su salida va a ${posix(log)}. Para pararla, pide «para la app»`);
   return 0;
 }
@@ -432,7 +447,7 @@ function main() {
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, result: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, result: { type: 'string' }, worktree: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`build: ${e.message}`);
@@ -441,7 +456,7 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | end --ws <ws> [--result ok|parcial|fail] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | end --ws <ws> [--result ok|parcial|fail] [--worktree <ruta>] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
   if (mode === 'app' && rest[0] === 'stop') {
     if (rest.length > 1 || list(o.files).length || o.para || o.contrato || o.write || o.dry) die(usage);
     process.exit(stop(requireProject(), o.ws));
@@ -461,8 +476,9 @@ function main() {
   }
   if (mode === 'end') {
     if (!o.ws || o.para || o.contrato || files.length || !['ok', 'parcial', 'fail'].includes(o.result || 'ok')) die(usage);
-    process.exit(end(requireProject(), o.ws, o.result || 'ok'));
+    process.exit(end(requireProject(), o.ws, o.result || 'ok', o.worktree));
   }
+  if (o.worktree) die(usage);
   if (o.result) die(usage);
   if (mode !== 'input' || !o.ws || (o.para && !['dev', 'test-writer'].includes(o.para))) die(usage);
   if (o.para === 'test-writer' && !files.length) die('build: --para test-writer necesita --files con los archivos para spec');

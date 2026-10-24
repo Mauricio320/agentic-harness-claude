@@ -44,6 +44,34 @@ function treeOf(wt, exclude = []) {
   }
 }
 
+// Los cambios sin commitear de dir, sin el estado del arnés de una sesión que corrió ahí, el marcador
+// ni lo que el arnés enlazó o copió (own). → [rutas relativas]
+function dirtyIn(dir, own = []) {
+  const r = git(dir, ['status', '--porcelain', '--untracked-files=all']);
+  if (r.status !== 0) return [];
+  const mine = new Set(own.map((p) => posix(path.relative(dir, p))));
+  return lines(r.stdout)
+    .map((l) => l.slice(3).replace(/^"|"$/g, '').replace(/\/$/, ''))
+    .filter((f) => f !== MARKER && !f.startsWith('.tmp/harness/') && !mine.has(f) && ![...mine].some((m) => f.startsWith(`${m}/`)));
+}
+
+// Commitea en la rama de wt todo lo que tiene sin commitear, menos exclude, como treeOf: con
+// commit-tree, sin tocar los hooks del repo, y después deja el índice en el commit nuevo para que el
+// worktree quede limpio. Es la foto del trabajo de un subagente antes de integrarlo (worktree-ledger.js).
+// → el commit nuevo, el HEAD si no había nada, o null si git no pudo
+function snapshot(wt, message, exclude = []) {
+  const head = git(wt, ['rev-parse', 'HEAD']).stdout.trim();
+  const tree = head ? treeOf(wt, exclude) : null;
+  if (!tree) return null;
+  if (git(wt, ['rev-parse', `${head}^{tree}`]).stdout.trim() === tree) return head;
+  const c = git(wt, ['commit-tree', tree, '-p', head, '-m', message]);
+  if (c.status !== 0) return null;
+  const sha = c.stdout.trim();
+  if (git(wt, ['update-ref', '-m', 'arnes: foto del subagente', 'HEAD', sha, head]).status !== 0) return null;
+  git(wt, ['reset', '-q']);
+  return sha;
+}
+
 // Guarda, actualiza o borra el rescate de wt en su repo. meta: { name, branch, issue }.
 // → { ref, files, saved } (files vacío: no quedaba nada sin commitear y el ref se borró), o { error }
 function save(wt, meta, exclude = []) {
@@ -165,4 +193,4 @@ function mark(wt, issue, pending) {
   return true;
 }
 
-module.exports = { PREFIX, MARKER, treeOf, save, list, orphans, discard, apply, recover, excludeWorktrees, mark };
+module.exports = { PREFIX, MARKER, treeOf, dirtyIn, snapshot, save, list, orphans, discard, apply, recover, excludeWorktrees, mark };

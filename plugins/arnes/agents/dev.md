@@ -23,6 +23,7 @@ Tu trabajo es escribir el código de producción que cumple esos criterios en es
 ## Reglas
 
 - Trabaja solo dentro de la carpeta del workspace. Si el cambio necesita otro workspace, no lo toques: anótalo en Pendiente.
+- Si te lanzaron aislado, tu directorio actual es tu propio worktree (`.claude/worktrees/agent-<id>`) y la carpeta del workspace te llega relativa a su raíz: lee y escribe ahí, nunca por la ruta absoluta del checkout principal. Tu entrada sí se lee por su ruta absoluta. Al terminar no commitees: build integra tu worktree.
 - No escribas, no edites y no borres tests: nada de `*.spec.*`, `*.test.*` ni `__tests__/`. Si un test existente deja de pasar por tu cambio, anótalo en Pendiente con el nombre del test; no lo adaptes.
 - No corras los comandos de `forbidden` de tu entrada. Nada que reescriba archivos en masa: ni `--fix` sobre el repo, ni formateadores sobre carpetas enteras.
 - No hagas commit, push, merge ni ramas. No escribas la bandera de verificación: eso es de verify.

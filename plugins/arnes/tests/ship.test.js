@@ -86,17 +86,17 @@ test('check: la revisión con bloqueantes, un .env o la base de tests tocada', (
 test('check se niega con un worktree del registro abierto hacia la rama del issue, con las líneas de pending', () => {
   const { root, api, front } = folder();
   for (const dir of [api, front]) h.git(dir, 'switch', '-q', '-c', 'feature/cobros');
-  const o = h.run('worktree-ledger.js', ['open', 'tarifas', '--ws', 'api'], { cwd: root });
-  assert.equal(o.status, 0, o.stderr);
+  const wt = h.isolatedDev(api, 't1');
+  h.hook('agents', { hook_event_name: 'SubagentStop', agent_id: 't1', agent_type: 'arnes:dev', cwd: wt });
   ready(root);
   const r = ship(root, ['check']);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stdout, /worktrees abiertos del issue: 1\n    api wt\/feature\/cobros\/tarifas → feature\/cobros · 0 commit\(s\) sin integrar/);
-  assert.match(r.stdout, /resultado: FALTA RESOLVER\n  integrar tarifas$/m, 'ship lo integra solo');
+  assert.match(r.stdout, /worktrees abiertos del issue: 1\n    agent-t1 de arnes:dev → feature\/cobros · nada sin integrar/);
+  assert.match(r.stdout, /resultado: FALTA RESOLVER\n  integrar agent-t1$/m, 'ship lo integra solo');
   const p = h.run('worktree-ledger.js', ['pending', '--target', 'feature/cobros'], { cwd: root });
   assert.equal(p.status, 1);
   assert.match(r.stdout, new RegExp(p.stdout.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.equal(h.run('worktree-ledger.js', ['close', 'tarifas'], { cwd: root }).status, 0);
+  assert.equal(h.run('worktree-ledger.js', ['close', 'agent-t1'], { cwd: root }).status, 0);
   assert.equal(ship(root, ['check']).status, 0);
 });
 

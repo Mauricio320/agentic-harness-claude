@@ -50,6 +50,7 @@ const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
 const issues = require('./lib/issues.js');
 const { fetchOrigin } = require('./lib/fetch.js');
+const { materialize } = require('./worktree-carpeta.js');
 
 const branchOf = (ws) => git(ws.gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
 
@@ -211,7 +212,7 @@ function enterNative(project, w, say = console.log) {
       const main = loadProject(w.main);
       return main && !main.errors.length ? workspaces(main, readPlan(project)).map((ws) => ws.name) : [];
     })();
-    for (const l of require('./worktree-carpeta.js').materialize(w.path).lines) say(l);
+    for (const l of materialize(w.path).lines) say(l);
     project = requireProject(w.path);
     const missing = want.filter((n) => !project.workspaces.some((ws) => ws.adoptable && ws.name === n));
     if (missing.length) {

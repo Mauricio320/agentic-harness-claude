@@ -27,6 +27,7 @@
 // Registro: <worktree>/.tmp/harness/materializado.json =
 //   { version, name, links, repos: [{ repo, main, path, branch, from, at, links, copies, copiedDirs,
 //     status }] }
+// equipNative deja usable el worktree nativo de un repo solo, o materializa los de una carpeta.
 // Lo usan SessionStart y el PostToolUse de EnterWorktree (session-start.js), el Stop (stop-gate.js),
 // el PreToolUse de ExitWorktree (worktree-remove.js), liveLinks del registro (el guard), issue-branch
 // create e issues.js.
@@ -46,9 +47,10 @@ const { readPlan, planWorkspaces } = require('./lib/plan.js');
 const { read, planState } = require('./lib/timeline.js');
 const rescate = require('./lib/rescate.js');
 const { fetchOrigin } = require('./lib/fetch.js');
+const issues = require('./lib/issues.js');
+const { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine } = require('./lib/puertos.js');
 
 const FILE = 'materializado.json';
-const ledger = () => require('./worktree-ledger.js');
 
 const stateFile = (project) => path.join(harnessDir(project), FILE);
 
@@ -65,15 +67,6 @@ function writeState(project, state) {
   fs.mkdirSync(harnessDir(project), { recursive: true });
   fs.writeFileSync(stateFile(project), JSON.stringify(state, null, 2) + '\n');
 }
-
-const present = (p) => {
-  try {
-    fs.lstatSync(p);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 // El worktree nativo de una carpeta en que está dir: { w, project, main } o null. project es el del
 // worktree (su composición, versionada en el repo de carpeta); main, el del checkout principal.
@@ -118,7 +111,7 @@ function checkedOutAt(repo, branch) {
 const ownOf = (e) => [...e.links, ...e.copies, ...e.copiedDirs];
 
 // Cambios sin commitear de un worktree de repo, sin contar lo que trajo el arnés.
-const dirtyOf = (e) => (fs.existsSync(e.path) ? ledger().dirtyIn(e.path, ownOf(e)) : []);
+const dirtyOf = (e) => (fs.existsSync(e.path) ? rescate.dirtyIn(e.path, ownOf(e)) : []);
 
 // Trae un repo al worktree. → { line, entry }: la línea de lo que pasó (null si ya estaba) y su entrada
 function bring(f, state, ws, branch) {
@@ -171,7 +164,6 @@ function linkInto(f, state, list, src, dst) {
 // enlazado para que plan lo consulte desde aquí. Cada enlace se anota en el registro antes de
 // crearlo, para que nunca quede uno sin registrar.
 function equipRepo(f, state, entry) {
-  const L = ledger();
   const out = [];
   linkInto(f, state, entry.links, path.join(entry.main, 'graphify-out'), path.join(entry.path, 'graphify-out'));
   for (const ws of f.main.workspaces.filter((w) => w.adoptable && key(w.repo) === key(entry.main))) {
@@ -188,7 +180,7 @@ function equipRepo(f, state, entry) {
         out.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);
       }
     }
-    for (const name of L.envFiles(ws.dir)) {
+    for (const name of envFiles(ws.dir)) {
       const to = path.join(dir, name);
       if (present(to)) continue;
       fs.copyFileSync(path.join(ws.dir, name), to);
@@ -202,8 +194,7 @@ function equipRepo(f, state, entry) {
 // Los puertos, una sola vez por archivo copiado y con un solo desplazamiento para todo el worktree,
 // para que el front de aquí hable con el back de aquí.
 function ports(f, state) {
-  const L = ledger();
-  const file = path.join(harnessDir(f.project), L.NATIVE_PORTS);
+  const file = path.join(harnessDir(f.project), NATIVE_PORTS);
   let p = null;
   try {
     p = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -219,16 +210,16 @@ function ports(f, state) {
   if (fresh.length) {
     let offset = p && p.offset;
     if (!offset) {
-      const used = L.usedOffsets(f.w);
+      const used = usedOffsets(f.w);
       offset = 10;
       while (used.has(offset)) offset += 10;
     }
-    const map = L.shiftPorts(fresh, offset);
+    const map = shiftPorts(fresh, offset);
     p = { offset, map: [...((p && p.map) || []), ...map], files: [...done, ...fresh.map((x) => x.file)], at: new Date().toISOString() };
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(p, null, 2) + '\n');
   }
-  return p && p.map.length ? [L.portsLine(p)] : [];
+  return p && p.map.length ? [portsLine(p)] : [];
 }
 
 // → { lines, links }: lo que pasó, en palabras, y los enlaces vivos.
@@ -278,7 +269,6 @@ function protect(dir) {
   const f = folderWorktree(dir);
   if (!f) return { pending: [], saved: [] };
   const state = readState(f.project);
-  const issues = require('./lib/issues.js');
   const issue = (issues.current(f.project) || {}).slug || f.w.name;
   const pending = [];
   const saved = [];
@@ -415,7 +405,62 @@ function pruneOrphans(project) {
   return out;
 }
 
-module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo };
+// Lo que SessionStart hace en un worktree nativo de un workspace adoptable: enlaza el node_modules
+// del checkout principal donde falta y desplaza una sola vez los puertos de los .env que copió
+// .worktreeinclude, con un desplazamiento que no use otro worktree nativo; lo anota en
+// <worktree>/.tmp/harness/puertos.json y después solo repite el mapa. Sin .env no toca puertos. En
+// el worktree nativo de una carpeta multi-repo, materializa adentro los repos. → { lines, links } con
+// lo que pasó, en palabras, y lo enlazado
+function equipNative(dir) {
+  const w = nativeWorktree(dir);
+  if (!w) return { lines: [], links: [] };
+  const project = loadProject(w.path);
+  if (!project || project.errors.length) return { lines: [], links: [] };
+  if (project.kind === 'folder') return materialize(w.path);
+  const inWt = (d) => key(d) === key(w.path) || key(d).startsWith(key(w.path) + path.sep);
+  const wss = project.workspaces.filter((ws) => ws.adoptable && inWt(ws.dir));
+  const lines = [];
+  const links = [];
+  for (const ws of wss) {
+    const dst = path.join(ws.dir, 'node_modules');
+    const src = path.join(w.main, path.relative(w.path, ws.dir), 'node_modules');
+    if (present(dst)) continue;
+    if (!fs.existsSync(src)) {
+      lines.push(`${ws.name}: ni este worktree ni el checkout principal tienen las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
+      continue;
+    }
+    if (link(src, dst) === 'copy') lines.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);
+    else {
+      links.push(posix(dst));
+      lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
+    }
+  }
+  // El grafo de código del checkout principal, para que plan lo consulte desde aquí.
+  const graph = path.join(w.path, 'graphify-out');
+  if (fs.existsSync(path.join(w.main, 'graphify-out')) && !present(graph) && link(path.join(w.main, 'graphify-out'), graph) === 'link') {
+    links.push(posix(graph));
+    lines.push('enlacé el grafo de código del checkout principal, para consultarlo desde aquí');
+  }
+  const state = path.join(harnessDir(project), NATIVE_PORTS);
+  let ports = null;
+  try {
+    ports = JSON.parse(fs.readFileSync(state, 'utf8'));
+  } catch {
+    const files = wss.flatMap((ws) => envFiles(ws.dir).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
+    if (files.length) {
+      const used = usedOffsets(w);
+      let offset = 10;
+      while (used.has(offset)) offset += 10;
+      ports = { offset, map: shiftPorts(files, offset), at: new Date().toISOString() };
+      fs.mkdirSync(path.dirname(state), { recursive: true });
+      fs.writeFileSync(state, JSON.stringify(ports, null, 2) + '\n');
+    }
+  }
+  if (ports && ports.map.length) lines.push(portsLine(ports));
+  return { lines, links };
+}
+
+module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo, equipNative };
 
 function main() {
   let args;

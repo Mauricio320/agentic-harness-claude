@@ -94,23 +94,22 @@ test('usa el cwd del evento, no el del proceso ni CLAUDE_PROJECT_DIR', () => {
 
 // ---------- worktrees del registro ----------
 
-test('lista los worktrees sin integrar del registro y avisa de los de más de 7 días sin commits nuevos', () => {
+test('lista los worktrees sin integrar del registro y avisa de los de más de 7 días sin actividad', () => {
   const dir = h.tmp('start-wt');
   h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
   h.git(dir, 'checkout', '-q', '-b', 'feature/x');
-  for (const slug of ['viejo', 'nuevo']) assert.equal(h.run('worktree-ledger.js', ['open', slug], { cwd: dir }).status, 0);
+  h.isolatedDev(dir, 'viejo1');
+  const nuevo = h.isolatedDev(dir, 'nuevo2');
   const file = path.join(dir, '.tmp', 'harness', 'worktrees.json');
   const data = JSON.parse(fs.readFileSync(file, 'utf8'));
   data.worktrees[0].openedAt = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
   fs.writeFileSync(file, JSON.stringify(data));
-  const nuevo = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'nuevo');
   h.write(nuevo, 'b.ts', 'b\n');
   h.commitAll(nuevo, 'trabajo');
   const t = text(start(dir));
-  assert.match(t, /^Worktrees sin integrar \(2\): \/arnes:worktree integrate <slug>, o close si no tienen commits propios\.$/m);
-  assert.match(t, /^- api wt\/feature\/x\/viejo → feature\/x · 0 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2} · 10 días sin commits nuevos: intégralo o ciérralo, nunca se borra solo$/m);
-  assert.match(t, /^- api wt\/feature\/x\/nuevo → feature\/x · 1 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2}$/m);
-  assert.match(text(start(nuevo)), /Worktrees sin integrar \(2\)/, 'una sesión dentro del worktree ve el mismo registro');
+  assert.match(t, /^Worktrees sin integrar \(2\): \/arnes:worktree integrate <nombre>, o close si no tienen trabajo propio\.$/m);
+  assert.match(t, /^- agent-viejo1 de arnes:dev → feature\/x · nada sin integrar · abierto el \d{4}-\d{2}-\d{2} · 10 días sin actividad: intégralo o ciérralo, nunca se borra solo$/m);
+  assert.match(t, /^- agent-nuevo2 de arnes:dev → feature\/x · 1 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2}$/m);
   assert.ok(t.split('\n').length <= 40);
 });
 

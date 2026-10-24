@@ -56,17 +56,19 @@ test('lo que no es código, lo de .claude o .tmp, fuera de todo workspace o sin 
   assert.equal(edit(sin, 'a.ts').out, null);
 });
 
-test('un archivo de un worktree del ledger usa el plan del checkout principal', () => {
+test('el dev aislado en su worktree usa el plan del checkout que lo lanzó; un worktree de agente sin registro, ninguno', () => {
   const dir = repo();
   h.git(dir, 'checkout', '-q', '-b', 'feature/x');
-  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: dir }).status, 0);
-  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarea');
+  const wt = h.isolatedDev(dir, 'a1');
+  const suelto = path.join(dir, '.claude', 'worktrees', 'agent-b2');
+  h.git(dir, 'worktree', 'add', '-q', '-b', 'worktree-agent-b2', suelto);
   assert.ok(denied(edit(wt, path.join(wt, 'src', 'a.ts'))), 'sin plan en el checkout principal');
   note(dir, { event: 'start', stage: 'plan' });
   note(dir, { event: 'end', stage: 'plan', result: 'ok' });
   person(dir);
   assert.equal(planState(dir, ['approve']).status, 0);
   assert.equal(edit(wt, path.join(wt, 'src', 'a.ts')).out, null);
+  assert.ok(denied(edit(suelto, path.join(suelto, 'src', 'a.ts'))), 'sin registro no se sabe de qué corrida es: falla cerrado');
 });
 
 test('plan-state approve: solo con el plan escrito y una respuesta de la persona después', () => {

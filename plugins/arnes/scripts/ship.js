@@ -209,7 +209,7 @@ function check(project) {
   // La rama del issue es la actual de cada workspace: los worktrees del registro apuntan a ella.
   const targets = [...new Set(list.map((x) => branchOf(x.ws)).filter((b) => b && b !== 'HEAD'))];
   const open = targets.flatMap((target) => ledger.pendingEntries(project, ledger.readLedger(project), { target }));
-  const slugs = [...new Set(open.map((e) => e.branch.split('/').pop()))];
+  const slugs = [...new Set(open.map((e) => e.name || e.branch.split('/').pop()))];
   // La revisión es de todo el árbol: con bloqueantes de este contenido detiene; si falta o es de otro,
   // se revisa después de verificar.
   const blocked = [...reviews.values()].find((r) => !r.ok && /bloqueante/.test(r.reason));
@@ -360,7 +360,7 @@ function committed(project, wsName) {
   else console.log(`${ws.name}: el commit ${head} lleva el contenido que verificó la bandera (${files.length} archivo(s))`);
   for (const f of eolOnly) console.log(`    nota: en ${f} solo cambiaron los fines de línea, como los normaliza git`);
   for (const f of left) console.log(`    nota: quedó sin commitear: ${f}`);
-  if (!changed.length) require('./lib/issues.js').setState(project, 'entregado', `${ws.name} ${head}`);
+  if (!changed.length) I.setState(project, 'entregado', `${ws.name} ${head}`);
   return changed.length ? 1 : 0;
 }
 
@@ -424,7 +424,7 @@ function mergeEnd(project, finish) {
     if (!finish) console.log(`${r.ws}: de vuelta en ${r.issue}; ${r.def} no se movió`);
   }
   fs.rmSync(mergeFile(project), { force: true });
-  if (finish) require('./lib/issues.js').setState(project, 'mergeado', 'merge local');
+  if (finish) I.setState(project, 'mergeado', 'merge local');
   return 0;
 }
 

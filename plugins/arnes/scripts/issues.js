@@ -3,12 +3,13 @@
 // lib/issues.js en <checkout principal>/.tmp/harness/issues/<slug>.json.
 //   list [--json]   los issues registrados, con su estado y lo que sigue en disco, con su tamaño
 //   clean <slug>|--actual [--write] [--con-cambios]
-//                   lo registrado para el issue: los worktrees del set y sus ramas wt/, el worktree
-//                   nativo, la rama del issue y los archivos (plan, informes, fotos de typecheck,
-//                   reportes de review, salida de la app), con su tamaño, y qué se borra o por qué se
-//                   queda. Con --write lo borra en orden seguro: los worktrees del set por el registro
-//                   de worktrees, que quita los enlaces antes de borrar, y solo los que no tienen
-//                   commits sin integrar; las ramas wt/ solo si están integradas; el worktree nativo
+//                   lo registrado para el issue: los worktrees de los sets de versiones anteriores y
+//                   sus ramas wt/, el worktree nativo, la rama del issue y los archivos (plan,
+//                   informes, fotos de typecheck, reportes de review, salida de la app), con su tamaño,
+//                   y qué se borra o por qué se queda. Con --write lo borra en orden seguro: los
+//                   worktrees de un set por el registro de worktrees, que quita los enlaces antes de
+//                   borrar, y solo los que no tienen trabajo sin integrar; las ramas wt/ solo si están
+//                   integradas; el worktree nativo
 //                   después de quitar sus enlaces y los repos que trajo, y nunca el de la sesión en
 //                   curso, que se borra saliendo de él; y los archivos. La rama del issue se queda
 //                   hasta que su MR esté mergeado. Nada que no esté en el registro se toca. En una
@@ -47,9 +48,10 @@ const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy, DIR } 
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
 const apps = require('./lib/app.js');
+const { bringBack } = require('./lib/timeline.js');
 
-const ledger = () => require('./worktree-ledger.js');
-const carpeta = () => require('./worktree-carpeta.js');
+const ledger = require('./worktree-ledger.js');
+const carpeta = require('./worktree-carpeta.js');
 
 const exists = (p) => {
   try {
@@ -105,14 +107,14 @@ function plan(project, r, conCambios = false) {
     } });
   }
   for (const s of r.sets || []) {
-    const e = ledger().readLedger(main).find((x) => key(x.path) === key(s.path));
+    const e = ledger.readLedger(main).find((x) => key(x.path) === key(s.path));
     const ws = main.workspaces.find((w) => w.name === s.ws);
     if (e && e.status === 'abierto' && ws) {
       const ahead = unmerged(ws.gitRoot, e.branch, [e.target]) || [];
       const slug = e.branch.split('/').pop();
       items.push(ahead.length
         ? { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, size: I.sizeOf(s.path), why: `tiene ${ahead.length} commit(s) sin integrar en ${e.target}` }
-        : { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, size: I.sizeOf(s.path), action: 'se borra con su rama', run: () => ledger().close(main, slug, { ws: [s.ws] }) });
+        : { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, size: I.sizeOf(s.path), action: 'se borra con su rama', run: () => ledger.close(main, slug) });
     } else if (ws && refExists(ws.gitRoot, `refs/heads/${s.branch}`)) {
       const target = (e && e.target) || mergeTargets(ws.gitRoot, ws.defaultBranch).branch;
       const ahead = unmerged(ws.gitRoot, s.branch, [target]) || [];
@@ -124,9 +126,9 @@ function plan(project, r, conCambios = false) {
   const w = r.worktree;
   if (w && exists(w.path)) {
     const size = I.sizeOf(w.path);
-    const nested = (carpeta().readState(loadProject(w.path) || { root: w.path }).repos || []).filter((x) => x.status === 'vivo' && exists(x.path));
-    const own = ledger().dirtyIn(w.path, ledger().liveLinks(w.path));
-    const kept = nested.map((x) => [x, ledger().dirtyIn(x.path, ledger().liveLinks(x.path))]).filter(([, d]) => d.length);
+    const nested = (carpeta.readState(loadProject(w.path) || { root: w.path }).repos || []).filter((x) => x.status === 'vivo' && exists(x.path));
+    const own = rescate.dirtyIn(w.path, ledger.liveLinks(w.path));
+    const kept = nested.map((x) => [x, rescate.dirtyIn(x.path, ledger.liveLinks(x.path))]).filter(([, d]) => d.length);
     const lost = kept.map(([x, d]) => `${path.basename(x.repo)} tiene ${d.length} archivo(s) sin commitear (${d.slice(0, 3).join(', ')})`).join(' y ');
     const lock = lockOf(w.main, w.path);
     if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, size, action: 'se borra saliendo de él', exit: true });
@@ -189,13 +191,13 @@ function linksIn(dir, depth = 3) {
 function removeNative(w, isIssueBranch, conCambios = false) {
   const lock = lockOf(w.main, w.path);
   if (lockWhy(lock)) return { status: 1, stderr: lockWhy(lock) };
-  const pending = carpeta().dematerialize(w.path, { force: conCambios, check: true });
+  const pending = carpeta.dematerialize(w.path, { force: conCambios, check: true });
   if (pending.refused.length) return { status: 1, stderr: pending.refused.join('; ') };
   const alive = apps.blocking(apps.stopUnder(w.path));
   if (alive.length) return { status: 1, stderr: `${alive.map((x) => x.line).join('; ')}; la app viva bloquea la carpeta` };
-  const r = carpeta().dematerialize(w.path, { force: conCambios });
+  const r = carpeta.dematerialize(w.path, { force: conCambios });
   if (r.refused.length) return { status: 1, stderr: r.refused.join('; ') };
-  for (const l of ledger().liveLinks(w.path)) {
+  for (const l of ledger.liveLinks(w.path)) {
     const why = unlink(l);
     if (why) return { status: 1, stderr: why };
   }
@@ -205,7 +207,7 @@ function removeNative(w, isIssueBranch, conCambios = false) {
     const u = git(w.main, ['worktree', 'unlock', w.path]);
     if (u.status !== 0) return { status: 1, stderr: `no pude desbloquearlo: ${firstLine(u.stderr)}` };
   }
-  require('./lib/timeline.js').bringBack(w.path, w.main);
+  bringBack(w.path, w.main);
   fs.rmSync(path.join(w.path, '.tmp', 'harness'), { recursive: true, force: true });
   const rm = git(w.main, ['worktree', 'remove', '--force', w.path]);
   if (rm.status === 0 && w.branch && !isIssueBranch && refExists(w.main, `refs/heads/${w.branch}`)) {
@@ -245,7 +247,7 @@ function recover(project, slug) {
     }
   }
   for (const [name, list] of folders) {
-    const res = carpeta().recoverFolder(main, name, list);
+    const res = carpeta.recoverFolder(main, name, list);
     failed = failed || !res.ok;
     for (const l of res.lines) console.log(l);
   }
@@ -286,14 +288,15 @@ function clean(project, slug, write, conCambios = false) {
   return failed || items.some((i) => i.why) ? 1 : 0;
 }
 
-// Lo que ningún registro conoce: en .tmp, fuera del estado del arnés; los worktrees del set sin
-// registro abierto; y los worktrees nativos de los repos que ningún issue registró.
+// Lo que ningún registro conoce: en .tmp, fuera del estado del arnés; los worktrees de un set viejo
+// sin registro abierto; y los worktrees nativos de los repos que ningún issue ni el registro de
+// worktrees conocen (los de los agentes aislados están en el registro).
 function unknown(project) {
   const root = I.mainRoot(project);
   const all = I.list(project);
   const known = new Set(all.flatMap((r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : [])]).map(key));
   const main = loadProject(root) || project;
-  for (const e of ledger().readLedger(main)) if (e.status === 'abierto') known.add(key(e.path));
+  for (const e of ledger.readLedger(main)) if (e.status === 'abierto') known.add(key(e.path));
   const out = [];
   const tmp = path.join(root, '.tmp');
   for (const name of fs.existsSync(tmp) ? fs.readdirSync(tmp) : []) if (name !== 'harness') out.push(path.join(tmp, name));

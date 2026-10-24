@@ -5,6 +5,10 @@
 // a la vez no se pisan. SubagentStart lo escribe y SubagentStop lo borra. Solo cuentan los tipos
 // arnes:*; uno de más de dos horas se da por muerto (un agente que no llegó a su Stop no puede dejar
 // el Stop sin bloquear para siempre). Sin manifiesto no hace nada.
+// Un agente lanzado con isolation: worktree arranca en su propio worktree (el cwd de la entrada es
+// <principal>/.claude/worktrees/agent-<id>): SubagentStart lo anota en el registro del checkout que lo
+// lanzó y le enlaza node_modules (worktree-ledger.js record), y el registro de agentes vivos va al
+// proyecto de ese checkout, que es donde mira su Stop.
 // Salida: nada. Siempre exit 0.
 
 'use strict';
@@ -13,6 +17,8 @@ const fs = require('fs');
 const path = require('path');
 const { run } = require('../lib/hook.js');
 const { loadProject, harnessDir } = require('../lib/manifest.js');
+const { agentWorktree } = require('../lib/worktree-nativo.js');
+const ledger = require('../worktree-ledger.js');
 
 const MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -42,7 +48,10 @@ function running(project, now = Date.now()) {
 function agents(input) {
   const type = String(input.agent_type || '');
   if (!input.agent_id || !type.startsWith('arnes:')) return null;
-  const project = loadProject(path.resolve(input.cwd || process.cwd()));
+  const cwd = path.resolve(input.cwd || process.cwd());
+  const isolated = Boolean(agentWorktree(cwd));
+  const owner = isolated ? (input.hook_event_name === 'SubagentStart' ? ledger.record(input) : ledger.ownerOf(agentWorktree(cwd).path)) : null;
+  const project = isolated ? owner : loadProject(cwd);
   if (!project || project.errors.length) return null;
   const file = fileOf(project, input.agent_id);
   if (input.hook_event_name === 'SubagentStart') {

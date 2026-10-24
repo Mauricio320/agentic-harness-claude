@@ -201,7 +201,7 @@ function forbiddenIn(dir) {
 }
 
 // Instala las dependencias de una carpeta según su lockfile, o dice qué haría. Lo usan el paso deps
-// y worktree-ledger.js open --no-link. → true si queda algo pendiente
+// y build.js deps. → true si queda algo pendiente
 function installIn(target, forbidden, write, say) {
   const d = depsOf(target);
   if (!d) return false;

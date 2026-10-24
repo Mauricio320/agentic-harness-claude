@@ -22,9 +22,10 @@ const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/m
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 
 // Lo que nunca es código del issue aunque el repo no lo ignore: el grafo de graphify, el estado del
-// arnés y las dependencias, en cualquier nivel (también un node_modules enlazado, que git ve como
-// archivo).
-const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules)(\/|$)/;
+// arnés, las dependencias, en cualquier nivel (también un node_modules enlazado, que git ve como
+// archivo), y los worktrees de Claude Code: el de un agente aislado vive en .claude/worktrees del
+// checkout que lo lanzó, y sin ignorar git lo lista como una carpeta sin trackear.
+const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules|\.claude\/worktrees)(\/|$)/;
 
 // Rutas relativas al workspace. `--relative` en el diff y ls-files corrido desde la carpeta del
 // workspace limitan ambos a su subárbol, que es lo que necesita un monorepo con varios paquetes.

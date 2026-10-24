@@ -65,6 +65,7 @@ const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.j
 const { help, die, onPath } = require('./lib/exec.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
+const issues = require('./lib/issues.js');
 
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -136,7 +137,7 @@ function approve(project, detail, opts = {}) {
       die('plan-state: la aprobación tiene que venir de la persona. Termina el turno mostrando el plan, sin la herramienta de preguntas, y espera su respuesta.', 1);
     }
     append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });
-    require('./lib/issues.js').setState(project, 'planeado');
+    issues.setState(project, 'planeado');
     console.log('plan aprobado por la persona');
   }
   anotaTareas(project);
@@ -203,7 +204,7 @@ function trivial(project, pedido, criterio) {
   append(project.root, { event: 'start', stage: 'plan', detail: 'trivial' });
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan trivial escrito' });
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'trivial, pedido por la persona' });
-  require('./lib/issues.js').setState(project, 'planeado');
+  issues.setState(project, 'planeado');
   console.log(`plan trivial aprobado en ${file}`);
   renamed(project);
   return 0;

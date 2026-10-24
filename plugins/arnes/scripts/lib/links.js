@@ -1,5 +1,6 @@
 'use strict';
-// Enlaces de node_modules: los usan la foto del base de ci-gate y los worktrees del ledger.
+// Enlaces de node_modules: los usan la foto del base de ci-gate, los worktrees nativos y los de los
+// agentes aislados (worktree-ledger.js).
 // Regla (docs/PLAN.md §7): todo lo que se enlaza se desenlaza antes de borrar la carpeta que lo
 // contiene, y un enlace se quita sin seguirlo: unlink o rmdir, nunca un borrado recursivo. El
 // 2026-10-19, un git worktree remove siguió una junction de node_modules y borró el node_modules

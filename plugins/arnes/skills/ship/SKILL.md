@@ -17,7 +17,7 @@ Cada transición de ship es una llamada a `node "S/ship.js" deliver`, que anota 
 
 Corre `node "S/ship.js" deliver`, con `--solo-commit` y `--rama <rama>` si vienen en `$ARGUMENTS`.
 - **`FALTA RESOLVER`:** resuelve cada línea, en su orden y sin preguntar, y vuelve a correr `deliver`:
-  - `integrar <slug>`: `node "S/worktree-ledger.js" integrate <slug>`, y después la skill verify con `--base` en el primer padre del merge (`git -C "<carpeta>" rev-parse HEAD^1`).
+  - `integrar <nombre>`: `node "S/worktree-ledger.js" integrate <nombre>`, el worktree de un dev aislado que quedó sin integrar, y después la skill verify con `--base` en el primer padre del merge (`git -C "<carpeta>" rev-parse HEAD^1`).
   - `verificar <ws>`: carga la skill verify. Es barata si el contenido no cambió: reutiliza la foto del base, y los specs ya existen.
   - `revisar`: carga la skill review.
   Hasta tres vueltas. Si sigue pidiendo lo mismo, dilo en una línea y termina.

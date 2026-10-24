@@ -6,7 +6,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { isLink } = require('../scripts/lib/links.js');
+const { isLink, link } = require('../scripts/lib/links.js');
+const { loadProject } = require('../scripts/lib/manifest.js');
 const tl = require('../scripts/lib/timeline.js');
 const h = require('./helpers.js');
 
@@ -30,9 +31,22 @@ const issues = (dir, ...args) => h.run('issues.js', args, { cwd: dir });
 const registry = (dir) => JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'issues', 'cobros.json'), 'utf8'));
 const sentinel = (dir) => fs.existsSync(path.join(dir, 'node_modules', 'paquete', 'centinela.js'));
 
-test('el registro junta la rama del issue, el plan, los worktrees del set y los informes', () => {
+// Un set tarifas de una versión anterior, como lo dejaba worktree-ledger.js open: su worktree con
+// node_modules enlazado, su registro y su lugar en el registro del issue.
+function oldSet(dir) {
+  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarifas');
+  h.git(dir, 'worktree', 'add', '-q', '-b', 'wt/cobros/tarifas', wt, 'cobros');
+  link(path.join(dir, 'node_modules'), path.join(wt, 'node_modules'));
+  const posix = (p) => p.split(path.sep).join('/');
+  const e = { ws: 'api', path: posix(wt), branch: 'wt/cobros/tarifas', target: 'cobros', issue: 'cobros', openedAt: new Date().toISOString(), status: 'abierto', links: [posix(path.join(wt, 'node_modules'))], copies: [], copiedDirs: [] };
+  h.write(dir, '.tmp/harness/worktrees.json', JSON.stringify({ version: 1, worktrees: [e] }));
+  require('../scripts/lib/issues.js').record(loadProject(dir), { sets: [{ ws: 'api', path: e.path, branch: e.branch }] });
+  return wt;
+}
+
+test('el registro junta la rama del issue, el plan, los worktrees de un set viejo y los informes', () => {
   const dir = repo();
-  assert.equal(h.run('worktree-ledger.js', ['open', 'tarifas'], { cwd: dir }).status, 0);
+  oldSet(dir);
   const inf = h.run('informe.js', ['path', 'verify'], { cwd: dir }).stdout.match(/^informe: (.+)$/m)[1];
   fs.writeFileSync(inf, 'detalle\n');
   const r = registry(dir);
@@ -43,8 +57,7 @@ test('el registro junta la rama del issue, el plan, los worktrees del set y los 
 
 test('clean con un enlace vivo: quita el enlace antes de borrar y el node_modules del principal queda', () => {
   const dir = repo();
-  h.run('worktree-ledger.js', ['open', 'tarifas'], { cwd: dir });
-  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarifas');
+  const wt = oldSet(dir);
   assert.ok(isLink(path.join(wt, 'node_modules')));
   let r = issues(dir, 'clean', 'cobros');
   assert.match(r.stdout, /^- carpeta .*tarifas \(rama wt\/cobros\/tarifas\) · .* · se borra con su rama$/m);
@@ -62,8 +75,7 @@ test('clean con un enlace vivo: quita el enlace antes de borrar y el node_module
 
 test('una rama wt/ con commits sin integrar se queda, con el porqué', () => {
   const dir = repo();
-  h.run('worktree-ledger.js', ['open', 'tarifas'], { cwd: dir });
-  const wt = path.join(dir, '.tmp', 'harness', 'worktrees', 'api', 'tarifas');
+  const wt = oldSet(dir);
   h.write(wt, 'src/t.ts', 't\n');
   h.git(wt, 'add', 'src/t.ts');
   h.git(wt, 'commit', '-q', '-m', 'trabajo sin integrar');

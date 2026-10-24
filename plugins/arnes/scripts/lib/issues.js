@@ -3,7 +3,7 @@
 // <checkout principal>/.tmp/harness/issues/<slug>.json, con el slug del título del plan. Vive en el
 // checkout principal aunque el issue se trabaje en un worktree nativo, para que sobreviva al
 // worktree. Lo escriben quienes crean algo: issue-branch (la rama del issue, el worktree nativo y el
-// plan), worktree-ledger open (los worktrees del set y sus ramas wt/), informe.js (los informes),
+// plan), informe.js (los informes),
 // ci-gate (las fotos de typecheck), review.js mark (los reportes de cada ronda) y build.js app (la
 // salida de la app). Limpiar borra solo lo registrado, en orden seguro, y nunca lo que no está aquí.
 //   { version, slug, title, createdAt, updatedAt, state, states: [{ state, at, detail }],

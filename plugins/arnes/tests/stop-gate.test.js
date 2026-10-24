@@ -159,30 +159,45 @@ test('cwd dentro de un worktree: juzga el worktree, no el checkout principal', (
 
 const ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
 
+// Un dev aislado que ya entregó: su worktree sigue registrado, y él ya no corre.
 function issueRepo() {
   const root = h.tmp('stop-wt');
   h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
   h.git(root, 'checkout', '-q', '-b', 'feature/x');
-  assert.equal(h.run('worktree-ledger.js', ['open', 'tarea'], { cwd: root }).status, 0);
-  return { root, wt: path.join(root, '.tmp', 'harness', 'worktrees', 'api', 'tarea') };
+  const wt = h.isolatedDev(root, 'a1');
+  h.hook('agents', { hook_event_name: 'SubagentStop', agent_id: 'a1', agent_type: 'arnes:dev', cwd: wt });
+  return { root, wt };
 }
 
 const promptAt = (cwd) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd });
 
-test('(b) un worktree del issue con commits de este turno bloquea y dice cómo integrarlo', () => {
+test('(b) un worktree del issue con trabajo de este turno bloquea y dice cómo integrarlo', () => {
   const { root, wt } = issueRepo();
   promptAt(root);
   h.write(wt, 'src/b.ts', 'b\n');
   h.commitAll(wt, 'trabajo del agente');
+  h.write(wt, 'src/c.ts', 'c\n');
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /^arnes: hay worktrees del issue con commits sin integrar: api, rama wt\/feature\/x\/tarea, 1 commit\(s\)\./);
-  assert.match(r.out.reason, /Pídele a la persona que escriba \/arnes:worktree integrate <slug>, que los integra en la rama del issue/);
+  assert.match(r.out.reason, /^arnes: hay worktrees del issue con trabajo sin integrar: agent-a1, rama worktree-agent-a1, 1 commit\(s\) y 1 archivo\(s\) sin commitear\./);
+  assert.match(r.out.reason, /Si son de un dev que ya entregó, intégralos al cerrar su workspace; si no, pídele a la persona que escriba \/arnes:worktree integrate <nombre>/);
   assert.match(r.out.reason, /una sola vez por turno/);
   assert.doesNotMatch(r.out.reason, /sin verificación vigente/, 'el checkout principal no tiene código tocado');
   const [note] = notes(root);
   assert.equal(note.result, 'bloqueado');
-  assert.match(note.detail, /^turno bloqueado sin integrar: api wt\/feature\/x\/tarea \(1 commit/);
+  assert.match(note.detail, /^turno bloqueado sin integrar: agent-a1 worktree-agent-a1 \(1 commit/);
+});
+
+test('(b) mientras el dev aislado corre, el Stop no bloquea por su worktree', () => {
+  const root = h.tmp('stop-wt-corre');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  h.git(root, 'checkout', '-q', '-b', 'feature/x');
+  promptAt(root);
+  const wt = h.isolatedDev(root, 'a1');
+  h.write(wt, 'src/b.ts', 'b\n');
+  const r = stop(root);
+  assert.equal(r.out.decision, undefined);
+  assert.match(r.out.systemMessage, /todavía hay trabajo en marcha \(dev trabajando\)/);
 });
 
 test('(b) el origen que arnes-mod deja en turn.json con el aviso de un agente no mueve el inicio del turno', () => {
@@ -206,12 +221,11 @@ test('(b) commits de un turno anterior solo avisan; de otro issue, integrados o 
   fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), _desde: Date.now() + 10000 }));
   const quieto = stop(root);
   assert.equal(quieto.out.decision, undefined);
-  assert.match(quieto.out.systemMessage, /^arnes: siguen commits sin integrar en api, rama wt\/feature\/x\/tarea, 1 commit\(s\); este turno no los tocó\.$/);
-  assert.equal(stop(wt).out, null, 'una sesión dentro del worktree no juzga (b)');
+  assert.match(quieto.out.systemMessage, /^arnes: siguen trabajo sin integrar en agent-a1, rama worktree-agent-a1, 1 commit\(s\); este turno no los tocó\.$/);
   h.git(root, 'checkout', '-q', '-b', 'feature/y');
   assert.equal(stop(root).out, null, 'el checkout principal está en otro issue');
   h.git(root, 'checkout', '-q', 'feature/x');
-  assert.equal(h.run('worktree-ledger.js', ['integrate', 'tarea'], { cwd: root, env: ID }).status, 0);
+  assert.equal(h.run('worktree-ledger.js', ['integrate', 'agent-a1'], { cwd: root, env: ID }).status, 0);
   assert.equal(stop(root).out, null, 'integrado');
 });
 
@@ -221,10 +235,10 @@ test('(b) con stop_hook_active deja pasar con aviso y anota el pendiente', () =>
   h.commitAll(wt, 'trabajo del agente');
   const r = stop(root, true);
   assert.equal(r.out.decision, undefined);
-  assert.match(r.out.systemMessage, /^arnes: el turno termina con commits sin integrar en api, rama wt\/feature\/x\/tarea, 1 commit\(s\); queda como pendiente\.$/);
+  assert.match(r.out.systemMessage, /^arnes: el turno termina con trabajo sin integrar en agent-a1, rama worktree-agent-a1, 1 commit\(s\); queda como pendiente\.$/);
   const [note] = notes(root);
   assert.equal(note.result, 'pendiente');
-  assert.match(note.detail, /^turno cerrado sin integrar: api wt\/feature\/x\/tarea/);
+  assert.match(note.detail, /^turno cerrado sin integrar: agent-a1 worktree-agent-a1/);
 });
 
 test('(a) y (b) a la vez: un solo bloqueo con los dos pendientes', () => {
@@ -234,8 +248,8 @@ test('(a) y (b) a la vez: un solo bloqueo con los dos pendientes', () => {
   fs.appendFileSync(path.join(root, 'src/a.ts'), 'sin verificar\n');
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. .*Además, hay worktrees del issue con commits sin integrar/);
-  assert.match(notes(root)[0].detail, /^turno bloqueado sin verificar: api \(1 archivo.*; sin integrar: api wt\/feature\/x\/tarea/);
+  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. .*Además, hay worktrees del issue con trabajo sin integrar/);
+  assert.match(notes(root)[0].detail, /^turno bloqueado sin verificar: api \(1 archivo.*; sin integrar: agent-a1 worktree-agent-a1/);
 });
 
 test('un error propio sale con 0 y no bloquea', () => {

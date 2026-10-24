@@ -6,10 +6,12 @@
 // días sin commits nuevos), las últimas cinco decisiones de docs/decisions de los repos si existen,
 // y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada.
 // En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
-// (worktree-ledger.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
+// (worktree-carpeta.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
 // los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa. En el de una
-// carpeta multi-repo, además trae adentro los repos (worktree-carpeta.js). Lo mismo hace después de
-// EnterWorktree, como PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta.
+// carpeta multi-repo, además trae adentro los repos. Lo mismo hace después de EnterWorktree, como
+// PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta; ahí también mueve el lock
+// de la sesión al worktree, que es por donde worktree-ledger.js sabe qué checkout lanzó a un agente
+// aislado.
 // En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco. Avisa de
 // los issues entregados hace más de 7 días que todavía tienen carpetas o archivos en disco
 // (lib/issues.js), y sugiere /arnes:cerrar.
@@ -133,7 +135,8 @@ function decisions(project) {
   return found.sort((a, b) => (a.key < b.key ? 1 : -1)).slice(0, DECISIONS).map((d) => d.line);
 }
 
-// Los abiertos del registro del checkout principal: una sesión dentro de un worktree ve los mismos.
+// Los abiertos del registro de este checkout: los worktrees de los devs aislados que lanzó, y los de
+// un set viejo, que una sesión dentro de él también ve.
 function worktreeLines(cwd, now) {
   const project = ledger.projectFor(cwd);
   if (!project) return [];
@@ -141,7 +144,7 @@ function worktreeLines(cwd, now) {
   if (!pending.length) return [];
   const shown = pending.slice(0, WORKTREES).map((p) => `- ${ledger.describe(p, now)}`);
   if (pending.length > WORKTREES) shown.push(`- … y ${pending.length - WORKTREES} más`);
-  return [`Worktrees sin integrar (${pending.length}): /arnes:worktree integrate <slug>, o close si no tienen commits propios.`, ...shown];
+  return [`Worktrees sin integrar (${pending.length}): /arnes:worktree integrate <nombre>, o close si no tienen trabajo propio.`, ...shown];
 }
 
 // Los worktrees nativos de Claude Code del repo con trabajo sin subir, como los del registro.
@@ -279,7 +282,7 @@ function sessionStart(input, now = new Date()) {
   }
   surface(project, input, cwd, now);
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
-  const native = ledger.equipNative(cwd).lines;
+  const native = carpeta.equipNative(cwd).lines;
   const w = nativeRoot(project);
   if (w && project.kind === 'folder') carpeta.protect(cwd);
   const pruned = carpeta.pruneOrphans(w ? loadProject(w.main) : project);
@@ -310,9 +313,12 @@ function entered(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
-  const native = ledger.equipNative(cwd).lines;
+  const native = carpeta.equipNative(cwd).lines;
   const w = nativeRoot(project);
   if (!w) return null;
+  const main = loadProject(w.main);
+  if (main && !main.errors.length) fs.rmSync(lockFile(main, input), { force: true });
+  lockSession(project, input, cwd);
   const moved = [];
   if (!fs.existsSync(planPath(project)) && approvedIn(w.main)) branchFlow.enterNative(loadProject(cwd), w, (l) => moved.push(l));
   const list = moved.length ? tasks(read(loadProject(cwd).root)) : null;

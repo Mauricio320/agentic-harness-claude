@@ -60,6 +60,17 @@ function nativeWorktree(dir, name, branch = `worktree-${name}`) {
   return fs.realpathSync.native(wt);
 }
 
+// El worktree que Claude Code le da a un subagente con isolation: worktree (verificado en 2.1.309):
+// <principal>/.claude/worktrees/agent-<id>, en worktree-agent-<id>, desde el HEAD de quien lo lanza,
+// y el SubagentStart que corre en él. launcher es el checkout de la sesión: el principal o un worktree.
+function isolatedDev(launcher, id, { session = 's1', type = 'arnes:dev' } = {}) {
+  const main = path.dirname(git(launcher, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
+  const wt = path.join(main, '.claude', 'worktrees', `agent-${id}`);
+  git(launcher, 'worktree', 'add', '-q', '-b', `worktree-agent-${id}`, wt, 'HEAD');
+  hook('agents', { hook_event_name: 'SubagentStart', agent_id: id, agent_type: type, session_id: session, cwd: wt });
+  return fs.realpathSync.native(wt);
+}
+
 function commitAll(dir, msg = 'cambio') {
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', msg);
@@ -214,6 +225,7 @@ module.exports = {
   repo,
   commitAll,
   nativeWorktree,
+  isolatedDev,
   manifestJson,
   workspace,
   repoManifest,

@@ -1,60 +1,56 @@
 #!/usr/bin/env node
-// Worktrees por tarea de un issue y su registro (docs/PLAN.md §7), en
-// <raíz del proyecto>/.tmp/harness/worktrees.json. No son el camino para trabajar un issue: eso es el
-// worktree nativo de Claude Code (lib/worktree-nativo.js, worktree-carpeta.js). Sirven para dividir un
-// mismo issue en tareas que chocan en los mismos archivos. Cada tarea va en la rama wt/<rama-issue>/<slug>,
-// creada desde la rama del issue (la del checkout principal del workspace), nunca desde la rama por
-// defecto. En una carpeta multi-repo, open abre un set: uno por workspace, con el mismo slug.
-// Integrar es git merge --no-ff en la rama del issue, borrar el worktree y la rama, y cerrar el
-// registro; nunca squash. Desde dentro de un worktree, el registro es el del checkout principal.
+// El registro de los worktrees que el arnés tiene que integrar (docs/PLAN.md §7), en
+// <raíz del proyecto>/.tmp/harness/worktrees.json, y su integración en la rama del issue. No abre
+// worktrees: para trabajar un issue está el worktree nativo de Claude Code (lib/worktree-nativo.js,
+// worktree-carpeta.js), y cuando dos tareas del mismo issue chocarían en los mismos archivos, build
+// lanza al agente dev con isolation: worktree y Claude Code le crea el suyo, en
+// <principal>/.claude/worktrees/agent-<id>, en la rama worktree-agent-<id>, desde el HEAD de la sesión
+// (verificado en 2.1.309). El SubagentStart de ese agente (hooks/agents.js, record) lo anota en el
+// registro del checkout que lo lanzó, con la rama de ese checkout como destino, y le enlaza node_modules
+// para que el dev corra su typecheck y su lint. Claude Code borra solo un worktree de agente sin
+// cambios (los enlaces que el arnés pone están ignorados y Claude Code los quita sin seguirlos).
+// Integrar es: quitar los enlaces sin seguirlos, commitear en la rama del agente lo que dejó sin
+// commitear (lib/rescate.js snapshot, con commit-tree: el dev no commitea), git merge --no-ff en la
+// rama del issue, borrar el worktree y la rama, y cerrar el registro; nunca squash. Lo hace build al
+// cerrar el workspace de ese dev (build.js end --worktree), o la persona con /arnes:worktree integrate.
+// Los registros de los sets de versiones anteriores (ramas wt/<rama-issue>/<slug> en
+// .tmp/harness/worktrees/<ws>/<slug>) se siguen listando e integrando igual.
 //
-// open deja cada worktree usable: por cada workspace del repo enlaza node_modules del checkout
-// principal (junction en Windows, symlink en el resto, lib/links.js) y copia, no enlaza, cada .env*
-// de la raíz del workspace salvo .env.example. La app del worktree la levanta build.js app, con los
-// puertos del worktree en el entorno del proceso, que ganan a cualquier .env (también al del principal
-// que carga el cliente de Prisma por el enlace). Con --no-link no enlaza y corre la instalación del
-// paso deps de setup.js dentro del worktree: para un issue que regenera algo dentro de node_modules,
-// como prisma/schema.prisma. Lo enlazado y lo copiado queda en el registro (links, copies), y
-// integrate y close lo deshacen antes de git worktree remove: un enlace se quita sin seguirlo.
-//
-// Uso: node worktree-ledger.js open <slug> [--ws <nombre>]... [--issue <número, URL o texto>] [--no-link]
-//      node worktree-ledger.js integrate <slug> [--ws <nombre>]...
-//      node worktree-ledger.js close <slug> [--ws <nombre>]...   cierra sin integrar; solo sin commits propios
+// Uso: node worktree-ledger.js integrate <nombre>       agent-<id>, su ruta, o el slug de un set viejo
+//      node worktree-ledger.js close <nombre>           lo borra sin integrar; solo sin trabajo propio
 //      node worktree-ledger.js list [--all] [--json]
 //      node worktree-ledger.js pending [--target <rama>] [--json]
-// Sin --ws, open abre uno por cada workspace adoptable (uno por repo) e integrate y close actúan
-// sobre todo el set del slug. pending lista los abiertos, con sus commits sin integrar, y sin
+// pending lista los abiertos con su trabajo sin integrar (commits y archivos sin commitear), y sin
 // --target también los worktrees nativos de Claude Code del repo (.claude/worktrees) con commits sin
 // subir o cambios sin commitear, con su rama y su antigüedad, y los rescates de trabajo sin commitear
-// que quedaron sin su worktree (lib/rescate.js); nunca borra ninguno.
-// Registro: { ws, path, branch, target, issue, openedAt, status: abierto|integrado|cerrado,
-//             links, copies, copiedDirs, closedAt?, merge? } · worktrees en
-//             <raíz>/.tmp/harness/worktrees/<ws>/<slug>
+// que quedaron sin su worktree (lib/rescate.js); nunca borra ninguno. Un worktree de agente que
+// Claude Code ya borró, sin rama, sale del registro como retirado.
+// Registro: { kind: "agente", name, agent, agentType, path, branch, target, parent, openedAt,
+//             status: abierto|integrado|cerrado|retirado, links, closedAt?, merge? }; los sets viejos
+//           traen ws en vez de parent, y copies y copiedDirs
 // Exit: 0 hecho, o pending sin abiertos · 1 pending con abiertos, o rechazado (motivo en stderr;
-//       un conflicto de merge deja el merge a medias en el checkout principal) · 2 uso inválido o sin manifiesto
+//       un conflicto de merge deja el merge a medias en el checkout) · 2 uso inválido o sin manifiesto
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { loadProject, requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
+const { loadProject, requireProject, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink } = require('./lib/links.js');
-const { DB_VAR } = require('./lib/database.js');
-const { nativeWorktree, nativeWorktrees, nativeRoot } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeWorktrees, nativeRoot, agentWorktree, AGENT, key } = require('./lib/worktree-nativo.js');
+const { present } = require('./lib/puertos.js');
 const rescate = require('./lib/rescate.js');
+const app = require('./lib/app.js');
+const carpeta = require('./worktree-carpeta.js');
 
 const FILE = 'worktrees.json';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const STALE_DAYS = 7;
-const SLUG = /^[a-z0-9][a-z0-9-]*$/;
 
 // ---------- dónde vive el registro ----------
-
-// Clave de comparación de rutas: en Windows, sin distinguir mayúsculas.
-const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
 
 // true si dir está dentro de un worktree enlazado (no el checkout principal).
 function linkedWorktree(dir) {
@@ -87,56 +83,113 @@ function writeLedger(project, entries) {
   fs.writeFileSync(ledgerPath(project), JSON.stringify({ version: 1, worktrees: entries }, null, 2) + '\n');
 }
 
+const valid = (p) => (p && !p.errors.length ? p : null);
+
+// Los checkouts que pueden lanzar un subagente con isolation: worktree en el repo de un worktree de
+// agente: el principal y los worktrees nativos de sesión (no los de otros agentes).
+function launchers(agentPath) {
+  const w = nativeWorktree(agentPath);
+  if (!w) return [];
+  return [w.main, ...nativeWorktrees(w.main).filter((x) => !AGENT.test(x.name)).map((x) => x.path)];
+}
+
+// El proyecto cuyo registro anotó el worktree de agente de agentPath, o null.
+function ownerOf(agentPath) {
+  for (const c of launchers(agentPath)) {
+    const p = valid(loadProject(c));
+    if (p && readLedger(p).some((e) => key(e.path) === key(agentPath))) return p;
+  }
+  return null;
+}
+
 // Proyecto del registro visto desde dir, o null sin manifiesto válido. Un worktree nativo de Claude
 // Code es una sesión con su propio plan y su propia timeline, no una tarea del issue del principal:
 // su proyecto es el suyo (lib/worktree-nativo.js). Vale también para un repo materializado dentro del
-// worktree nativo de una carpeta, que es un worktree de git de ese repo pero vive en el proyecto del
-// worktree, no en el del checkout principal del repo.
+// worktree nativo de una carpeta. El worktree de un subagente es del checkout que lo lanzó: el del
+// registro que lo anotó; sin registro, null, y quien pregunta niega en vez de usar el suyo.
 function projectFor(dir) {
   const d = path.resolve(dir);
+  const a = agentWorktree(d);
+  if (a) return ownerOf(a.path);
   const own = loadProject(d);
   if (own && !own.errors.length && nativeRoot(own)) return own;
-  const p = loadProject(nativeWorktree(d) ? d : mainCheckout(d));
-  return p && !p.errors.length ? p : null;
+  return valid(loadProject(nativeWorktree(d) ? d : mainCheckout(d)));
 }
 
 // ---------- estado de cada registro ----------
 
 const slugOf = (e) => e.branch.split('/').pop();
+const nameOf = (e) => e.name || slugOf(e);
 const wsOf = (project, e) => project.workspaces.find((w) => w.name === e.ws);
+const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDirs || [])];
+
+// El checkout donde se integra: el que lanzó al agente, o el del workspace de un set viejo.
+function repoOf(project, e) {
+  if (e.parent) return path.resolve(e.parent);
+  const ws = wsOf(project, e);
+  return ws ? ws.gitRoot : null;
+}
 
 function currentBranch(dir) {
   const r = git(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
   return r.status === 0 ? r.stdout.trim() : null;
 }
 
-// Commits de la rama que no están en su destino (null si la rama o el destino no existen) y
-// última actividad: el último commit propio, o la apertura si no tiene.
+// Commits de la rama que no están en su destino (null si el destino no existe), archivos sin commitear
+// y última actividad: el último commit propio, el último archivo tocado, o la apertura. gone: la
+// carpeta y la rama ya no existen, como cuando Claude Code borra un worktree de agente sin cambios.
 function stateOf(project, e) {
-  const ws = wsOf(project, e);
-  if (!ws || !refExists(ws.gitRoot, e.target)) return { workspace: ws, ahead: null, last: new Date(e.openedAt) };
-  const ahead = unmerged(ws.gitRoot, e.branch, [e.target]);
+  const repo = repoOf(project, e);
   let last = new Date(e.openedAt);
-  if (ahead && ahead.length) {
-    const t = Number(git(ws.gitRoot, ['log', '-1', '--format=%ct', e.branch]).stdout.trim()) * 1000;
+  const hasBranch = Boolean(repo) && refExists(repo, `refs/heads/${e.branch}`);
+  const gone = !fs.existsSync(e.path) && !hasBranch;
+  if (!repo || !refExists(repo, e.target)) return { repo, ahead: null, dirty: [], last, gone };
+  const ahead = hasBranch ? unmerged(repo, e.branch, [e.target]) || [] : [];
+  if (ahead.length) {
+    const t = Number(git(repo, ['log', '-1', '--format=%ct', e.branch]).stdout.trim()) * 1000;
     if (t > last.getTime()) last = new Date(t);
   }
-  return { workspace: ws, ahead, last };
+  const dirty = fs.existsSync(e.path) ? rescate.dirtyIn(e.path, ownFiles(e)) : [];
+  for (const f of dirty) {
+    try {
+      const t = fs.statSync(path.join(e.path, f)).mtimeMs;
+      if (t > last.getTime()) last = new Date(t);
+    } catch {
+      /* borrado: cuenta como cambio, sin fecha */
+    }
+  }
+  return { repo, ahead, dirty, last, gone };
 }
 
-// Abiertos, con sus commits sin integrar; target limita a los de esa rama de issue.
+// Abiertos que siguen en disco, con su trabajo sin integrar; target limita a los de esa rama de issue.
 function pendingEntries(project, entries, { target } = {}) {
   return entries
     .filter((e) => e.status === 'abierto' && (!target || e.target === target))
-    .map((e) => ({ ...e, ...stateOf(project, e) }));
+    .map((e) => ({ ...e, ...stateOf(project, e) }))
+    .filter((p) => !p.gone);
+}
+
+// Marca como retirados los abiertos que ya no existen: la carpeta y la rama se fueron.
+function sweep(project, now = new Date()) {
+  const entries = readLedger(project);
+  let n = 0;
+  for (const e of entries) {
+    if (e.status !== 'abierto' || !stateOf(project, e).gone) continue;
+    Object.assign(e, { status: 'retirado', closedAt: now.toISOString() });
+    n++;
+  }
+  if (n) writeLedger(project, entries);
+  return n;
 }
 
 // Los worktrees nativos de Claude Code de los repos del proyecto con trabajo sin subir (§7): commits
 // que no están en ningún remoto ni en la rama por defecto local, o cambios sin commitear sin contar
-// los enlaces del arnés. → [{ path, name, branch, unpushed, dirty, created, last }]
+// los enlaces del arnés. Los de agente que el registro tiene abiertos salen en pendingEntries, no aquí.
+// → [{ path, name, branch, unpushed, dirty, created, last }]
 function nativePending(project, now = new Date()) {
   const roots = [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.gitRoot))];
-  return roots.flatMap((r) => nativeWork(r, (project.workspaces.find((x) => x.gitRoot === r) || {}).defaultBranch, now));
+  const open = new Set(readLedger(project).filter((e) => e.status === 'abierto').map((e) => key(e.path)));
+  return roots.flatMap((r) => nativeWork(r, (project.workspaces.find((x) => x.gitRoot === r) || {}).defaultBranch, now)).filter((n) => !open.has(key(n.path)));
 }
 
 // Los rescates de los repos del proyecto cuyo worktree ya no existe: lo que quedaba sin commitear en un
@@ -169,24 +222,22 @@ function describeRescue(x, now = new Date()) {
 function nativeWork(dir, defaultBranch, now = new Date()) {
   const seen = new Set();
   const out = [];
-  {
-    for (const w of nativeWorktrees(dir)) {
-      if (seen.has(norm(w.path)) || !fs.existsSync(w.path)) continue;
-      seen.add(norm(w.path));
-      const def = mergeTargets(w.main, defaultBranch).branch;
-      const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
-      const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
-      const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
-      if (!unpushed && !dirty) continue;
-      let created = now;
-      try {
-        created = fs.statSync(path.join(w.path, '.git')).birthtime;
-      } catch {
-        /* sin .git legible */
-      }
-      const t = Number(git(w.path, ['log', '-1', '--format=%ct']).stdout.trim()) * 1000;
-      out.push({ path: posix(w.path), name: w.name, branch: w.branch, unpushed, dirty, created, last: new Date(Math.max(created.getTime(), t || 0)) });
+  for (const w of nativeWorktrees(dir)) {
+    if (seen.has(key(w.path)) || !fs.existsSync(w.path)) continue;
+    seen.add(key(w.path));
+    const def = mergeTargets(w.main, defaultBranch).branch;
+    const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
+    const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
+    const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
+    if (!unpushed && !dirty) continue;
+    let created = now;
+    try {
+      created = fs.statSync(path.join(w.path, '.git')).birthtime;
+    } catch {
+      /* sin .git legible */
     }
+    const t = Number(git(w.path, ['log', '-1', '--format=%ct']).stdout.trim()) * 1000;
+    out.push({ path: posix(w.path), name: w.name, branch: w.branch, unpushed, dirty, created, last: new Date(Math.max(created.getTime(), t || 0)) });
   }
   return out;
 }
@@ -200,44 +251,117 @@ function describeNative(p, now = new Date()) {
 
 // Destino registrado de una rama o de una carpeta de worktree abierta, o null si no está en el registro.
 function targetOf(dir, { branch, wtPath } = {}) {
-  const project = projectFor(dir);
+  const project = projectFor(dir) || (wtPath ? ownerOf(wtPath) : null);
   if (!project) return null;
-  const e = readLedger(project).find((x) => x.status === 'abierto' && ((branch && x.branch === branch) || (wtPath && norm(x.path) === norm(wtPath))));
+  const e = readLedger(project).find((x) => x.status === 'abierto' && ((branch && x.branch === branch) || (wtPath && key(x.path) === key(wtPath))));
   return e ? e.target : null;
 }
 
-// Los enlaces que open registró en el worktree de wtPath y siguen en disco: un git worktree remove o
-// un ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan). En un
-// worktree nativo, los node_modules que enlazó SessionStart (equipNative), que no van al registro; en
-// un repo materializado dentro del worktree nativo de una carpeta, los que anotó worktree-carpeta.js.
+// Los enlaces del arnés que siguen en disco en el worktree de wtPath: un git worktree remove o un
+// ExitWorktree con ellos vivos los seguiría (guard.js y worktree-remove.js los niegan). En un worktree
+// de agente o de un set viejo, los del registro; en un worktree nativo de sesión, los node_modules que
+// enlazó SessionStart (equipNative), que no van al registro; en un repo materializado dentro del
+// worktree nativo de una carpeta, los que anotó worktree-carpeta.js.
 function liveLinks(wtPath) {
-  const carpeta = require('./worktree-carpeta.js');
   const nested = carpeta.nestedLinks(wtPath);
   if (nested) return nested.filter(isLink);
   const folder = carpeta.folderWorktree(wtPath);
   if (folder) return carpeta.folderLinks(carpeta.readState(folder.project)).map(posix);
+  const owner = agentWorktree(wtPath) ? ownerOf(wtPath) : !nativeWorktree(wtPath) ? projectFor(wtPath) : null;
+  if (owner) {
+    const e = readLedger(owner).find((x) => x.status === 'abierto' && key(x.path) === key(wtPath));
+    if (e) return (e.links || []).filter(isLink);
+  }
   if (nativeWorktree(wtPath)) {
     const p = loadProject(wtPath);
     const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];
     return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].concat(posix(path.join(wtPath, 'graphify-out'))).filter(isLink);
   }
-  const project = projectFor(wtPath);
-  if (!project) return [];
-  const e = readLedger(project).find((x) => x.status === 'abierto' && norm(x.path) === norm(wtPath));
-  return e ? (e.links || []).filter(isLink) : [];
+  return [];
 }
 
 const date = (iso) => String(iso).slice(0, 10);
 
-// Una línea por registro abierto; con más de STALE_DAYS sin commits nuevos lleva el aviso.
-function describe(p, now = new Date()) {
-  const n = p.ahead == null ? 'destino o rama ausente' : `${p.ahead.length} commit(s) sin integrar`;
-  const idle = Math.floor((now - p.last) / DAY_MS);
-  const stale = idle > STALE_DAYS ? ` · ${idle} días sin commits nuevos: intégralo o ciérralo, nunca se borra solo` : '';
-  return `${p.ws} ${p.branch} → ${p.target} · ${n} · abierto el ${date(p.openedAt)}${stale}`;
+// Lo que un registro abierto tiene sin integrar, en palabras.
+function workOf(p) {
+  if (p.ahead == null) return 'destino o rama ausente';
+  const parts = [p.ahead.length && `${p.ahead.length} commit(s)`, p.dirty.length && `${p.dirty.length} archivo(s) sin commitear`].filter(Boolean);
+  return parts.length ? `${parts.join(' y ')} sin integrar` : 'nada sin integrar';
 }
 
-// ---------- operaciones ----------
+// Una línea por registro abierto; con más de STALE_DAYS sin actividad lleva el aviso.
+function describe(p, now = new Date()) {
+  const idle = Math.floor((now - p.last) / DAY_MS);
+  const stale = idle > STALE_DAYS ? ` · ${idle} días sin actividad: intégralo o ciérralo, nunca se borra solo` : '';
+  const who = p.ws ? `${p.ws} ${p.branch}` : `${p.name}${p.agentType ? ` de ${p.agentType}` : ''}`;
+  return `${who} → ${p.target} · ${workOf(p)} · abierto el ${date(p.openedAt)}${stale}`;
+}
+
+// ---------- el SubagentStart de un agente aislado ----------
+
+// El checkout que lanzó al agente del worktree agentPath: el que tiene el lock de la sesión
+// (session-start.js lo escribe al arrancar y al entrar a un worktree con EnterWorktree); si ninguno o
+// más de uno lo tiene, el único cuyo HEAD es el del worktree recién creado; si no, null.
+function parentFor(agentPath, sessionId) {
+  const cands = launchers(agentPath);
+  const id = String(sessionId || '').replace(/[^\w.-]/g, '_');
+  const withLock = id
+    ? cands.filter((c) => {
+        const p = valid(loadProject(c));
+        return p && fs.existsSync(path.join(harnessDir(p), 'sessions', `${id}.json`));
+      })
+    : [];
+  if (withLock.length === 1) return withLock[0];
+  const head = git(agentPath, ['rev-parse', 'HEAD']).stdout.trim();
+  const same = cands.filter((c) => git(c, ['rev-parse', 'HEAD']).stdout.trim() === head);
+  return same.length === 1 ? same[0] : null;
+}
+
+// Anota el worktree de agente de input.cwd en el registro del checkout que lo lanzó y le enlaza el
+// node_modules de cada workspace de ese checkout. Cada enlace se anota antes de crearlo, para que nunca
+// quede uno sin registrar. → el proyecto dueño, o null si cwd no es el worktree de un agente o no se
+// sabe quién lo lanzó.
+function record(input, now = new Date()) {
+  const a = agentWorktree(path.resolve(input.cwd || process.cwd()));
+  if (!a) return null;
+  const known = ownerOf(a.path);
+  if (known) return known;
+  const parent = parentFor(a.path, input.session_id);
+  const project = parent && valid(loadProject(parent));
+  if (!project) return null;
+  const entries = readLedger(project);
+  const e = {
+    kind: 'agente',
+    name: a.name,
+    agent: input.agent_id || null,
+    agentType: input.agent_type || null,
+    path: posix(a.path),
+    branch: a.branch,
+    target: currentBranch(parent),
+    parent: posix(parent),
+    issue: currentBranch(parent),
+    openedAt: now.toISOString(),
+    status: 'abierto',
+    links: [],
+  };
+  entries.push(e);
+  writeLedger(project, entries);
+  for (const ws of project.workspaces.filter((w) => w.adoptable && key(w.gitRoot) === key(parent))) {
+    const src = path.join(ws.dir, 'node_modules');
+    const dst = path.join(a.path, path.relative(parent, ws.dir), 'node_modules');
+    if (!fs.existsSync(src) || present(dst)) continue;
+    e.links.push(posix(dst));
+    writeLedger(project, entries);
+    if (link(fs.realpathSync(src), dst) === 'copy') {
+      e.links.pop();
+      (e.copiedDirs = e.copiedDirs || []).push(posix(dst));
+    }
+  }
+  writeLedger(project, entries);
+  return project;
+}
+
+// ---------- integrar y cerrar ----------
 
 class Refused extends Error {}
 const refuse = (msg) => {
@@ -249,279 +373,21 @@ function ok(r, what) {
   return r;
 }
 
-// Un workspace por repo: en un monorepo, el que está en la raíz del repo, o el primero.
-function perRepo(workspaces) {
-  const byRoot = new Map();
-  for (const ws of workspaces) {
-    const k = norm(ws.gitRoot);
-    if (!byRoot.has(k) || norm(ws.dir) === k) byRoot.set(k, ws);
-  }
-  return [...byRoot.values()];
-}
-
-// Los workspaces del repo de un registro, con su carpeta dentro del worktree.
-function inWorktree(project, e) {
-  const main = wsOf(project, e);
-  return project.workspaces.filter((w) => norm(w.gitRoot) === norm(main.gitRoot)).map((w) => ({ ws: w, dir: path.join(e.path, path.relative(w.gitRoot, w.dir)) }));
-}
-
-// Los .env* de la raíz de un workspace que se copian al worktree: todos menos .env.example.
-function envFiles(dir) {
-  let names = [];
-  try {
-    names = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && /^\.env(\..+)?$/.test(d.name) && d.name !== '.env.example').map((d) => d.name);
-  } catch {
-    /* sin carpeta */
-  }
-  return names.sort();
-}
-
-const present = (p) => {
-  try {
-    fs.lstatSync(p);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// Deja el worktree usable: node_modules enlazado (o instalado con --no-link) y los .env copiados.
-// Cada enlace se anota en el registro antes de crearlo, para que nunca quede uno sin registrar.
-function equip(project, entries, e, noLink, say) {
-  Object.assign(e, { links: [], copies: [], copiedDirs: [] });
-  for (const { ws, dir } of inWorktree(project, e)) {
-    const nm = path.join(ws.dir, 'node_modules');
-    const dst = path.join(dir, 'node_modules');
-    if (noLink) {
-      const { installIn } = require('./setup.js');
-      installIn(dir, ws.forbidden || [], true, (m) => say(`${ws.name}: ${m}`));
-    } else if (!fs.existsSync(nm)) say(`${ws.name}: el checkout principal no tiene node_modules; no enlazo nada (instálalas en el principal, o abre con --no-link)`);
-    else if (present(dst)) say(`${ws.name}: el worktree ya trae node_modules; no lo toco`);
-    else {
-      e.links.push(posix(dst));
-      writeLedger(project, entries);
-      if (link(nm, dst) === 'copy') {
-        e.links.pop();
-        e.copiedDirs.push(posix(dst));
-        say(`${ws.name}: node_modules copiado, no se pudo enlazar`);
-      } else say(`${ws.name}: node_modules enlazado desde ${posix(nm)}`);
-    }
-    for (const f of envFiles(ws.dir)) {
-      const to = path.join(dir, f);
-      if (present(to)) continue;
-      fs.mkdirSync(dir, { recursive: true });
-      fs.copyFileSync(path.join(ws.dir, f), to);
-      e.copies.push(posix(to));
-    }
-    if (e.copies.length) say(`${ws.name}: copiados ${e.copies.filter((c) => norm(path.dirname(c)) === norm(dir)).map((c) => path.basename(c)).join(', ')}`);
-  }
-  writeLedger(project, entries);
-}
-
-function open(project, slug, { ws: names, issue, 'no-link': noLink, 'port-offset': rawOffset } = {}, now = new Date()) {
-  const portOffset = rawOffset === undefined ? undefined : Number(rawOffset);
-  if (portOffset !== undefined && !(Number.isInteger(portOffset) && portOffset >= 0)) refuse(`--port-offset tiene que ser un entero mayor o igual a 0, no "${rawOffset}"`);
-  if (!SLUG.test(slug)) refuse(`slug inválido "${slug}": minúsculas, números y guiones`);
-  const chosen = names && names.length ? selectWorkspaces(project, names) : project.workspaces.filter((w) => w.adoptable);
-  if (!chosen.length) refuse('no hay workspaces adoptables donde abrir');
+// Los abiertos que nombra name: agent-<id>, la ruta del worktree, o el slug de un set viejo.
+function named(project, name) {
   const entries = readLedger(project);
-  const plan = perRepo(chosen).map((ws) => {
-    const target = currentBranch(ws.gitRoot);
-    if (!target || target === 'HEAD') refuse(`${ws.name}: HEAD suelto; el checkout principal tiene que estar en la rama del issue`);
-    const defaults = ws.defaultBranch ? [ws.defaultBranch] : ['main', 'master'];
-    if (defaults.includes(target)) refuse(`${ws.name}: está en ${target}, la rama por defecto; nunca se abre desde ahí. Cámbiate a la rama del issue primero`);
-    const branch = `wt/${target}/${slug}`;
-    if (refExists(ws.gitRoot, branch)) refuse(`${ws.name}: la rama ${branch} ya existe`);
-    if (entries.some((e) => e.status === 'abierto' && e.ws === ws.name && slugOf(e) === slug)) refuse(`${ws.name}: ya hay un worktree abierto con slug ${slug}`);
-    const dir = path.join(harnessDir(project), 'worktrees', ws.name, slug);
-    if (fs.existsSync(dir)) refuse(`${ws.name}: la carpeta ${posix(dir)} ya existe`);
-    return { ws, target, branch, dir };
-  });
-  const out = [];
-  for (const p of plan) {
-    fs.mkdirSync(path.dirname(p.dir), { recursive: true });
-    ok(git(p.ws.gitRoot, ['worktree', 'add', '-q', '-b', p.branch, p.dir, p.target]), `git worktree add en ${p.ws.name}`);
-    const e = { ws: p.ws.name, path: posix(p.dir), branch: p.branch, target: p.target, issue: issue || p.target, openedAt: now.toISOString(), status: 'abierto' };
-    entries.push(e);
-    writeLedger(project, entries);
-    out.push(`abierto ${e.ws}: ${e.path} en ${e.branch} (desde ${e.target})`);
-    require('./lib/issues.js').record(project, { sets: [{ ws: e.ws, path: e.path, branch: e.branch }] });
-    equip(project, entries, e, noLink, (m) => out.push(`  ${m}`));
-  }
-  const set = entries.filter((e) => e.status === 'abierto' && slugOf(e) === slug);
-  const offset = portOffset === undefined ? pickOffset(entries, slug) : portOffset;
-  out.push(movePorts(project, set, slug, offset));
-  writeLedger(project, entries);
-  return out;
+  const hits = entries.filter((e) => e.status === 'abierto' && (nameOf(e) === name || key(e.path) === key(path.resolve(name))));
+  if (!hits.length) refuse(`no hay un worktree abierto que se llame ${name}`);
+  return { entries, hits };
 }
 
-// Puertos (§7): un set abierto corre su app al lado de la del checkout principal. Cada set toma un
-// desplazamiento múltiplo de 10 que no use otro set abierto: el primero 10, el segundo 20.
-const PORT_LINE = /^(\s*(?:export\s+)?([A-Za-z0-9_]*PORT)\s*=\s*)(["']?)(\d+)\3(\s*(?:#.*)?)$/i;
-const LOCAL_PORT = /\b(localhost|127\.0\.0\.1):(\d+)\b/g;
-// El puerto de la app, no el de su base: DB_PORT o MYSQL_PORT apuntan a la base que el worktree
-// comparte con el principal, y desplazarlos lo dejaría sin base.
-const appPort = (l) => {
-  const m = l.match(PORT_LINE);
-  return m && !DB_VAR.test(m[2]) ? { head: m[1], quote: m[3], port: Number(m[4]), tail: m[5] } : null;
-};
-
-function pickOffset(entries, slug) {
-  const used = new Set(entries.filter((e) => e.status === 'abierto' && slugOf(e) !== slug && e.ports).map((e) => e.ports.offset));
-  let o = 10;
-  while (used.has(o)) o += 10;
-  return o;
-}
-
-// En las copias de .env del set: cada variable que termina en PORT con valor numérico suma el
-// desplazamiento, salvo la de una base (DB_PORT, MYSQL_PORT…), y cada localhost:<puerto> o 127.0.0.1:<puerto> que apunta al puerto original de
-// otro workspace del set pasa al nuevo, para que el front del worktree hable con su back. Con 0 no
-// se toca nada. Anota { offset, map } en cada registro del set. → la línea del mapa
-function movePorts(project, set, slug, offset) {
-  const files = set.flatMap((e) => inWorktree(project, e).flatMap(({ ws, dir }) => (e.copies || []).filter((c) => norm(path.dirname(c)) === norm(dir)).map((file) => ({ ws: ws.name, file }))));
-  const map = shiftPorts(files, offset);
-  for (const e of set) e.ports = { offset, map: offset ? map : [] };
-  if (!offset) return `set ${slug}: --port-offset 0, los puertos quedan como en el principal`;
-  return portsText(slug, set[0].ports);
-}
-
-// Desplaza los puertos de las copias de .env, [{ ws, file }], como dice movePorts. → el mapa
-function shiftPorts(files, offset) {
-  const own = new Map();
-  for (const f of files) {
-    for (const l of fs.readFileSync(f.file, 'utf8').split(/\r?\n/)) {
-      const m = appPort(l);
-      if (m) own.set(f.ws, [...new Set([...(own.get(f.ws) || []), m.port])]);
-    }
-  }
-  const map = [...own].flatMap(([ws, ports]) => ports.map((from) => ({ ws, from, to: from + offset })));
-  if (!offset) return map;
-  for (const f of files) {
-    const others = new Set([...own].filter(([ws]) => ws !== f.ws).flatMap(([, p]) => p));
-    const text = fs.readFileSync(f.file, 'utf8');
-    const next = text
-      .split(/(\r?\n)/)
-      .map((l) => {
-        const m = appPort(l);
-        if (m) return `${m.head}${m.quote}${m.port + offset}${m.quote}${m.tail}`;
-        return l.replace(LOCAL_PORT, (all, host, p) => (others.has(Number(p)) ? `${host}:${Number(p) + offset}` : all));
-      })
-      .join('');
-    if (next !== text) fs.writeFileSync(f.file, next);
-  }
-  return map;
-}
-
-// ---------- worktrees nativos de Claude Code (§7) ----------
-
-const NATIVE_PORTS = 'puertos.json';
-
-// Los desplazamientos que ya usan los sets abiertos del registro del principal y los otros worktrees
-// nativos del repo, para que la app de cada uno corra al lado de las demás.
-function usedOffsets(w) {
-  const used = new Set();
-  const main = loadProject(w.main);
-  if (main && !main.errors.length) for (const e of readLedger(main)) if (e.status === 'abierto' && e.ports) used.add(e.ports.offset);
-  for (const o of nativeWorktrees(w.main)) {
-    if (norm(o.path) === norm(w.path)) continue;
-    try {
-      used.add(JSON.parse(fs.readFileSync(path.join(o.path, '.tmp', 'harness', NATIVE_PORTS), 'utf8')).offset);
-    } catch {
-      /* sin puertos propios */
-    }
-  }
-  return used;
-}
-
-// Lo que SessionStart hace en un worktree nativo de un workspace adoptable: enlaza el node_modules
-// del checkout principal donde falta, con el mismo helper que open, y desplaza una sola vez los
-// puertos de los .env que copió .worktreeinclude, con un desplazamiento que no use otro set ni otro
-// worktree nativo; lo anota en <worktree>/.tmp/harness/puertos.json y después solo repite el mapa.
-// Sin .env no toca puertos. En el worktree nativo de una carpeta multi-repo, materializa adentro los
-// repos (worktree-carpeta.js). → { lines, links } con lo que pasó, en palabras, y lo enlazado
-function equipNative(dir) {
-  const w = nativeWorktree(dir);
-  if (!w) return { lines: [], links: [] };
-  const project = loadProject(w.path);
-  if (!project || project.errors.length) return { lines: [], links: [] };
-  if (project.kind === 'folder') return require('./worktree-carpeta.js').materialize(w.path);
-  const wss = project.workspaces.filter((ws) => ws.adoptable && (norm(ws.dir) === norm(w.path) || norm(ws.dir).startsWith(norm(w.path) + path.sep)));
-  const lines = [];
-  const links = [];
-  for (const ws of wss) {
-    const dst = path.join(ws.dir, 'node_modules');
-    const src = path.join(w.main, path.relative(w.path, ws.dir), 'node_modules');
-    if (present(dst)) continue;
-    if (!fs.existsSync(src)) {
-      lines.push(`${ws.name}: ni este worktree ni el checkout principal tienen las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
-      continue;
-    }
-    if (link(src, dst) === 'copy') lines.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);
-    else {
-      links.push(posix(dst));
-      lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
-    }
-  }
-  // El grafo de código del checkout principal, para que plan lo consulte desde aquí.
-  const graph = path.join(w.path, 'graphify-out');
-  if (fs.existsSync(path.join(w.main, 'graphify-out')) && !present(graph) && link(path.join(w.main, 'graphify-out'), graph) === 'link') {
-    links.push(posix(graph));
-    lines.push('enlacé el grafo de código del checkout principal, para consultarlo desde aquí');
-  }
-  const state = path.join(harnessDir(project), NATIVE_PORTS);
-  let ports = null;
-  try {
-    ports = JSON.parse(fs.readFileSync(state, 'utf8'));
-  } catch {
-    const files = wss.flatMap((ws) => envFiles(ws.dir).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
-    if (files.length) {
-      const used = usedOffsets(w);
-      let offset = 10;
-      while (used.has(offset)) offset += 10;
-      ports = { offset, map: shiftPorts(files, offset), at: new Date().toISOString() };
-      fs.mkdirSync(path.dirname(state), { recursive: true });
-      fs.writeFileSync(state, JSON.stringify(ports, null, 2) + '\n');
-    }
-  }
-  if (ports && ports.map.length) lines.push(portsLine(ports));
-  return { lines, links };
-}
-
-// La línea de los puertos de un worktree nativo: la app se levanta pidiéndola, y build la arranca
-// desde aquí con ellos en el entorno del proceso.
-const portsLine = (ports) => `puertos de este worktree: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}; la app se levanta desde aquí con ellos: pide que la levanten y quedan en su entorno, por encima de cualquier .env`;
-
-const portsText = (slug, ports) =>
-  !ports ? '' : !ports.offset ? `set ${slug}: puertos como en el principal` : ports.map.length ? `set ${slug}: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}` : `set ${slug}: sin variables *PORT en los .env copiados (desplazamiento ${ports.offset})`;
-
-function setOf(project, slug, names) {
-  const entries = readLedger(project);
-  const set = entries.filter((e) => e.status === 'abierto' && slugOf(e) === slug && (!names || !names.length || names.includes(e.ws)));
-  if (!set.length) refuse(`no hay worktrees abiertos con slug ${slug}`);
-  return { entries, set };
-}
-
-// Cambios sin commitear del worktree, sin contar el estado del arnés de una sesión que corrió ahí
-// ni lo que open enlazó o copió.
-function dirtyIn(dir, own = []) {
-  const r = git(dir, ['status', '--porcelain', '--untracked-files=all']);
-  if (r.status !== 0) return [];
-  const mine = new Set(own.map((p) => posix(path.relative(dir, p))));
-  return lines(r.stdout)
-    .map((l) => l.slice(3).replace(/^"|"$/g, '').replace(/\/$/, ''))
-    .filter((f) => f !== rescate.MARKER && !f.startsWith('.tmp/harness/') && !mine.has(f) && ![...mine].some((m) => f.startsWith(`${m}/`)));
-}
-
-const ownFiles = (e) => [...(e.links || []), ...(e.copies || []), ...(e.copiedDirs || [])];
-
-// Deshace lo que open dejó, en orden y anotando cada paso en el registro: primero los enlaces, sin
-// seguirlos (rmdir o unlink, nunca un borrado recursivo: git worktree remove borraría lo que hay
-// detrás, como el 2026-10-19); después las copias de .env y la carpeta copiada si un enlace cayó a
-// copia. Si algo falla, el registro queda abierto con `undo` diciendo qué quedó, y no hay remove.
+// Deshace lo que el arnés dejó en el worktree, en orden y anotando cada paso en el registro: primero
+// los enlaces, sin seguirlos (rmdir o unlink, nunca un borrado recursivo: git worktree remove borraría
+// lo que hay detrás, como el 2026-10-19); después las copias de .env y la carpeta copiada de un set
+// viejo. Si algo falla, el registro queda abierto con `undo` diciendo qué quedó, y no hay remove.
 function undo(project, entries, e) {
-  const app = require('./lib/app.js');
   const alive = app.blocking(app.stopUnder(e.path));
-  if (alive.length) refuse(`${e.ws}: ${alive.map((r) => r.line).join('; ')}; no corrí git worktree remove, porque la app viva bloquea la carpeta`);
+  if (alive.length) refuse(`${nameOf(e)}: ${alive.map((r) => r.line).join('; ')}; no corrí git worktree remove, porque la app viva bloquea la carpeta`);
   const left = [];
   e.links = (e.links || []).filter((l) => {
     const err = unlink(l);
@@ -540,8 +406,8 @@ function undo(project, entries, e) {
         }
       }
     }
-    e.copies = (e.copies || []).filter(present);
-    e.copiedDirs = (e.copiedDirs || []).filter(present);
+    if (e.copies) e.copies = e.copies.filter(present);
+    if (e.copiedDirs) e.copiedDirs = e.copiedDirs.filter(present);
   }
   if (!left.length) {
     delete e.undo;
@@ -550,79 +416,80 @@ function undo(project, entries, e) {
   }
   e.undo = { at: new Date().toISOString(), left, links: e.links, copies: e.copies, copiedDirs: e.copiedDirs };
   writeLedger(project, entries);
-  refuse(`${e.ws}: no se pudo deshacer lo que abrió el worktree (${left.join('; ')}). No corrí git worktree remove; el registro sigue abierto y dice qué quedó en undo`);
+  refuse(`${nameOf(e)}: no se pudo deshacer lo que el arnés dejó en el worktree (${left.join('; ')}). No corrí git worktree remove; el registro sigue abierto y dice qué quedó en undo`);
 }
 
-// Borra el worktree y su rama, después de deshacer lo que open dejó. La rama ya no tiene commits
+// Borra el worktree y su rama, después de deshacer lo que el arnés dejó. La rama ya no tiene commits
 // fuera del destino: -d basta.
-function removeWorktree(project, entries, ws, e) {
+function removeWorktree(project, entries, repo, e) {
   undo(project, entries, e);
   if (fs.existsSync(e.path)) {
     fs.rmSync(path.join(e.path, '.tmp', 'harness'), { recursive: true, force: true });
-    ok(git(ws.gitRoot, ['worktree', 'remove', e.path]), `git worktree remove ${e.path}`);
-  } else git(ws.gitRoot, ['worktree', 'prune']);
-  if (refExists(ws.gitRoot, e.branch)) ok(git(ws.gitRoot, ['branch', '-d', e.branch]), `git branch -d ${e.branch}`);
+    ok(git(repo, ['worktree', 'remove', e.path]), `git worktree remove ${e.path}`);
+  } else git(repo, ['worktree', 'prune']);
+  if (refExists(repo, `refs/heads/${e.branch}`)) ok(git(repo, ['branch', '-d', e.branch]), `git branch -d ${e.branch}`);
 }
 
-function checkClean(e) {
-  const dirty = fs.existsSync(e.path) ? dirtyIn(e.path, ownFiles(e)) : [];
-  if (dirty.length) refuse(`${e.ws}: el worktree tiene cambios sin commitear (${dirty.slice(0, 3).join(', ')}); commitéalos ahí o descártalos tú`);
-}
-
-function integrate(project, slug, { ws: names } = {}, now = new Date()) {
-  const { entries, set } = setOf(project, slug, names);
-  const out = [];
-  for (const e of set) {
-    const ws = wsOf(project, e);
-    if (!ws) refuse(`${e.ws}: ya no está en el manifiesto`);
-    checkClean(e);
-    const cur = currentBranch(ws.gitRoot);
-    if (cur !== e.target) refuse(`${e.ws}: el checkout principal está en ${cur}, no en ${e.target}; cámbiate a ${e.target} para integrar`);
-    if (git(ws.gitRoot, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0) {
-      refuse(`${e.ws}: hay un merge a medias en ${posix(ws.gitRoot)}; resuelve, verifica y commitea, y vuelve a correr integrate`);
+function integrateOne(project, entries, e, now) {
+  const repo = repoOf(project, e);
+  if (!repo) refuse(`${nameOf(e)}: su workspace ya no está en el manifiesto`);
+  const cur = currentBranch(repo);
+  if (cur !== e.target) refuse(`${nameOf(e)}: ${posix(repo)} está en ${cur}, no en ${e.target}; cámbiate a ${e.target} para integrar`);
+  if (git(repo, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0) {
+    refuse(`${nameOf(e)}: hay un merge a medias en ${posix(repo)}; resuelve, verifica y commitea, y vuelve a integrar`);
+  }
+  if (fs.existsSync(e.path)) {
+    undo(project, entries, e);
+    if (rescate.dirtyIn(e.path, ownFiles(e)).length && !rescate.snapshot(e.path, `arnes: el trabajo de ${e.agentType || 'un agente'} en ${nameOf(e)}`, ownFiles(e))) {
+      refuse(`${nameOf(e)}: git no pudo guardar lo que el worktree tiene sin commitear; no toqué nada`);
     }
-    const ahead = unmerged(ws.gitRoot, e.branch, [e.target]);
-    if (ahead == null) refuse(`${e.ws}: la rama ${e.branch} ya no existe; ciérralo con close si su trabajo está en ${e.target}`);
-    let merge = null;
-    if (ahead.length) {
-      const r = git(ws.gitRoot, ['merge', '--no-ff', '--no-edit', e.branch]);
-      if (r.status !== 0) {
-        const conflicts = lines(git(ws.gitRoot, ['diff', '--name-only', '--diff-filter=U']).stdout);
-        refuse(
-          `${e.ws}: conflicto al integrar ${e.branch} en ${e.target}${conflicts.length ? ` (${conflicts.join(', ')})` : `: ${firstLine(r.stderr || r.stdout)}`}. ` +
-            'El merge quedó a medias en el checkout principal: resuelve, verifica, commitea y vuelve a correr integrate',
-        );
-      }
-      merge = git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim();
-      e.merge = merge;
-      writeLedger(project, entries);
+    const rest = rescate.dirtyIn(e.path, ownFiles(e));
+    if (rest.length) refuse(`${nameOf(e)}: el worktree sigue con cambios sin commitear (${rest.slice(0, 3).join(', ')}); no toqué nada`);
+  }
+  const ahead = refExists(repo, `refs/heads/${e.branch}`) ? unmerged(repo, e.branch, [e.target]) : [];
+  if (ahead == null) refuse(`${nameOf(e)}: el destino ${e.target} no existe`);
+  let merge = null;
+  if (ahead.length) {
+    const r = git(repo, ['merge', '--no-ff', '--no-edit', e.branch]);
+    if (r.status !== 0) {
+      const conflicts = lines(git(repo, ['diff', '--name-only', '--diff-filter=U']).stdout);
+      refuse(
+        `${nameOf(e)}: conflicto al integrar ${e.branch} en ${e.target}${conflicts.length ? ` (${conflicts.join(', ')})` : `: ${firstLine(r.stderr || r.stdout)}`}. ` +
+          'El merge quedó a medias en el checkout: resuelve leyendo los dos lados, verifica, commitea y vuelve a integrar',
+      );
     }
-    removeWorktree(project, entries, ws, e);
-    merge = merge || e.merge || null;
-    Object.assign(e, { status: 'integrado', closedAt: now.toISOString(), merge });
+    merge = git(repo, ['rev-parse', '--short', 'HEAD']).stdout.trim();
+    e.merge = merge;
     writeLedger(project, entries);
-    out.push(`integrado ${e.ws}: ${e.branch} → ${e.target}${merge ? ` con el merge ${merge} (${ahead.length} commit(s))` : ', sin commits propios'}; worktree y rama borrados`);
   }
-  return out;
+  removeWorktree(project, entries, repo, e);
+  merge = merge || e.merge || null;
+  Object.assign(e, { status: 'integrado', closedAt: now.toISOString(), merge });
+  writeLedger(project, entries);
+  return `integrado ${nameOf(e)}: ${e.branch} → ${e.target}${merge ? ` con el merge ${merge} (${ahead.length} commit(s))` : ', sin trabajo propio'}; worktree y rama borrados`;
 }
 
-function close(project, slug, { ws: names } = {}, now = new Date()) {
-  const { entries, set } = setOf(project, slug, names);
-  for (const e of set) {
-    const ws = wsOf(project, e);
-    if (!ws) refuse(`${e.ws}: ya no está en el manifiesto`);
-    const ahead = refExists(ws.gitRoot, e.branch) ? unmerged(ws.gitRoot, e.branch, [e.target]) : [];
-    if (ahead == null) refuse(`${e.ws}: el destino ${e.target} no existe`);
-    if (ahead.length) refuse(`${e.ws}: ${e.branch} tiene ${ahead.length} commit(s) sin integrar en ${e.target}; intégralo, o bórralo tú desde tu terminal si de verdad se descarta`);
-    checkClean(e);
+function integrate(project, name, now = new Date()) {
+  const { entries, hits } = named(project, name);
+  return hits.map((e) => integrateOne(project, entries, e, now));
+}
+
+function close(project, name, now = new Date()) {
+  const { entries, hits } = named(project, name);
+  for (const e of hits) {
+    const s = stateOf(project, e);
+    if (!s.repo) refuse(`${nameOf(e)}: su workspace ya no está en el manifiesto`);
+    if (s.ahead == null) refuse(`${nameOf(e)}: el destino ${e.target} no existe`);
+    if (s.ahead.length) refuse(`${nameOf(e)}: ${e.branch} tiene ${s.ahead.length} commit(s) sin integrar en ${e.target}; intégralo, o bórralo tú desde tu terminal si de verdad se descarta`);
+    if (s.dirty.length) refuse(`${nameOf(e)}: el worktree tiene cambios sin commitear (${s.dirty.slice(0, 3).join(', ')}); intégralo, o descártalos tú`);
   }
-  return set.map((e) => {
-    const ws = wsOf(project, e);
-    const gone = !refExists(ws.gitRoot, e.branch) && !fs.existsSync(e.path);
-    removeWorktree(project, entries, ws, e);
+  return hits.map((e) => {
+    const repo = repoOf(project, e);
+    const gone = !refExists(repo, `refs/heads/${e.branch}`) && !fs.existsSync(e.path);
+    removeWorktree(project, entries, repo, e);
     Object.assign(e, { status: 'cerrado', closedAt: now.toISOString() });
     writeLedger(project, entries);
-    return `cerrado ${e.ws}: ${e.branch}, ${gone ? 'el worktree y la rama ya no existían' : 'sin commits propios; worktree y rama borrados'}`;
+    return `cerrado ${nameOf(e)}: ${e.branch}, ${gone ? 'el worktree y la rama ya no existían' : 'sin trabajo propio; worktree y rama borrados'}`;
   });
 }
 
@@ -635,15 +502,11 @@ module.exports = {
   readLedger,
   writeLedger,
   projectFor,
-  equipNative,
+  ownerOf,
+  parentFor,
+  record,
+  sweep,
   pendingEntries,
-  envFiles,
-  shiftPorts,
-  usedOffsets,
-  portsLine,
-  dirtyIn,
-  present,
-  NATIVE_PORTS,
   nativePending,
   rescuePending,
   describeRescue,
@@ -652,7 +515,6 @@ module.exports = {
   targetOf,
   liveLinks,
   describe,
-  open,
   integrate,
   close,
   Refused,
@@ -666,12 +528,8 @@ function main() {
     args = parseArgs({
       allowPositionals: true,
       options: {
-        ws: { type: 'string', multiple: true },
-        issue: { type: 'string' },
         target: { type: 'string' },
         all: { type: 'boolean' },
-        'no-link': { type: 'boolean' },
-        'port-offset': { type: 'string' },
         json: { type: 'boolean' },
         help: { type: 'boolean', short: 'h' },
       },
@@ -681,21 +539,22 @@ function main() {
   }
   const o = args.values;
   if (o.help) help(__filename);
-  const [mode, slug] = args.positionals;
-  const ops = { open, integrate, close };
-  if (!(mode in ops) && !['list', 'pending'].includes(mode)) die('uso: worktree-ledger.js open|integrate|close <slug> | list | pending; ver --help');
-  if (mode in ops && !slug) die(`worktree-ledger: ${mode} necesita un slug`);
-  const project = requireProject(mainCheckout(process.cwd()));
+  const [mode, name] = args.positionals;
+  const ops = { integrate, close };
+  if (!(mode in ops) && !['list', 'pending'].includes(mode)) die('uso: worktree-ledger.js integrate|close <nombre> | list | pending; ver --help');
+  if (mode in ops && !name) die(`worktree-ledger: ${mode} necesita el nombre del worktree`);
+  const project = projectFor(process.cwd()) || requireProject(process.cwd());
 
   if (mode in ops) {
     try {
-      console.log(ops[mode](project, slug, o).join('\n'));
+      console.log(ops[mode](project, name).join('\n'));
     } catch (e) {
       if (e instanceof Refused) die(`worktree-ledger ${mode}: ${e.message}`, 1);
       throw e;
     }
     return;
   }
+  sweep(project);
   const entries = readLedger(project);
   if (mode === 'list') {
     const shown = o.all ? entries : entries.filter((e) => e.status === 'abierto');
@@ -703,11 +562,9 @@ function main() {
     if (!shown.length) return console.log(`sin worktrees${o.all ? '' : ' abiertos'} en ${posix(ledgerPath(project))}`);
     console.log(`registro · ${posix(ledgerPath(project))}`);
     for (const e of shown) {
-      const extra = e.status === 'abierto' ? describe({ ...e, ...stateOf(project, e) }) : `${e.ws} ${e.branch} → ${e.target} · ${e.closedAt ? `el ${date(e.closedAt)}` : ''}${e.merge ? ` · merge ${e.merge}` : ''}`;
-      console.log(`${e.status.padEnd(10)} ${extra} · issue ${e.issue} · ${e.path}`);
+      const extra = e.status === 'abierto' ? describe({ ...e, ...stateOf(project, e) }) : `${nameOf(e)} ${e.branch} → ${e.target} · ${e.closedAt ? `el ${date(e.closedAt)}` : ''}${e.merge ? ` · merge ${e.merge}` : ''}`;
+      console.log(`${e.status.padEnd(10)} ${extra} · ${e.path}`);
     }
-    const sets = new Map(shown.filter((e) => e.status === 'abierto' && e.ports).map((e) => [slugOf(e), e.ports]));
-    for (const [slug, ports] of sets) console.log(portsText(slug, ports));
     return;
   }
   const pending = pendingEntries(project, entries, { target: o.target });
@@ -715,7 +572,7 @@ function main() {
   const rescues = o.target ? [] : rescuePending(project);
   if (o.json) {
     console.log(JSON.stringify([
-      ...pending.map(({ workspace, ahead, last, ...e }) => ({ ...e, ahead: ahead && ahead.length, lastActivity: last.toISOString() })),
+      ...pending.map(({ ahead, dirty, last, repo, gone, ...e }) => ({ ...e, ahead: ahead && ahead.length, dirty: dirty.length, lastActivity: last.toISOString() })),
       ...natives.map((n) => ({ nativo: true, ...n, created: n.created.toISOString(), last: n.last.toISOString() })),
       ...rescues.map((x) => ({ rescate: true, ...x, at: x.at.toISOString() })),
     ], null, 2));

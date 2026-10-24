@@ -39,6 +39,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, requireProject } = require('./manifest.js');
 const { help, die } = require('./exec.js');
+const issues = require('./issues.js');
 
 const FILE = 'timeline.jsonl';
 
@@ -328,7 +329,7 @@ function main() {
   const list = event === 'note' ? null : tasks(read(root));
   if (list) console.log(`tareas: ${JSON.stringify(list)}`);
   // El estado del issue (lib/issues.js): un build que cerró bien lo deja construido.
-  if (event === 'end' && stage === 'build' && args.values.result === 'ok') require('./issues.js').setState(requireProject(dir), 'construido', args.values.ws);
+  if (event === 'end' && stage === 'build' && args.values.result === 'ok') issues.setState(requireProject(dir), 'construido', args.values.ws);
 }
 
 if (require.main === module) main();
