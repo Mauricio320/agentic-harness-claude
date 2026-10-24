@@ -23,6 +23,7 @@ Ronda de consolidación: no agrega funciones; quita turnos, duplicación y hueco
 - El inicio del turno que mira el Stop va en la foto (`_desde` de `turn.json`), no en la fecha del archivo, que ahora el mod reescribe con cada prompt.
 - La protección de secretos por shell ya no depende de una lista de lectores: se niega cualquier comando cuyos argumentos nombren un archivo de secretos, también dentro de un argumento (`node -e`, `--env-file=.env`), con el contenido enmascarado en el motivo. `tail`, `more`, `sed`, `grep`, `Select-String` y `node -e` caen igual que `cat`. Solo pasan `ls`, `dir` y `rm` (y `Get-ChildItem` y `Remove-Item`), sin tubería ni sustitución, y escribir por redirección (`> .env`).
 - arnes-mod: un mensaje con signo de interrogación al inicio o al final pasa como pregunta sin llamar a haiku, aunque traiga un verbo de cambio ("¿cómo funciona el servicio que crea facturas?"); el resto lo decide haiku.
+- arnes-ui para su vigía antes de ExitWorktree: el proceso, con el cwd en el worktree y observando su `.tmp/harness`, retenía la carpeta en Windows y Claude Code no podía borrarla al salir con `remove`.
 
 ## [0.6.9] - sin etiquetar
 

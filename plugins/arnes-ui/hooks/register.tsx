@@ -35,7 +35,7 @@ const GATE_MS = 3000
 // Variables del módulo: una recarga las pierde y session.start las vuelve a llenar.
 let ws: Ws[] = []
 let [root, cwd, base] = ['', '', '']
-let vigia: { stop: () => void } | null = null
+let vigia: { stop: () => Promise<void> } | null = null
 let gateAt = -Infinity
 const [said, warned] = [new Set<string>(), new Set<string>()]
 // Lo que marcaba /cost al ver el start de cada etapa (etapa|workspace): con eso se anota su costo.
@@ -86,18 +86,20 @@ async function load($: $): Promise<void> {
 }
 
 // vigia.js por la vida de la sesión: cada línea es la timeline o el gate según el plugin base. Al
-// cambiar de proyecto (entrar o salir de un worktree), el anterior se para y se lanza otro.
+// cambiar de proyecto (entrar o salir de un worktree), el anterior se para y se lanza otro. Antes de
+// ExitWorktree se para y se espera a que el proceso termine: corre en el worktree y observa su
+// .tmp/harness, y en Windows eso retiene la carpeta, así que Claude Code no podía borrarla
+// (comprobado con 2.1.309: sin arnes-ui la borra, con el vigía vivo dice "could not remove it").
 function watch($: $): void {
-  vigia?.stop()
-  vigia = null
+  void unwatch()
   if (!base || !root) return
   let stopped = false
-  const mine = { stop: () => void (stopped = true) }
+  const mine = { stop: () => ((stopped = true), Promise.resolve()) }
   vigia = mine
   void (async () => {
     const startedAt = (await read($, session))?.startedAt ?? 0
     const stream = $.process.spawn({ argv: ['node', script('vigia.js'), '--desde-sesion', String(startedAt)], cwd })
-    mine.stop = () => void ((stopped = true), stream.return(undefined as never).catch(() => {}))
+    mine.stop = () => ((stopped = true), stream.return(undefined as never).then(() => {}, () => {}))
     let buf = ''
     for await (const piece of stream) {
       if (stopped) break
@@ -111,6 +113,12 @@ function watch($: $): void {
     }
     if (vigia === mine) vigia = null
   })().catch((err) => void safe($, 'vigía', () => Promise.reject(err)))
+}
+
+function unwatch(): Promise<void> {
+  const v = vigia
+  vigia = null
+  return v ? v.stop() : Promise.resolve()
 }
 
 async function apply($: $, msg: any): Promise<void> {
@@ -245,6 +253,7 @@ export const register: Register = (on) => {
       if (e.agentId) await update($, agents, (l) => l.map((a) => (a.id === e.agentId ? { ...a, lastTool: e.tool } : a)))
       if (!e.agentId && (e.tool === 'Bash' || e.tool === 'PowerShell')) probe = classify(e.command, ws, cwd)
       for (const [name, col] of columns(probe, ws)) await setRow($, name, (r) => ({ ...r, [col]: 'run' }))
+      if (e.tool === 'ExitWorktree') await unwatch()
     })
     const r = await next(e)
     await safe($, 'tool.call', async () => {
@@ -254,6 +263,7 @@ export const register: Register = (on) => {
       if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
       // Al entrar o salir de un worktree cambia el cwd de la sesión, y con él el proyecto y la banda.
       if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) return void (await load($))
+      if (e.tool === 'ExitWorktree') watch($)
       if (probe || e.tool === 'Edit' || e.tool === 'Write') await gateStatus($)
     })
     return r
