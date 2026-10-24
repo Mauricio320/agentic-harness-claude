@@ -57,12 +57,12 @@ export function candidate(e: Prompt): boolean {
   return !text.startsWith('/') && text.split(/\s+/).length >= MIN_WORDS
 }
 
-// El atajo determinista, solo para preguntas: un mensaje que empieza con signo de interrogación o con
-// cómo, qué, cuál, dónde, por qué, explica o muestra, y no trae un verbo de cambio de la lista, es una
-// pregunta y no llama al modelo. No hay atajo para afirmar que sí es un cambio: eso lo decide haiku.
-const QUESTION = /^[\s"'«(]*(?:[¿?]|(?:c[oó]mo|qu[eé]|cu[aá]l(?:es)?|d[oó]nde|por\s+qu[eé]|expl[ií]ca(?:me)?|mu[eé]stra(?:me)?)(?!\p{L}))/iu
-const CHANGE = /(?<!\p{L})(?:implement|corrig|correg|arregl|agreg|añad|quit|elimin|borr|cambi|modific|refactoriz|cre[aeo]|escrib|renombr|muev|mover|actualiz|ha(?:z|ga|gas|cer)(?:lo|la|los|las)?(?!\p{L})|pon(?:er|lo|la|gas?)?(?!\p{L}))/iu
-export const isQuestion = (text: string) => QUESTION.test(text) && !CHANGE.test(text)
+// El atajo determinista, solo para preguntas: un mensaje con signo de interrogación al inicio o al
+// final es una pregunta y no llama al modelo, aunque traiga un verbo de cambio ("¿cómo funciona el
+// servicio que crea facturas?"). Todo lo demás lo decide haiku, también lo que empieza con cómo o qué
+// sin signo. No hay atajo para afirmar que sí es un cambio.
+const QUESTION = /^[\s"'«(*_]*[¿?]|\?[\s"'»)*_.!]*$/u
+export const isQuestion = (text: string) => QUESTION.test(text)
 
 // Sin \b: en JS la í no es letra para \b, y "Sí." no pasaría.
 export const isYes = (reply: string) => /^[^\p{L}]*s[ií](?!\p{L})/iu.test(reply.trim())

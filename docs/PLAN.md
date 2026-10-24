@@ -458,6 +458,8 @@ Cambio de la consolidación A (2026-10-23): **aprobar solo con una respuesta hum
 
 El límite que queda: un modelo que escribe a mano en `.tmp/harness/timeline.jsonl`, con Write o con un `echo >>`, puede fabricar una nota. Eso no lo cierra esta ronda; `plan-guard` no juzga lo que está bajo `.tmp/`.
 
+Cambio de la consolidación A (2026-10-24): **el atajo de las preguntas, por el signo.** `lib.isQuestion` daba falso negativo con "¿cómo funciona el servicio que crea facturas?": empieza con signo de interrogación, pero "crea" está en la lista de verbos de cambio, así que iba a haiku, que podía decir que sí y adjuntar la instrucción del plan a una pregunta. Ahora el atajo es solo el signo: un mensaje con `¿` o `?` al inicio o `?` al final (sin contar comillas, paréntesis, negritas o un punto después) es una pregunta y no llama al modelo, traiga el verbo que traiga. Todo lo demás lo decide haiku, también lo que empieza con cómo o qué sin signo: la lista de palabras interrogativas y la de verbos de cambio se van. El costo, a propósito: un pedido escrito como pregunta ("¿puedes corregir el bug del guard?") pasa sin la instrucción, y lo atajan las otras tres capas, que viven en el plugin base. Tests en `tests/arnes-mod.test.ts`.
+
 Lo visual no va aquí: vive en `arnes-ui` (§6.5b), que no cambia comportamiento y se puede desactivar sin tocar el flujo.
 
 ### 6.5b Mod de interfaz `arnes-ui` (solo muestra, nunca cambia el comportamiento)

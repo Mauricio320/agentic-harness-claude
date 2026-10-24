@@ -56,7 +56,7 @@ test('una pregunta o un comentario pasa intacto', async ($, on) => {
   const seen = world(on, 'NO')
   await $.prompt.submit(typed('¿Por qué el guard no me deja escribir en ese archivo?'))
   await $.prompt.submit(typed('Me parece bien lo que hiciste con el guard ayer'))
-  expect(seen.asked).toEqual(['haiku', 'haiku'])
+  expect(seen.asked).toEqual(['haiku'])
   expect(seen.entered.map((x) => x.context)).toEqual([undefined, undefined])
 })
 
@@ -101,14 +101,15 @@ test('con init o setup en curso no pregunta a haiku y el prompt pasa intacto', a
   expect(seen.entered).toEqual([{ text: 'sí a todo, y los permisos también por favor', context: undefined }])
 })
 
-test('una pregunta evidente pasa sin llamar a haiku; con un verbo de cambio, decide haiku', async ($, on) => {
+test('con signo de interrogación al inicio o al final pasa sin llamar a haiku, aunque traiga un verbo de cambio; el resto lo decide haiku', async ($, on) => {
   const seen = world(on, 'SI')
   await $.prompt.submit(typed('¿Cómo funciona el guard de Edit y Write en este proyecto?'))
-  await $.prompt.submit(typed('Explica qué hace la bandera de verificación del gate'))
+  await $.prompt.submit(typed('¿cómo funciona el servicio que crea facturas?'))
+  await $.prompt.submit(typed('Y el servicio que crea las facturas, cómo se prueba?'))
   expect(seen.asked).toEqual([])
-  await $.prompt.submit(typed('¿Puedes agregar el campo email al formulario de talleres?'))
+  await $.prompt.submit(typed('Explica qué hace la bandera de verificación del gate'))
   expect(seen.asked).toEqual(['haiku'])
-  expect(seen.entered.map((x) => x.context)).toEqual([undefined, undefined, [LOAD_PLAN]])
+  expect(seen.entered.map((x) => x.context)).toEqual([undefined, undefined, undefined, [LOAD_PLAN]])
 })
 
 test('cada prompt deja su origen y el sha256 de su texto en turn.json antes de entrar, sin tocar la foto del turno', async ($, on) => {
@@ -164,9 +165,9 @@ test('lib: qué se pregunta, cómo se lee la respuesta, el resumen y dónde est�
   ])
 })
 
-test('lib: isQuestion solo para preguntas, nunca para afirmar un cambio', () => {
-  const si = ['¿Por qué falla el test de talleres en el front?', 'como se corre el gate en un worktree nuevo', 'Qué significa REVISIÓN HUMANA OBLIGATORIA en el reporte', 'Muéstrame la timeline de la corrida de ayer', 'Dónde vive la línea base de tests del repo', 'Cuál es la rama del issue de talleres']
-  const no = ['¿Puedes corregir el bug del guard en ship?', 'Qué tal si agregas un campo email al DTO', 'Cómo hago para que el botón quede deshabilitado? hazlo', 'Implementa el CRUD de talleres', 'Agrega el campo email', 'Explica y luego refactoriza el servicio de talleres']
+test('lib: isQuestion por el signo de interrogación al inicio o al final, nunca por las palabras', () => {
+  const si = ['¿Por qué falla el test de talleres en el front?', '¿cómo funciona el servicio que crea facturas?', '¿Puedes corregir el bug del guard en ship?', 'Y esto, ¿se puede borrar sin romper nada?', '  "¿Dónde vive la línea base?"', 'Cuál es la rama del issue de talleres?  ', '**¿Quién llama a crearFactura?**']
+  const no = ['como se corre el gate en un worktree nuevo', 'Cómo hago para que el botón quede deshabilitado? hazlo', 'Implementa el CRUD de talleres', 'Agrega el campo email', 'Explica y luego refactoriza el servicio de talleres', 'Muéstrame la timeline de la corrida de ayer']
   expect(si.map(isQuestion)).toEqual(si.map(() => true))
   expect(no.map(isQuestion)).toEqual(no.map(() => false))
 })
