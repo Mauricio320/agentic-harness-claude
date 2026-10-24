@@ -186,8 +186,19 @@ test('SessionStart anota la superficie de la sesión en la timeline y en el info
   assert.equal(note.result, 'superficie');
   assert.equal(note.detail, 'resume · CLAUDE_CODE_ENTRYPOINT=claude-vscode · TERM_PROGRAM=vscode · CLAUDE_CODE_SESSION_ATTENDED=1 · CLAUDE_CODE_CHILD_SESSION=0');
   const informes = path.join(dir, '.tmp', 'harness', 'informes');
-  const [file] = fs.readdirSync(informes).filter((f) => f.startsWith('sesion-'));
-  const md = fs.readFileSync(path.join(informes, file), 'utf8');
+  const md = fs.readFileSync(path.join(informes, 'sesion-actual.md'), 'utf8');
   assert.match(md, /^# Sesión abc-123$/m);
   assert.match(md, /^- CLAUDE_CODE_ENTRYPOINT: claude-vscode\n- TERM_PROGRAM: vscode\n- CLAUDE_CODE_SESSION_ATTENDED: 1\n- CLAUDE_CODE_CHILD_SESSION: 0$/m);
+});
+
+test('el informe de la sesión es uno solo, que cada arranque sobrescribe, y los de versiones anteriores se van', () => {
+  const dir = h.tmp('start-informe');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api') });
+  h.write(dir, '.tmp/harness/informes/sesion-101500.md', 'viejo\n');
+  h.write(dir, '.tmp/harness/informes/build-101600.md', 'de un issue\n');
+  for (const id of ['uno', 'dos']) h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: id, cwd: dir });
+  const informes = path.join(dir, '.tmp', 'harness', 'informes');
+  assert.deepEqual(fs.readdirSync(informes).sort(), ['build-101600.md', 'sesion-actual.md']);
+  assert.match(fs.readFileSync(path.join(informes, 'sesion-actual.md'), 'utf8'), /^# Sesión dos$/m);
+  assert.doesNotMatch(h.run('issues.js', ['unknown'], { cwd: dir }).stdout, /sesion-/, 'cerrar no lo nombra');
 });

@@ -57,10 +57,13 @@ const PROTOCOL = [
 
 // La superficie en que corre la sesión: la terminal, la extensión de VS Code, el escritorio o -p. Las
 // cuatro variables que la dicen se anotan en la timeline (nota "superficie" de sesion) y en el informe
-// de la sesión, .tmp/harness/informes/sesion-<HHMMSS>.md, para decidir en una ronda próxima qué
-// mostrar en cada una. Todavía no cambia nada de lo que se muestra. Nunca falla hacia afuera.
+// de la sesión, para decidir en una ronda próxima qué mostrar en cada una. Todavía no cambia nada de
+// lo que se muestra. Nunca falla hacia afuera. El informe es uno solo, .tmp/harness/informes/
+// sesion-actual.md, que cada arranque sobrescribe: no es de ningún issue, y uno por arranque se
+// acumulaba sin dueño. Los sesion-<HHMMSS>.md que dejaron versiones anteriores se borran al arrancar.
 const SURFACE = ['CLAUDE_CODE_ENTRYPOINT', 'TERM_PROGRAM', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_CHILD_SESSION'];
-const pad2 = (n) => String(n).padStart(2, '0');
+const SESSION_REPORT = 'sesion-actual.md';
+const OLD_REPORT = /^sesion-\d{6}\.md$/;
 
 function surface(project, input, cwd, now) {
   try {
@@ -69,8 +72,9 @@ function surface(project, input, cwd, now) {
     append(project.root, { event: 'note', stage: 'sesion', result: 'superficie', detail: `${source} · ${values.map(([k, v]) => `${k}=${v}`).join(' · ')}` }, now);
     const dir = path.join(harnessDir(project), 'informes');
     fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `sesion-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}.md`);
-    const text = [`# Sesión ${input.session_id || '(sin id)'}`, '', `Arrancó: ${now.toISOString()} (${source})`, `Carpeta: ${posix(cwd)}`, '', '## Superficie', '', ...values.map(([k, v]) => `- ${k}: ${v}`), ''];
+    for (const old of fs.readdirSync(dir).filter((f) => OLD_REPORT.test(f))) fs.rmSync(path.join(dir, old), { force: true });
+    const file = path.join(dir, SESSION_REPORT);
+    const text =[`# Sesión ${input.session_id || '(sin id)'}`, '', `Arrancó: ${now.toISOString()} (${source})`, `Carpeta: ${posix(cwd)}`, '', '## Superficie', '', ...values.map(([k, v]) => `- ${k}: ${v}`), ''];
     fs.writeFileSync(file, text.join('\n'));
   } catch {
     /* anotar la superficie nunca frena el arranque */
