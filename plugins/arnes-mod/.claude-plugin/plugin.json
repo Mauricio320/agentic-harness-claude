@@ -1,7 +1,7 @@
 {
   "name": "arnes-mod",
   "version": "0.6.9",
-  "description": "Comportamiento opcional del arnés: sin plan en curso, un pedido de código empieza por arnes:plan.",
+  "description": "Comportamiento opcional del arnés: deja de dónde vino cada prompt, para que solo la persona apruebe un plan, y sin plan en curso un pedido de código empieza por arnes:plan.",
   "author": { "name": "Mauricio Triana" },
   "dependencies": ["arnes"]
 }

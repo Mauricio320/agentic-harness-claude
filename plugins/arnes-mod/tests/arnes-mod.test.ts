@@ -4,27 +4,31 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { LOAD_PLAN, asks, baseCandidates, candidate, isQuestion, isYes, parseSummary } from '../hooks/lib'
+import { LOAD_PLAN, ORIGIN, asks, baseCandidates, candidate, isQuestion, isYes, parseSummary, sha256, slash, withOrigin } from '../hooks/lib'
 
 const TIMELINE = 'C:/p/academico/.tmp/harness/timeline.jsonl'
+const TURN = 'C:/p/academico/.tmp/harness/turn.json'
 const PEDIDO = 'Agrega el campo email al formulario de talleres y su validación'
 
 type Model = 'SI' | 'NO' | 'sin respuesta' | 'falla'
 type State = { open?: boolean; prep?: string | null; project?: boolean }
 
 // Lo que está debajo del mod: el plugin base, que responde timeline.js summary --json con el estado
-// que diga el test; la fecha de la timeline, que el test mueve; el modelo barato y la sesión, que
-// guarda el prompt y el context con que entró.
+// que diga el test; la fecha de la timeline, que el test mueve; turn.json, con la foto del turno que
+// dejó el hook; el modelo barato y la sesión, que guarda el prompt y el context con que entró. order
+// dice qué pasó antes: la escritura de turn.json o la entrada del prompt.
 function world(on: On, model: Model, state: State = {}) {
-  const seen = { asked: [] as string[], entered: [] as { text: string; context?: readonly string[] }[], summaries: 0, mtime: 1 }
+  const seen = { asked: [] as string[], entered: [] as { text: string; context?: readonly string[] }[], summaries: 0, mtime: 1, order: [] as string[], turn: '{ "api": { "touchedHash": "t" } }' }
   on('session.cwd', () => ({ value: 'C:/p/academico/api-academico' }))
   on('fs.exists', ($, e) => ({ value: e.path.replace(/\\/g, '/').endsWith('scripts/lib/timeline.js') }))
   on('fs.list', () => ({ value: [] }))
   on('fs.stat', () => ({ value: { kind: 'file', size: 1, mtimeMs: seen.mtime, isLink: false } } as never))
+  on('fs.read', ($, e) => ({ value: slash(e.path) === TURN ? seen.turn : '' }))
+  on('fs.write', ($, e) => (seen.order.push(`escribe ${slash(e.path)}`), slash(e.path) === TURN && (seen.turn = e.text), { value: undefined }))
   on('process.run', ($, e) => {
     const summary = e.argv[2] === 'summary' && state.project !== false
     if (e.argv[2] === 'summary') seen.summaries++
-    const stdout = summary ? JSON.stringify({ file: TIMELINE, plan: { open: !!state.open }, prep: state.prep ?? null }) : ''
+    const stdout = summary ? JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: !!state.open }, prep: state.prep ?? null }) : ''
     return { value: { exitCode: summary ? 0 : 2, stdout, stderr: summary ? '' : 'sin manifiesto', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -33,9 +37,11 @@ function world(on: On, model: Model, state: State = {}) {
     if (model === 'falla') throw new Error('sin red')
     return { value: model === 'sin respuesta' ? { isAnswered: false as const, reason: 'aborted' as const, usage } : { isAnswered: true as const, text: model, usage } }
   })
-  on('prompt.submit', ($, e) => (seen.entered.push({ text: e.text, context: e.context }), { text: e.text, context: e.context }))
+  on('prompt.submit', ($, e) => (seen.order.push('entra'), seen.entered.push({ text: e.text, context: e.context }), { text: e.text, context: e.context }))
   return seen
 }
+
+const origins = (turn: string) => JSON.parse(turn)[ORIGIN] as { kind: string; hash: string; at: number }[]
 
 const typed = (text: string, more: object = {}) => ({ text, wait: false, origin: { kind: 'composer' as const }, ...more })
 
@@ -105,6 +111,37 @@ test('una pregunta evidente pasa sin llamar a haiku; con un verbo de cambio, dec
   expect(seen.entered.map((x) => x.context)).toEqual([undefined, undefined, [LOAD_PLAN]])
 })
 
+test('cada prompt deja su origen y el sha256 de su texto en turn.json antes de entrar, sin tocar la foto del turno', async ($, on) => {
+  const seen = world(on, 'NO', { open: true })
+  await $.prompt.submit(typed('sí, apruebo el plan'))
+  await $.prompt.submit(typed('<task-notification>\n<status>completed</status>\n</task-notification>', { origin: { kind: 'task-notification' } }))
+  expect(seen.order).toEqual([`escribe ${TURN}`, 'entra', `escribe ${TURN}`, 'entra'])
+  expect(JSON.parse(seen.turn).api).toEqual({ touchedHash: 't' })
+  expect(origins(seen.turn).map((o) => [o.kind, o.hash])).toEqual([
+    ['composer', await sha256('sí, apruebo el plan')],
+    ['task-notification', await sha256('<task-notification>\n<status>completed</status>\n</task-notification>')],
+  ])
+})
+
+test('fuera de un proyecto del arnés no deja origen', async ($, on) => {
+  const seen = world(on, 'NO', { project: false })
+  await $.prompt.submit(typed('sí, apruebo el plan'))
+  expect(seen.order).toEqual(['entra'])
+})
+
+test('lib: sha256 y withOrigin, que conserva la foto y deja los orígenes de la última hora, veinte como mucho', async () => {
+  expect(await sha256('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+  const hour = 60 * 60 * 1000
+  const old = { kind: 'composer', hash: 'a', at: 0 }
+  const o = { kind: 'sdk', hash: 'b', at: hour + 1 }
+  expect(withOrigin({ api: { touchedHash: 't' }, [ORIGIN]: [old] }, o)).toEqual({ api: { touchedHash: 't' }, [ORIGIN]: [o] })
+  expect(withOrigin(null, o)).toEqual({ [ORIGIN]: [o] })
+  const many = Array.from({ length: 25 }, (_, i) => ({ kind: 'composer', hash: String(i), at: hour + i }))
+  const list = withOrigin({ [ORIGIN]: many }, { ...o, at: hour + 30 })[ORIGIN] as unknown[]
+  expect(list.length).toBe(20)
+  expect(list[19]).toEqual({ ...o, at: hour + 30 })
+})
+
 test('lib: qué se pregunta, cómo se lee la respuesta, el resumen y dónde está el plugin base', () => {
   expect(candidate(typed(PEDIDO))).toBe(true)
   expect(candidate(typed(PEDIDO, { origin: { kind: 'task-notification' } }))).toBe(false)
@@ -114,8 +151,9 @@ test('lib: qué se pregunta, cómo se lee la respuesta, el resumen y dónde est�
   expect(['SI', 'Sí.', 'si', '**SÍ**'].map(isYes)).toEqual([true, true, true, true])
   expect(['NO', 'No.', 'sin duda no', ''].map(isYes)).toEqual([false, false, false, false])
   expect(parseSummary('sin manifiesto')).toBe(null)
-  expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, plan: { open: false }, prep: null })))).toBe(true)
-  expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, plan: { open: true }, prep: null })))).toBe(false)
+  expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: false }, prep: null })))).toBe(true)
+  expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: true }, prep: null })))).toBe(false)
+  expect(parseSummary(JSON.stringify({ file: TIMELINE, plan: { open: false }, prep: null }))).toBe(null)
   expect(asks(null)).toBe(false)
   expect(baseCandidates('C:/repo/plugins/arnes-mod')[0]).toBe('C:/repo/plugins/arnes')
   expect(baseCandidates('C:/u/.claude/plugins/cache/agentic-harness/arnes-mod/0.7.0', ['0.6.9', '0.10.1'])).toEqual([

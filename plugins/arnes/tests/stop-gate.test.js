@@ -185,13 +185,25 @@ test('(b) un worktree del issue con commits de este turno bloquea y dice cómo i
   assert.match(note.detail, /^turno bloqueado sin integrar: api wt\/feature\/x\/tarea \(1 commit/);
 });
 
+test('(b) el origen que arnes-mod deja en turn.json con el aviso de un agente no mueve el inicio del turno', () => {
+  const { root, wt } = issueRepo();
+  promptAt(root);
+  h.write(wt, 'src/b.ts', 'b\n');
+  h.commitAll(wt, 'trabajo del agente');
+  const file = path.join(root, '.tmp', 'harness', 'turn.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), _origen: [{ kind: 'task-notification', hash: 'x', at: Date.now() }] }));
+  const later = new Date(Date.now() + 10000);
+  fs.utimesSync(file, later, later);
+  assert.equal(stop(root).out.decision, 'block', 'el commit es de este turno aunque el archivo sea más nuevo');
+});
+
 test('(b) commits de un turno anterior solo avisan; de otro issue, integrados o desde el worktree, nada', () => {
   const { root, wt } = issueRepo();
   h.write(wt, 'src/b.ts', 'b\n');
   h.commitAll(wt, 'trabajo del agente');
   promptAt(root);
-  const later = new Date(Date.now() + 10000);
-  fs.utimesSync(path.join(root, '.tmp', 'harness', 'turn.json'), later, later);
+  const file = path.join(root, '.tmp', 'harness', 'turn.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), _desde: Date.now() + 10000 }));
   const quieto = stop(root);
   assert.equal(quieto.out.decision, undefined);
   assert.match(quieto.out.systemMessage, /^arnes: siguen commits sin integrar en api, rama wt\/feature\/x\/tarea, 1 commit\(s\); este turno no los tocó\.$/);

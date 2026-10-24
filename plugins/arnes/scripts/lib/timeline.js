@@ -17,8 +17,9 @@
 // Línea: { "at": ISO-8601, "event": "start" | "end" | "note", "stage", "ws"?, "result"?, "detail"?, "usd"? }
 // "note" lo escriben los hooks y las skills:
 //   - el Stop anota { stage: "turno", result: "cerrado" } cuando el turno cierra, y UserPromptSubmit
-//     { stage: "turno", result: "respuesta" } cuando la persona escribe. El hueco entre el último
-//     cierre y la respuesta es la espera de la persona, de toda la corrida, aparte de las etapas;
+//     { stage: "turno", result: "respuesta", origen, hash, marcas? } cuando la persona escribe. El
+//     hueco entre el último cierre y la respuesta es la espera de la persona, de toda la corrida,
+//     aparte de las etapas. Las notas del turno no se escriben desde aquí: las anotan solo los hooks;
 //   - arnes-ui anota { stage, ws?, result: "costo", usd } al ver el fin de una etapa: la diferencia
 //     del costo de la sesión desde su inicio. Sin el mod no hay costo, y print muestra solo tiempos;
 //   - el Stop anota sus bloqueos y pendientes, y plan si la persona aprobó o descartó el plan;
@@ -231,6 +232,7 @@ function corrida(entries, sessionStart = 0) {
 // primera línea de plan.md), init o setup en curso, la lista de tareas, la cronología, las últimas
 // cinco entradas como texto (sin las notas del turno ni las de costo), las entradas posteriores a
 // since (sin since, ninguna: la primera lectura solo fija desde dónde) y el cursor para la siguiente.
+// turn es el archivo donde arnes-mod deja el origen de cada prompt (gate-flag.js takeOrigin).
 function summary(root, { sessionStart = 0, since } = {}) {
   const entries = read(root);
   const planFile = path.join(root, '.tmp', 'harness', 'plan.md');
@@ -243,6 +245,7 @@ function summary(root, { sessionStart = 0, since } = {}) {
   return {
     file: path.join(root, '.tmp', 'harness', FILE).split(path.sep).join('/'),
     gate: path.join(root, '.tmp', 'harness', 'gate').split(path.sep).join('/'),
+    turn: path.join(root, '.tmp', 'harness', 'turn.json').split(path.sep).join('/'),
     root: root.split(path.sep).join('/'),
     plan: { ...planState(entries), title },
     prep: prepOpen(entries),
@@ -311,6 +314,7 @@ function main() {
   if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] [--dir d] | timeline.js print [--dir d]');
   if (event === 'start' && args.values.result) die('timeline: --result solo va con end');
   if (stage === 'plan' && args.values.result === 'aprobado') die('timeline: la aprobación del plan la anota plan-state.js approve, que comprueba que vino de la persona');
+  if (stage === 'turno') die('timeline: las notas del turno las anotan los hooks: la respuesta, UserPromptSubmit con el mensaje de la persona; el cierre, el Stop');
   const found = PREP.includes(stage) ? loadProject(dir) : null;
   const root = found && !found.errors.length ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;
   append(root, {

@@ -1,16 +1,21 @@
-// arnes-mod (docs/PLAN.md §6.5): comportamiento opcional del arnés. Por ahora una sola pieza, la
-// cuarta capa del plan obligatorio: sin plan en curso, un mensaje de la persona que pide un cambio de
-// código lleva adjunta la instrucción de cargar arnes:plan. Decide con una pregunta cerrada al modelo
-// más barato, salvo una pregunta evidente, que pasa sin llamarlo (lib.isQuestion), y no pregunta
-// mientras init o setup están en curso. Si hay plan o init en curso lo dice el plugin base, con
-// timeline.js summary --json: el mod lo pide al arrancar y otra vez solo cuando la timeline cambió, y
-// no reimplementa ni el manifiesto ni la timeline. Falla abierto: si algo falla o el modelo no
-// responde, el prompt sigue tal cual y lo atajan las otras tres capas, que viven en el plugin base (el
-// guard de Edit y Write, la línea de UserPromptSubmit y /arnes:plan --trivial).
+// arnes-mod (docs/PLAN.md §6.5): comportamiento opcional del arnés, en dos piezas. La primera, de
+// cada prompt deja en turn.json de dónde vino (composer, bridge, sdk, task-notification, peer...) con
+// el sha256 de su texto, antes de llamar a next(e), que es cuando corre el UserPromptSubmit del plugin
+// base (verificado en 2.1.309): con eso el hook sabe si es la persona sin adivinarlo por el texto, y
+// plan-state.js approve no aprueba con el aviso de un agente. Si no puede dejarlo, el hook decide por
+// el texto y falla cerrado. La segunda, la cuarta capa del plan obligatorio: sin plan en curso, un
+// mensaje de la persona que pide un cambio de código lleva adjunta la instrucción de cargar
+// arnes:plan. Decide con una pregunta cerrada al modelo más barato, salvo una pregunta evidente, que
+// pasa sin llamarlo (lib.isQuestion), y no pregunta mientras init o setup están en curso. Si hay plan
+// o init en curso, y dónde está turn.json, lo dice el plugin base, con timeline.js summary --json: el
+// mod lo pide al arrancar y otra vez solo cuando la timeline cambió, y no reimplementa ni el
+// manifiesto ni la timeline. Falla abierto: si algo falla o el modelo no responde, el prompt sigue tal
+// cual y lo atajan las otras tres capas, que viven en el plugin base (el guard de Edit y Write, la
+// línea de UserPromptSubmit y /arnes:plan --trivial).
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, slash } from './lib'
-import type { Summary } from './lib'
+import { ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, sha256, slash, withOrigin } from './lib'
+import type { Prompt, Summary } from './lib'
 
 type $ = EngineInterface
 
@@ -43,6 +48,15 @@ async function state($: $): Promise<Summary | null> {
   return s
 }
 
+async function markOrigin($: $, e: Prompt): Promise<void> {
+  const cwd = slash(await $.session.cwd())
+  const s = cache?.s && cache.cwd === cwd ? cache.s : await state($)
+  if (!s) return
+  const turn = await $.fs.read(s.turn).then((t) => JSON.parse(String(t))).catch(() => ({}))
+  const o = { kind: e.origin.kind, hash: await sha256(e.text), at: Date.now() }
+  await $.fs.write(s.turn, JSON.stringify(withOrigin(turn, o), null, 2) + '\n')
+}
+
 async function asksForCode($: $, text: string): Promise<boolean> {
   const r = await $.model.complete({ model: MODEL, prompt: ASK(text), maxTokens: 5, effort: 'low', timeoutMs: TIMEOUT_MS })
   return r.isAnswered && isYes(r.text)
@@ -56,6 +70,7 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {
+    await markOrigin($, e).catch(() => null)
     if (!candidate(e) || isQuestion(e.text)) return next(e)
     if (!asks(await state($))) return next(e)
     if (!(await asksForCode($, e.text))) return next(e)

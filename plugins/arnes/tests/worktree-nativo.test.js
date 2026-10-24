@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { nativeWorktree, nativeWorktrees } = require('../scripts/lib/worktree-nativo.js');
+const { nativeWorktree, nativeWorktrees, lockOf } = require('../scripts/lib/worktree-nativo.js');
 const { projectFor } = require('../scripts/worktree-ledger.js');
 const tl = require('../scripts/lib/timeline.js');
 const h = require('./helpers.js');
@@ -39,4 +39,16 @@ test('el proyecto de un worktree nativo es el suyo: su plan y su timeline, no lo
   assert.equal(r.out, null, 'con el plan aprobado en el worktree, deja escribir');
   const main = h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'src', 'a.ts') }, cwd: dir });
   assert.ok(main.out, 'el principal sigue sin plan');
+});
+
+test('lockOf lee el pid del motivo con que Claude Code 2.1.309 bloquea el worktree de su sesión', () => {
+  const dir = repo();
+  const wt = h.nativeWorktree(dir, 'cobros');
+  assert.equal(lockOf(dir, wt), null, 'sin bloqueo');
+  const reason = `claude session cobros (pid ${process.pid})`;
+  h.git(dir, 'worktree', 'lock', '--reason', reason, wt);
+  assert.deepEqual(lockOf(dir, wt), { reason, pid: process.pid, dead: false });
+  h.git(dir, 'worktree', 'unlock', wt);
+  h.git(dir, 'worktree', 'lock', '--reason', 'en uso por otra herramienta', wt);
+  assert.deepEqual(lockOf(dir, wt), { reason: 'en uso por otra herramienta', pid: null, dead: false }, 'sin pid no se sabe de quién es: no cuenta como muerto');
 });

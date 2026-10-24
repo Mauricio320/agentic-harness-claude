@@ -28,6 +28,26 @@ export const ASK = (text: string) =>
 // Las procedencias que son la persona: su Enter, su teléfono por Remote Control y el host de claude -p.
 const PERSON = new Set(['composer', 'bridge', 'sdk'])
 
+// De dónde vino cada prompt, para que el plugin base sepa si es la persona sin adivinarlo por el texto
+// (docs/PLAN.md §6.5). El mod lo deja en turn.json, bajo ORIGIN, antes de que corra UserPromptSubmit,
+// con el sha256 del texto, y el hook del base lo saca de ahí. Quedan los de la última hora, veinte
+// como mucho, para los prompts que esperan en cola su turno.
+export const ORIGIN = '_origen'
+const ORIGIN_MS = 60 * 60 * 1000
+export type Origin = { kind: string; hash: string; at: number }
+
+export function withOrigin(turn: unknown, o: Origin): Record<string, unknown> {
+  const data = turn && typeof turn === 'object' && !Array.isArray(turn) ? { ...(turn as Record<string, unknown>) } : {}
+  const prev = Array.isArray(data[ORIGIN]) ? (data[ORIGIN] as Origin[]) : []
+  data[ORIGIN] = [...prev.filter((x) => x && o.at - x.at < ORIGIN_MS), o].slice(-20)
+  return data
+}
+
+export async function sha256(text: string): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export type Prompt = { text: string; command?: unknown; isMeta?: true; origin: { kind: string } }
 
 // Un mensaje que vale la pena clasificar: de la persona, sin barra al inicio y de más de unas palabras.
@@ -48,12 +68,12 @@ export const isQuestion = (text: string) => QUESTION.test(text) && !CHANGE.test(
 export const isYes = (reply: string) => /^[^\p{L}]*s[ií](?!\p{L})/iu.test(reply.trim())
 
 // Lo que el mod lee del resumen de la timeline del plugin base.
-export type Summary = { file: string; plan: { open: boolean }; prep: string | null }
+export type Summary = { file: string; turn: string; plan: { open: boolean }; prep: string | null }
 
 export function parseSummary(stdout: string): Summary | null {
   try {
     const s = JSON.parse(stdout)
-    return s && typeof s.file === 'string' && s.plan ? s : null
+    return s && typeof s.file === 'string' && typeof s.turn === 'string' && s.plan ? s : null
   } catch {
     return null
   }

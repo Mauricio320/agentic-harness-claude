@@ -54,7 +54,7 @@ function nativeWithOrigin() {
   h.git(path.dirname(dir), 'clone', '-q', bare, 'api');
   const wt = h.nativeWorktree(dir, 'talleres');
   h.write(wt, '.tmp/harness/plan.md', '# Plan: CRUD de talleres\n\n## Workspaces y orden\n1. api\n');
-  for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }, { event: 'note', stage: 'turno', result: 'respuesta' }]) tl.append(wt, e);
+  for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }, h.answer()]) tl.append(wt, e);
   return { dir, wt };
 }
 

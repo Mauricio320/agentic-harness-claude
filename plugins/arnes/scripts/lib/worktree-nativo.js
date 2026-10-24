@@ -72,7 +72,9 @@ function nativeRoot(project) {
 }
 
 // El bloqueo de un worktree (git worktree lock): Claude Code bloquea el de cada sesión con el motivo
-// "claude session <nombre> (pid <n>)", y una sesión claude -p --worktree que terminó lo deja puesto.
+// "claude session <nombre> (pid <n>)" (formato de 2.1.309, probado en worktree-nativo.test.js), y
+// una sesión claude -p --worktree que terminó lo deja puesto. Es texto de Claude Code, no un contrato:
+// si cambia, el pid sale null y el worktree queda sin tocar, que es el lado seguro.
 // → null sin bloqueo, o { reason, pid, dead }: dead si el lock dice un PID que ya no existe como
 // proceso; sin PID en el motivo, no se sabe de quién es y no cuenta como muerto.
 function lockOf(main, wtPath) {

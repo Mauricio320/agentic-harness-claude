@@ -3,6 +3,7 @@
 // repo real.
 
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -98,6 +99,12 @@ function hook(name, event, opts = {}) {
 
 function lines(text) {
   return text.split(/\r?\n/).filter(Boolean);
+}
+
+// La nota "respuesta" que prompt-context deja para un mensaje de la persona, para los tests que arman
+// la timeline a mano.
+function answer(text = 'sí') {
+  return { event: 'note', stage: 'turno', result: 'respuesta', origen: 'texto', hash: crypto.createHash('sha256').update(text).digest('hex') };
 }
 
 // Herramienta falsa en el PATH: <name>.cmd para cmd.exe y <name> con shebang de node para sh.
@@ -213,6 +220,7 @@ module.exports = {
   run,
   hook,
   lines,
+  answer,
   fakeBin,
   withPath,
   FAKE_TSC,

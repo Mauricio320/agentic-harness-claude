@@ -105,19 +105,69 @@ function checkFlag(project, ws, now = new Date()) {
 }
 
 // Foto del turno: la huella de cada workspace al enviarse el prompt, en .tmp/harness/turn.json.
-// La escribe prompt-context y la compara stop-gate, que bloquea solo si el turno cambió algo.
+// La escribe prompt-context y la compara stop-gate, que bloquea solo si el turno cambió algo. Las
+// claves con _ no pueden ser nombres de workspace: SINCE es cuándo se tomó la foto, el inicio del
+// turno, y bajo ORIGIN arnes-mod deja de dónde vino cada prompt antes de que corra UserPromptSubmit
+// (docs/PLAN.md §6.5): { kind, hash, at }, con el sha256 del texto. Como el mod reescribe el archivo
+// con cada prompt, también con el aviso de un agente, el inicio del turno no es su fecha.
+const SINCE = '_desde';
+const ORIGIN = '_origen';
+const ORIGIN_MS = 60 * 60 * 1000;
+
 function turnPath(project) {
   return path.join(harnessDir(project), 'turn.json');
 }
 
-function writeTurn(project, workspaces) {
-  const snap = {};
+function readTurn(project) {
+  try {
+    const data = JSON.parse(fs.readFileSync(turnPath(project), 'utf8'));
+    return data && typeof data === 'object' ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTurn(project, data) {
+  fs.mkdirSync(path.dirname(turnPath(project)), { recursive: true });
+  fs.writeFileSync(turnPath(project), JSON.stringify(data, null, 2) + '\n');
+}
+
+function writeTurn(project, workspaces, now = Date.now()) {
+  const snap = { [SINCE]: now };
   for (const ws of workspaces) {
     const s = stateOf(project, ws);
     if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash };
   }
-  fs.mkdirSync(path.dirname(turnPath(project)), { recursive: true });
-  fs.writeFileSync(turnPath(project), JSON.stringify(snap, null, 2) + '\n');
+  const origin = readTurn(project)[ORIGIN];
+  if (origin) snap[ORIGIN] = origin;
+  saveTurn(project, snap);
+}
+
+// Inicio del turno: cuándo prompt-context dejó la foto; null sin foto. Una foto de antes de SINCE
+// vale por la fecha del archivo.
+function turnStart(project) {
+  const since = Number(readTurn(project)[SINCE]);
+  if (Number.isFinite(since) && since > 0) return since;
+  try {
+    return fs.statSync(turnPath(project)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+// Los orígenes que arnes-mod dejó para el texto con este sha256, de la última hora, o null si no
+// dejó ninguno. Los saca de turn.json: cada uno vale para un solo prompt.
+function takeOrigin(project, hash, now = Date.now()) {
+  const data = readTurn(project);
+  const list = Array.isArray(data[ORIGIN]) ? data[ORIGIN] : [];
+  if (!list.length) return null;
+  const live = list.filter((o) => o && typeof o.kind === 'string' && now - Number(o.at) < ORIGIN_MS);
+  const hits = live.filter((o) => o.hash === hash);
+  const rest = live.filter((o) => o.hash !== hash);
+  if (rest.length) data[ORIGIN] = rest;
+  else delete data[ORIGIN];
+  saveTurn(project, data);
+  return hits.length ? hits : null;
 }
 
 // true si el workspace cambió la lista o el contenido de sus tocados desde la foto, o si no hay foto.
@@ -188,7 +238,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, status };
 
 function main() {
   let args;

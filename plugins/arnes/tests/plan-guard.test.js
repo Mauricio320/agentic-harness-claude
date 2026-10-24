@@ -81,6 +81,10 @@ test('plan-state approve: solo con el plan escrito y una respuesta de la persona
   r = planState(dir, ['approve']);
   assert.equal(r.status, 1, 'la respuesta tiene que llegar después de escrito el plan');
   assert.match(r.stderr, /la aprobación tiene que venir de la persona/);
+  note(dir, { event: 'note', stage: 'turno', result: 'respuesta' });
+  assert.equal(planState(dir, ['approve']).status, 1, 'una nota sin el hash del texto, de otra versión o escrita a mano, no aprueba');
+  note(dir, { event: 'note', stage: 'turno', result: 'respuesta', origen: 'composer', hash: 'a'.repeat(64), marcas: true });
+  assert.equal(planState(dir, ['approve']).status, 1, 'una respuesta con marcas de tareas o de agentes tampoco');
   person(dir);
   assert.equal(planState(dir, ['approve']).status, 0);
   assert.equal(planState(dir, ['status']).status, 0);

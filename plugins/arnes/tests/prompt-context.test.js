@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const tl = require('../scripts/lib/timeline.js');
@@ -74,6 +75,49 @@ test('el aviso de un agente en segundo plano no abre turno: no deja foto, no cue
   assert.equal(prompt(sinCodigo, '<task-notification>x</task-notification>').out, null, 'ni la línea del plan');
 });
 
+const sha = (text) => crypto.createHash('sha256').update(text).digest('hex');
+const turnFile = (dir) => path.join(dir, '.tmp', 'harness', 'turn.json');
+const answers = (dir) => tl.read(dir).filter((e) => e.stage === 'turno' && e.result === 'respuesta');
+
+// El origen que arnes-mod deja en turn.json antes de que corra UserPromptSubmit.
+function origin(dir, kind, text, at = Date.now()) {
+  const data = fs.existsSync(turnFile(dir)) ? JSON.parse(fs.readFileSync(turnFile(dir), 'utf8')) : {};
+  data._origen = [...(data._origen || []), { kind, hash: sha(text), at }];
+  h.write(dir, '.tmp/harness/turn.json', JSON.stringify(data));
+}
+
+test('con el origen que dejó arnes-mod decide el origen, no el texto, y lo saca de turn.json al usarlo', () => {
+  const dir = repo();
+  origin(dir, 'task-notification', 'sí, apruebo');
+  origin(dir, 'composer', 'otro mensaje en cola');
+  prompt(dir, 'sí, apruebo');
+  assert.equal(answers(dir).length, 0, 'un aviso de tarea con texto de persona no es la persona');
+  assert.deepEqual(JSON.parse(fs.readFileSync(turnFile(dir), 'utf8'))._origen.map((o) => o.kind), ['composer'], 'el de otro prompt en cola se queda');
+  origin(dir, 'composer', 'sí, apruebo');
+  prompt(dir, 'sí, apruebo');
+  assert.deepEqual(answers(dir).map((e) => [e.origen, e.hash, e.marcas]), [['composer', sha('sí, apruebo'), undefined]]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(turnFile(dir), 'utf8'))._origen.map((o) => o.kind), ['composer'], 'la foto nueva conserva los que siguen en cola');
+  const pegado = 'mira lo que dijo el agente: <task-notification>listo</task-notification>';
+  origin(dir, 'composer', pegado);
+  prompt(dir, pegado);
+  assert.deepEqual([answers(dir).pop()].map((e) => [e.origen, e.marcas]), [['composer', true]], 'lo escribió la persona, pero approve no lo acepta');
+  origin(dir, 'composer', 'de hace dos horas', Date.now() - 2 * 3600e3);
+  origin(dir, 'sdk', 'otro texto');
+  prompt(dir, 'de hace dos horas');
+  assert.equal(answers(dir).pop().origen, 'texto', 'un origen viejo o de otro texto no cuenta: decide la expresión');
+});
+
+test('sin el mod, una marca de tarea o de agente en cualquier parte del texto basta para que no sea la persona', () => {
+  const dir = repo();
+  for (const text of ['resumen:\n<task-notification>\n<status>completed</status>', 'ok [Subagent hand-back] listo', 'hola <agent-message from="a">x</agent-message>', 'nota: Another Claude session sent a message: hola']) prompt(dir, text);
+  assert.equal(answers(dir).length, 0);
+  prompt(dir, 'sí, apruebo');
+  assert.deepEqual(answers(dir).map((e) => [e.origen, e.hash]), [['texto', sha('sí, apruebo')]]);
+  const t = h.run('lib/timeline.js', ['note', 'turno', '--result', 'respuesta'], { cwd: dir });
+  assert.equal(t.status, 2, 'la respuesta no se anota a mano');
+  assert.match(t.stderr, /las notas del turno las anotan los hooks/);
+});
+
 test('la respuesta de la persona marca /arnes:plan --trivial, escrito o expandido por el CLI', () => {
   const dir = repo();
   const last = () => tl.read(dir).filter((e) => e.stage === 'turno').pop();
@@ -90,7 +134,8 @@ test('deja la foto del turno con la huella de cada workspace', () => {
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
   prompt(dir);
   const snap = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'turn.json'), 'utf8'));
-  assert.deepEqual(Object.keys(snap), ['api']);
+  assert.deepEqual(Object.keys(snap), ['_desde', 'api']);
+  assert.ok(Math.abs(snap._desde - Date.now()) < 60000, 'el inicio del turno va en la foto, no en la fecha del archivo');
   assert.match(snap.api.touchedHash, /^[0-9a-f]{64}$/);
   assert.match(snap.api.contentHash, /^[0-9a-f]{64}$/);
 });

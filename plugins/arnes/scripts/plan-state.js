@@ -15,8 +15,10 @@
 //   approve [--detail <texto>] [--en-checkout] [--desde-otra | --quedarse]
 //            anota la nota "aprobado" del plan en curso. Exige que el plan esté escrito (end plan) y
 //            que después haya una respuesta de la persona: la nota "respuesta" que UserPromptSubmit
-//            anota solo para un mensaje suyo, nunca para el aviso de un agente. Un modelo que se
-//            responde a sí mismo en el mismo turno no aprueba nada. Después deja la lista de tareas
+//            anota solo para un mensaje suyo, nunca para el aviso de un agente, con el sha256 del
+//            texto y sin marcas de tareas ni de agentes en él. Un modelo que se responde a sí mismo
+//            en el mismo turno no aprueba nada, ni escribe esa nota: timeline.js se niega a anotar
+//            las del turno. Después deja la lista de tareas
 //            (como tareas --anota) y ubica la rama del issue: en un worktree nativo, la del worktree
 //            (issue-branch.js create); con el camino del worktree, dice el nombre con que entrar con
 //            EnterWorktree, y el PostToolUse de EnterWorktree termina la transición; en el checkout
@@ -67,6 +69,7 @@ const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
+const isApproval = (e) => isAnswer(e) && /^[0-9a-f]{64}$/.test(e.hash || '') && !e.marcas;
 
 function status(project) {
   const p = planState(read(project.root));
@@ -129,7 +132,7 @@ function approve(project, detail, opts = {}) {
   else {
     const end = entries.map((e) => e.stage === 'plan' && e.event === 'end').lastIndexOf(true);
     if (!p.written || end < 0) die('plan-state: el plan no está escrito todavía (falta end plan)', 1);
-    if (!entries.slice(end + 1).some(isAnswer)) {
+    if (!entries.slice(end + 1).some(isApproval)) {
       die('plan-state: la aprobación tiene que venir de la persona. Termina el turno mostrando el plan, sin la herramienta de preguntas, y espera su respuesta.', 1);
     }
     append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail });

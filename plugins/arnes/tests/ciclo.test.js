@@ -30,7 +30,7 @@ function repo(integration) {
   h.write(dir, '.tmp/harness/plan.md', '# Plan: Cobros\n\n## Workspaces y orden\n1. api\n');
   tl.append(dir, { event: 'start', stage: 'plan' });
   tl.append(dir, { event: 'end', stage: 'plan', result: 'ok' });
-  tl.append(dir, { event: 'note', stage: 'turno', result: 'respuesta' });
+  tl.append(dir, h.answer());
   return { dir, bare, seed };
 }
 

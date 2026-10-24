@@ -31,7 +31,7 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, turnChanged, turnPath } = require('../gate-flag.js');
+const { checkFlag, turnChanged, turnStart } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const carpeta = require('../worktree-carpeta.js');
@@ -50,15 +50,6 @@ function unverified(project) {
     if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: turnChanged(project, ws) });
   }
   return out;
-}
-
-// Inicio del turno: cuándo prompt-context dejó la foto; null sin foto.
-function turnStart(project) {
-  try {
-    return fs.statSync(turnPath(project)).mtimeMs;
-  } catch {
-    return null;
-  }
 }
 
 // (b) El commit más nuevo de la rama cuenta como de este turno si es posterior a la foto, con un
