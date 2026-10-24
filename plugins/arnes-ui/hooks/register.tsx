@@ -88,7 +88,7 @@ async function load($: $): Promise<void> {
 // vigia.js por la vida de la sesión: cada línea es la timeline o el gate según el plugin base. Al
 // cambiar de proyecto (entrar o salir de un worktree), el anterior se para y se lanza otro. Antes de
 // ExitWorktree se para y se espera a que el proceso termine: corre en el worktree y observa su
-// .tmp/harness, y en Windows eso retiene la carpeta, así que Claude Code no podía borrarla
+// estado del arnés, y en Windows eso retiene la carpeta, así que Claude Code no podía borrarla
 // (comprobado con 2.1.309: sin arnes-ui la borra, con el vigía vivo dice "could not remove it").
 function watch($: $): void {
   void unwatch()

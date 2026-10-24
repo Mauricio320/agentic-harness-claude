@@ -2,9 +2,9 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
-## [0.7.0] - en curso
+## [0.7.0] - 2026-10-24
 
-Ronda de consolidación: no agrega funciones; quita turnos, duplicación y huecos, y mide antes y después (`docs/PLAN.md` §6.1). Rama `feature/consolidacion-a`.
+Ronda de consolidación: no agrega funciones; quita turnos, duplicación y huecos, y mide antes y después (`docs/PLAN.md` §6.1). Rama `feature/consolidacion-a`. En la corrida A de §7, de 83 llamadas a Bash del hilo principal a 37 y de US$4,60 a US$3,17; el plan de talleres, de 16 a 3 (§10).
 
 ### Cambiado
 - Una llamada por transición: `plan-state.js start`, `finish-draft` y `approve`, `build.js input` y `end`, `verify.js run`, `review.js round` y `round --marca`, y `ship.js deliver`, `--commit` y `--push` hacen adentro lo determinista de cada etapa (la timeline, el proyecto, las ramas, el gate, las banderas, la marca de la revisión, los commits, el push y los MR) y dejan una sola salida y el informe. Al entrar con EnterWorktree, su PostToolUse trae el plan aprobado, la rama y la lista de tareas. El push exige una respuesta de la persona después del commit. Las skills usan las fachadas; los permisos no cambian.
