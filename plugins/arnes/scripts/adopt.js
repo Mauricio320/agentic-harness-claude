@@ -120,6 +120,7 @@ function baseline(project, name, write) {
     return 1;
   }
   console.log(`línea base de ${ws.name} en ${r.file}: ${Object.keys(r.data.specs).length} spec(s), HEAD ${r.data.head.slice(0, 10)}`);
+  if (r.data.run) console.log(`${ws.name}: estado de la corrida de la línea base: ${tb.baseRunText(r.data.run)}`);
   if (r.unknown.length) {
     const file = tb.knownPath(ws);
     const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';

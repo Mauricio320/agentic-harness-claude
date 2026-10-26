@@ -8,7 +8,9 @@
 //     settings.local.json, graphify-out y .claude/worktrees, donde Claude Code abre los suyos
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
-// lint (eslint con configuración), test (jest, vitest o karma), build, specPattern (formatos que
+// lint (eslint con configuración), test (jest, vitest, o Karma por el builder de test de angular.json,
+// con un --include por spec: npx ng test --watch=false --browsers=ChromeHeadless --include {specs}),
+// build, specPattern (formatos que
 // aparecen en git ls-files), forbidden (scripts con --fix o --write, y lo que toca una base: los
 // scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre y las escrituras de
 // prisma, typeorm y knex, lib/database.js), afterBuild si hay scripts de sync (el build y los sync,
@@ -45,6 +47,7 @@ const { git, lines, help, die } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest, adoptionElsewhere } = require('./lib/branches.js');
 const { databaseForbidden, afterBuildDraft } = require('./lib/database.js');
 const { matchAny } = require('./lib/glob.js');
+const { karmaTarget } = require('./lib/karma-config.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const RISK_WORDS = ['auth', 'autenticacion', 'autorizacion', 'acl', 'permiso', 'permisos', 'permission', 'permissions', 'rol', 'roles', 'seguridad', 'security', 'migracion', 'migraciones', 'migration', 'migrations', 'migrar', 'migrate'];
@@ -230,6 +233,7 @@ function detectRepo(dir) {
   if (deps.eslint && ESLINT_CONFIGS.some(has)) commands.lint = 'npx eslint {files} --max-warnings=0 --no-warn-ignored';
   if (deps.jest) Object.assign(commands, { test: 'npx jest {specs} --runTestsByPath --verbose', testAll: 'npx jest' });
   else if (deps.vitest) Object.assign(commands, { test: 'npx vitest run {specs}', testAll: 'npx vitest run' });
+  else if (karmaTarget(dir)) commands.test = 'npx ng test --watch=false --browsers=ChromeHeadless --include {specs}';
   else if (deps.karma && deps['@angular/core']) commands.test = 'npx ng test --watch=false --browsers=ChromeHeadless';
   if (pkg.scripts && pkg.scripts.build) commands.build = `${pm} run build`;
   if (!commands.typecheck && !commands.test) return { adoptable: false, reason: 'sin typecheck ni test detectables' };

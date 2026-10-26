@@ -167,60 +167,6 @@ test('node --test de serie, con el runner de verdad: capture, check, una falla y
   assert.match(broken.stdout, /hay menos tests que en la base \(0 < 1\)/);
 });
 
-test('commands.testJson con el adaptador de Karma de la guía, tal cual: capture, preexistente y check', () => {
-  const doc = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'docs', 'PROBADORES.md'), 'utf8');
-  const block = doc.match(/```js\r?\n( *)(\/\/ Adaptador de Karma[\s\S]*?)\r?\n *```/);
-  assert.ok(block, 'el adaptador de Karma está en docs/PROBADORES.md');
-  const adapter = (block[1] + block[2]).split(/\r?\n/).map((l) => l.slice(block[1].length)).join('\n');
-  const npx = h.fakeBin(
-    h.tmp('bin-npx'),
-    'npx',
-    [
-      "const fs = require('fs');",
-      "const path = require('path');",
-      "fs.appendFileSync('ng-args.txt', process.argv.slice(2).join(' ') + '\\n');",
-      "console.log('Chrome Headless 130: Executed 4 of 4 (1 FAILED) (skipped 1)');",
-      "const roots = process.argv.filter((a) => a.startsWith('--include=')).map((a) => fs.readFileSync(a.slice(10), 'utf8').match(/describe\\(\\s*['\"](.+?)['\"]/)[1]);",
-      "const k = JSON.parse(fs.readFileSync('karma-salida.json', 'utf8'));",
-      'for (const id of Object.keys(k.result)) {',
-      '  const es = k.result[id].filter((e) => roots.includes(e.suite[0]));',
-      '  k.result[id] = es;',
-      '  k.browsers[id].lastResult = { ...k.browsers[id].lastResult, success: es.filter((e) => e.success).length, failed: es.filter((e) => !e.success && !e.skipped).length, skipped: es.filter((e) => e.skipped).length, total: es.length };',
-      '}',
-      "fs.mkdirSync('.tmp', { recursive: true });",
-      "fs.writeFileSync(path.join('.tmp', 'karma-result.json'), JSON.stringify(k));",
-      'process.exit(k.browsers[Object.keys(k.browsers)[0]].lastResult.failed ? 1 : 0);',
-    ].join('\n'),
-  );
-  const dir = h.tmp('tbase-karma');
-  h.repo(dir, {
-    '.claude/harness.json': h.repoManifest(
-      'front',
-      h.workspace({ name: 'front', commands: { typecheck: ['tsc --noEmit'], test: 'ng test --watch=false', testJson: 'node scripts/karma-contract.js {specs}' }, specPattern: '{dir}/{name}.spec.ts' }),
-    ),
-    '.gitignore': '.tmp/\nng-args.txt\n',
-    'scripts/karma-contract.js': adapter,
-    'karma-salida.json': fixture('karma-json.txt'),
-    'src/app/talleres.component.ts': 'export class TalleresComponent {}\n',
-    'src/app/talleres.component.spec.ts': "describe('TalleresComponent', () => {});\n",
-    'src/app/cupos.service.ts': 'export class CuposService {}\n',
-    'src/app/cupos.service.spec.ts': "describe(\"CuposService\", () => {});\n",
-  });
-  const env = h.withPath(npx);
-  const cap = h.run('test-baseline.js', ['capture', 'front'], { cwd: dir, env });
-  assert.equal(cap.status, 0, cap.stdout + cap.stderr);
-  assert.match(cap.stdout, /2 spec\(s\), 2 pasan, 1 fallan, 1 saltados/);
-  assert.match(cap.stdout, /src\/app\/talleres\.component\.spec\.ts › TalleresComponent › formulario › valida el cupo/);
-  assert.match(fs.readFileSync(path.join(dir, 'ng-args.txt'), 'utf8'), /^ng test --watch=false --browsers=ChromeHeadless --include=src\/app\/cupos\.service\.spec\.ts --include=src\/app\/talleres\.component\.spec\.ts$/m);
-  assert.deepEqual(base(dir).skipped, [{ spec: 'src/app/talleres.component.spec.ts', name: 'TalleresComponent › exporta a excel' }]);
-  h.write(dir, 'tests/known-failures.txt', '2026-10-23 | src/app/talleres.component.spec.ts | TalleresComponent › formulario › valida el cupo\n');
-  h.commitAll(dir, 'gates: base karma');
-  fs.appendFileSync(path.join(dir, 'src/app/talleres.component.ts'), 'export const x = 1;\n');
-  const chk = h.run('test-baseline.js', ['check', 'front'], { cwd: dir, env });
-  assert.equal(chk.status, 0, chk.stdout + chk.stderr);
-  assert.match(chk.stdout, /preexistente \(2026-10-23\): src\/app\/talleres\.component\.spec\.ts › TalleresComponent › formulario › valida el cupo/);
-});
-
 test('un contrato propio que no cuadra, o que no es JSON, no se compara: capture sale con 3', () => {
   const contract = (summary) => `console.log(JSON.stringify({ tests: [{ file: 'src/a.spec.ts', name: 'A › debe sumar', status: 'pasa' }], summary: ${JSON.stringify(summary)} }));`;
   const own = (script) => repo({ commands: { typecheck: ['tsc'], test: 'ng test', testJson: 'node propio.js {specs}' } }, { 'propio.js': script, 'src/b.spec.ts': 'x\n' });

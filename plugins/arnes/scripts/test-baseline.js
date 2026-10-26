@@ -13,13 +13,26 @@
 // Una preexistente no pone rojo y sale en el reporte con su fecha; una línea sin fecha no absuelve.
 // Los resultados se leen siempre como el contrato $defs.testResultContract del schema:
 //   { tests: [{ file, name, status: pasa | falla | saltado }], summary: { pasa, falla, saltado, total } }
-// De serie, jest (--json --outputFile), vitest (--reporter=json --outputFile.json) y node --test (el
-// reporter lib/node-test-reporter.js con su destino, antes de los archivos): el script agrega el flag
-// al comando y lee el archivo que deja el runner, nunca el texto de la corrida. Para otro runner,
-// commands.testJson es un comando del repo que corre los specs ({specs}) e imprime el contrato por
-// stdout; si está, se usa en vez de commands.test. Una suite que no llega a correr cuenta como la falla
-// "Test suite failed to run" y no como test de la base. Un contrato que no valida contra el schema, o
-// cuyo detalle no cuadra con su resumen, es rojo.
+// De serie, jest (--json --outputFile), vitest (--reporter=json --outputFile.json), node --test (el
+// reporter lib/node-test-reporter.js con su destino, antes de los archivos) y Karma: el script agrega
+// el flag al comando y lee el archivo que deja el runner, nunca el texto de la corrida. Para otro
+// runner, commands.testJson es un comando del repo que corre los specs ({specs}) e imprime el contrato
+// por stdout; si está, se usa en vez de commands.test. Una suite que no llega a correr cuenta como la
+// falla "Test suite failed to run" y no como test de la base. Un contrato que no valida contra el
+// schema, o cuyo detalle no cuadra con su resumen, es rojo.
+// Karma es un `ng test` cuyo workspace tiene en angular.json un test con builder de Karma
+// (lib/karma-config.js). El script le agrega --karma-config con una configuración temporal que suma el
+// reporter lib/karma-reporter.js, más --watch=false y --browsers=ChromeHeadless si no los trae, y
+// {specs} pasa a un --include por spec; la suite completa va sin --include. El reporter escribe cada
+// test al terminar en <raíz>/.tmp/harness/karma/<ws>-resultados.jsonl. El archivo de cada test es el
+// spec incluido si hay uno solo; si no, el que tiene el describe de más arriba entre los incluidos o, en
+// la suite completa, entre los specs trackeados. Si ninguno o más de uno lo tiene, el test no entra en
+// tests: va a run.ambiguos con sus candidatos. run dice además cómo terminó la corrida: completa,
+// abortada (cuántos tests corrieron de cuántos y el último) o no-compila (los primeros errores). Una
+// línea base se toma igual con una corrida abortada o que no compila, con lo que alcanzó a correr y con
+// su estado. En el gate, una corrida que no termina completa es rojo, salvo la suite completa abortada
+// que llega al menos tan lejos como la base, abortada también; un test que falla y no tiene archivo
+// cierto es rojo.
 //
 // Uso: node test-baseline.js capture <ws>
 //        corre los tests sobre todos los specs trackeados (specPattern) y escribe la base;
@@ -40,13 +53,14 @@ const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { parseArgs } = require('util');
-const { requireProject, selectWorkspaces, validateDef, real, posix } = require('./lib/manifest.js');
+const { requireProject, loadProject, selectWorkspaces, validateDef, real, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
-const { git, lines, expand, quote, sh, tail, help, die } = require('./lib/exec.js');
+const { MAX_LINE, git, lines, expand, quote, sh, tail, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { selectSpecs, patternRegExp } = require('./test-select.js');
 const { toolOf } = require('./typecheck-baseline.js');
 const { SUITE_FAILED } = require('./lib/node-test-reporter.js');
+const { karmaTarget, karmaSetup } = require('./lib/karma-config.js');
 
 const DEFAULT_BASELINE = 'tests/baseline.json';
 const KNOWN = 'tests/known-failures.txt';
@@ -80,7 +94,112 @@ function runnerOf(cmd, ws) {
   while (i < toks.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(toks[i])) i++;
   if (/^node(\.exe)?$/i.test(path.basename(toks[i] || '').replace(/^["']|["']$/g, '')) && toks.includes('--test')) return 'node';
   const tool = toolOf(cmd);
+  if (tool === 'ng' && karmaTarget(ws.dir)) return 'karma';
   return tool === 'jest' || tool === 'vitest' ? tool : null;
+}
+
+function karmaCommands(cmd, specs, all, conf) {
+  let head = cmd.replace(/\s+--include(?:=|\s+)\{specs\}/, '').replace(/\s*\{specs\}/, '');
+  if (!/(^|\s)--watch(=|\s|$)/.test(head)) head += ' --watch=false';
+  if (!/(^|\s)--browsers(=|\s)/.test(head)) head += ' --browsers=ChromeHeadless';
+  head += ` --karma-config ${quote(conf)}`;
+  if (all || !specs) return [{ cmd: head, specs: null }];
+  const chunks = [];
+  let cur = [];
+  let len = 0;
+  for (const s of specs) {
+    const it = `--include ${quote(s)}`;
+    if (cur.length && head.length + len + 1 + it.length > MAX_LINE) {
+      chunks.push(cur);
+      cur = [];
+      len = 0;
+    }
+    cur.push(s);
+    len += it.length + 1;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks.map((c) => ({ cmd: `${head} ${c.map((s) => `--include ${quote(s)}`).join(' ')}`, specs: c }));
+}
+
+function describesIn(file) {
+  let text = '';
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return [];
+  }
+  return [...text.matchAll(/\b[fx]?describe\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map((m) => m[2].replace(/\\(.)/g, '$1'));
+}
+
+function fromKarma(text, ws, scope, out, status) {
+  const ev = String(text || '').split(/\r?\n/).filter(Boolean).map((l) => {
+    try {
+      return JSON.parse(l);
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+  const specs = ev.filter((e) => e.tipo === 'spec');
+  const fin = ev.filter((e) => e.tipo === 'fin').pop();
+  const titles = new Map();
+  const has = (f, title) => {
+    if (!titles.has(f)) titles.set(f, describesIn(path.join(ws.dir, f)));
+    return titles.get(f).includes(title);
+  };
+  const tests = [];
+  const ambiguos = [];
+  for (const s of specs) {
+    const suite = [].concat(s.suite || []);
+    const t = { name: [...suite, s.nombre].join(' › '), status: s.estado, ...(s.log && s.log.length ? { log: s.log.map(String) } : {}) };
+    const cands = scope.length === 1 ? scope : suite.length ? scope.filter((f) => has(f, suite[0])) : [];
+    if (cands.length === 1) tests.push({ file: cands[0], ...t });
+    else ambiguos.push({ name: t.name, status: t.status, candidatos: cands });
+  }
+  const clean = String(out || '').replace(/\x1b\[[0-9;]*m/g, '');
+  let estado = 'completa';
+  let errores = ev.filter((e) => e.tipo === 'error').map((e) => String(e.error));
+  if (!fin || fin.error || fin.desconectado) estado = specs.length || (fin && fin.desconectado) || status === 0 ? 'abortada' : 'no-compila';
+  if (estado === 'no-compila') {
+    const found = clean.split(/\r?\n/).map((l) => l.trim().replace(/^\d{2} \d{2} \d{4} [\d:.]+:ERROR \[[^\]]+\]:\s*/, '')).filter((l) => /error TS\d+|load error|Cannot find module|Module not found|\[ERROR\]|Error in config/i.test(l));
+    errores = [...new Set([...found.filter((l) => /error TS\d+/.test(l)), ...found])];
+  }
+  const declared = Math.max(0, ...specs.map((s) => Number(s.total) || 0), fin ? Number(fin.total) || 0 : 0);
+  const left = (k) => ambiguos.filter((a) => a.status === k).length;
+  const c = countOf(tests, true);
+  const summary = estado === 'completa' && fin
+    ? { pasa: fin.pasa - left('pasa'), falla: fin.falla - left('falla'), saltado: fin.saltado - left('saltado') }
+    : { pasa: c.pass, falla: c.fail, saltado: c.skip };
+  summary.total = summary.pasa + summary.falla + summary.saltado;
+  const run = { estado, corrieron: specs.length, total: declared };
+  const last = specs[specs.length - 1];
+  if (last && estado !== 'completa') run.ultimo = [...[].concat(last.suite || []), last.nombre].join(' › ');
+  if (errores.length) run.errores = errores.slice(0, 5);
+  if (ambiguos.length) run.ambiguos = ambiguos;
+  return { tests, summary, run };
+}
+
+function joinRuns(runs) {
+  if (!runs.length) return undefined;
+  const order = ['completa', 'abortada', 'no-compila'];
+  const run = { estado: runs.map((r) => r.estado).sort((a, b) => order.indexOf(b) - order.indexOf(a))[0], corrieron: 0, total: 0 };
+  for (const r of runs) {
+    run.corrieron += r.corrieron;
+    run.total += r.total;
+    if (r.ultimo) run.ultimo = r.ultimo;
+    if (r.errores) run.errores = [...(run.errores || []), ...r.errores].slice(0, 5);
+    if (r.ambiguos) run.ambiguos = [...(run.ambiguos || []), ...r.ambiguos];
+  }
+  return run;
+}
+
+function runText(run) {
+  if (run.estado === 'no-compila') return `no compila: ${(run.errores || ['sin errores en la salida']).slice(0, 3).join(' | ')}`;
+  return `la corrida se cortó: corrieron ${run.corrieron} de ${run.total || '?'} test(s)${run.ultimo ? `; el último, ${run.ultimo}` : ''}${run.errores ? ` (${run.errores[0]})` : ''}`;
+}
+
+function baseRunText(run) {
+  const amb = run.ambiguos ? `; ${run.ambiguos.length} test(s) sin archivo cierto, porque su describe está en más de un spec o en ninguno (${run.ambiguos.slice(0, 2).map((a) => `${a.name}: ${a.candidatos.join(', ') || 'ninguno'}`).join('; ')})` : '';
+  return `${run.estado === 'completa' ? `completa, ${run.corrieron} test(s)` : runText(run)}${amb}`;
 }
 
 function withReporter(runner, cmd, file) {
@@ -143,13 +262,37 @@ function merge(runner, parts) {
   if (tests.length !== summary.total || c.pass !== summary.pasa || c.fail !== summary.falla || c.skip !== summary.saltado) {
     return { error: `resultados: el detalle por test (${tests.length}: ${fmt(c)}) no cuadra con el resumen (${summary.total}: ${summary.pasa} pasan, ${summary.falla} fallan, ${summary.saltado} saltados)` };
   }
-  return { tests, summary };
+  const run = joinRuns(parts.map((p) => p.run).filter(Boolean));
+  return run ? { tests, summary, run } : { tests, summary };
 }
 
-function runTests(ws, cmd, specs) {
+function runKarma(ws, cmd, specs, all, env) {
+  const root = (loadProject(ws.dir) || {}).root || ws.dir;
+  const conf = karmaSetup(ws, root);
+  const scope = all ? (trackedSpecs(ws).specs || []) : specs || [];
+  const parts = [];
+  let status = 0;
+  let out = '';
+  for (const [i, chunk] of karmaCommands(cmd, specs, all, conf).entries()) {
+    const file = path.join(root, '.tmp', 'harness', 'karma', `${ws.name}-resultados${i ? `-${i + 1}` : ''}.jsonl`);
+    fs.rmSync(file, { force: true });
+    const r = sh(chunk.cmd, ws.dir, { ...env, ARNES_KARMA_RESULTADOS: file });
+    let text = '';
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch {}
+    parts.push(fromKarma(text, ws, chunk.specs || scope, r.out, r.status));
+    out += r.out;
+    if (r.status !== 0 && status === 0) status = r.status;
+  }
+  return { runner: 'karma', run: { status, out }, res: merge('karma', parts) };
+}
+
+function runTests(ws, cmd, specs, all = false) {
   const runner = runnerOf(cmd, ws);
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (k.startsWith('NODE_TEST_')) delete env[k];
+  if (runner === 'karma') return runKarma(ws, cmd, specs, all, env);
   const parts = [];
   let status = 0;
   let out = '';
@@ -175,7 +318,7 @@ function runTests(ws, cmd, specs) {
 }
 
 function noAdapter(ws, cmd) {
-  return `${ws.name}: no hay adaptador de resultados para ${toolOf(cmd) || cmd}; declara commands.testJson con un comando que imprima el contrato de resultados (el de Karma está en docs/PROBADORES.md §4)`;
+  return `${ws.name}: no hay adaptador de resultados para ${toolOf(cmd) || cmd}; declara commands.testJson con un comando que imprima el contrato de resultados (docs/PROBADORES.md §4, punto 7)`;
 }
 
 function baselinePath(ws) {
@@ -233,7 +376,7 @@ function planTests(ws, files) {
   const cmd = testJson || ws.commands.test;
   const whole = (why) => {
     const label = `suite completa: ${why}`;
-    if (cmd && testJson && ws.specPattern) {
+    if (cmd && (testJson || runnerOf(cmd, ws) === 'karma') && ws.specPattern) {
       const t = trackedSpecs(ws);
       return t.error ? { error: t.error } : { cmd, label, specs: t.specs, all: true };
     }
@@ -265,7 +408,7 @@ function checkTests(ws, p) {
   if (p.specs && !p.specs.length) {
     return reds.length ? { status: 'falla', detail: 'sin specs para lo tocado, pero la base no cuadra', out: reds.join('\n') } : { status: 'ok', detail: 'sin specs para lo tocado' };
   }
-  const { runner, run, res } = runTests(ws, p.cmd, p.specs);
+  const { runner, run, res } = runTests(ws, p.cmd, p.specs, Boolean(p.all));
   if (!runner) {
     if (base.data) reds.push(`hay línea base pero ${noAdapter(ws, p.cmd)}`);
     const detail = run.status !== 0 ? `${p.label}: exit ${run.status}` : p.label;
@@ -280,25 +423,37 @@ function checkTests(ws, p) {
     if (k) notes.push(`preexistente (${k.date}): ${f.file} › ${f.name}`);
     else reds.push(`falla nueva: ${f.file} › ${f.name}`);
   }
-  if (run.status !== 0 && !failed.length) reds.push(`el comando salió con ${run.status} sin fallas en sus resultados`);
+  const cut = res.run && res.run.estado !== 'completa';
+  const baseRun = base.data && base.data.run;
+  if (cut) {
+    if (p.all && baseRun && baseRun.estado === 'abortada' && res.run.estado === 'abortada' && res.run.corrieron >= baseRun.corrieron) notes.push(`${runText(res.run)}; la línea base también se cortó, en ${baseRun.corrieron} de ${baseRun.total}`);
+    else reds.push(runText(res.run));
+  }
+  for (const a of (res.run && res.run.ambiguos) || []) if (a.status === 'falla') reds.push(`falla sin archivo cierto: ${a.name} (${a.candidatos.length ? `el describe está en ${a.candidatos.join(', ')}` : 'ningún spec tiene su describe'})`);
+  if (run.status !== 0 && !failed.length && !cut) reds.push(`el comando salió con ${run.status} sin fallas en sus resultados`);
   const now = countOf(res.tests);
   let detail = `${p.label} · ${fmt(now)}`;
   if (base.data) {
     const gone = new Set(missingSpecs(ws, base.data));
-    const scope = (p.all ? Object.keys(base.data.specs) : p.specs).filter((s) => !gone.has(s));
-    const c = compare(base.data, scope, now, res.tests.filter((t) => t.status === 'saltado'));
+    const ran = new Set(res.tests.map((t) => t.file));
+    const unmeasured = new Set(baseRun && baseRun.estado !== 'completa' && !p.all ? p.specs.filter((s) => !base.data.specs[s]) : []);
+    const scope = (p.all ? Object.keys(base.data.specs) : p.specs).filter((s) => !gone.has(s) && !unmeasured.has(s) && !(cut && p.all && !ran.has(s)));
+    const measured = res.tests.filter((t) => !unmeasured.has(t.file));
+    const m = countOf(measured);
+    const c = compare(base.data, scope, m, measured.filter((t) => t.status === 'saltado'));
     reds.push(...c.reds);
     detail += ` · base ${fmt(c.b)}`;
-    if (total(now) > total(c.b)) notes.push(`línea base: hay ${total(now) - total(c.b)} test(s) más que en la base; quedan protegidos al recapturarla (test-baseline.js capture, commit con gates:)`);
+    if (unmeasured.size) notes.push(`sin medir en la línea base, que se cortó antes de llegar: ${[...unmeasured].join(', ')}; sus fallas cuentan, sus saltos y sus totales no`);
+    if (total(m) > total(c.b)) notes.push(`línea base: hay ${total(m) - total(c.b)} test(s) más que en la base; quedan protegidos al recapturarla (test-baseline.js capture, commit con gates:)`);
   } else detail += ` · sin línea base (${posix(path.relative(ws.dir, base.file))})`;
   if (reds.length) return { status: 'falla', detail, out: [...reds, ...notes, tail(run.out, 30)].filter(Boolean).join('\n') };
   return { status: 'ok', detail, out: notes.length ? notes.join('\n') : undefined };
 }
 
-function runAndRead(ws, specs) {
+function runAndRead(ws, specs, all = false) {
   const cmd = ws.commands.testJson || ws.commands.test;
   if (!runnerOf(cmd, ws)) return { error: noAdapter(ws, cmd), code: 2 };
-  const { run, res } = runTests(ws, cmd, specs);
+  const { run, res } = runTests(ws, cmd, specs, all);
   if (res.error) return { error: `${ws.name}: ${res.error}. Últimas líneas:\n${tail(run.out, 10)}`, code: 3 };
   return { out: res, run };
 }
@@ -310,7 +465,9 @@ function probeTests(ws) {
   if (t.error) return t;
   if (!t.specs.length) return { skip: 'sin specs trackeados según specPattern' };
   const r = runAndRead(ws, [t.specs[0]]);
-  return r.error ? { error: r.error } : { ok: `${t.specs[0]}: ${r.out.tests.length} test(s) leídos con su detalle` };
+  if (r.error) return { error: r.error };
+  const cut = r.out.run && r.out.run.estado !== 'completa' ? `; ${runText(r.out.run)}` : '';
+  return { ok: `${t.specs[0]}: ${r.out.tests.length} test(s) leídos con su detalle${cut}` };
 }
 
 function captureBaseline(project, ws) {
@@ -323,9 +480,9 @@ function captureBaseline(project, ws) {
   if (head.status !== 0) return { error: `test-baseline: git rev-parse HEAD falló en ${ws.name}`, code: 2 };
   const tracked = trackedSpecs(ws);
   if (tracked.error) return { ...tracked, code: 2 };
-  const r = runAndRead(ws, tracked.specs);
+  const r = runAndRead(ws, tracked.specs, true);
   if (r.error) return r;
-  const { tests } = r.out;
+  const { tests, run } = r.out;
   const per = {};
   for (const x of tests) {
     per[x.file] = per[x.file] || { ...ZERO };
@@ -337,6 +494,7 @@ function captureBaseline(project, ws) {
     head: head.stdout.trim(),
     specs: Object.fromEntries(Object.keys(per).sort().map((k) => [k, per[k]])),
     skipped: tests.filter((x) => x.status === 'saltado').map((x) => ({ spec: x.file, name: x.name })),
+    ...(run ? { run } : {}),
   };
   const file = baselinePath(ws);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -352,6 +510,7 @@ function capture(project, ws) {
   if (r.error) die(r.error, r.code);
   const { file, data, summary, unknown } = r;
   console.log(`línea base de ${ws.name} en ${file}: ${Object.keys(data.specs).length} spec(s), ${fmt(summary)}, HEAD ${data.head.slice(0, 10)}`);
+  if (data.run) console.log(`estado de la corrida: ${baseRunText(data.run)}`);
   if (unknown.length) {
     console.log(`${unknown.length} falla(s) que no están en ${KNOWN}; al tocar su spec ponen el gate en rojo:`);
     for (const f of unknown) console.log(`  ${f.spec} › ${f.name}`);
@@ -366,6 +525,9 @@ module.exports = {
   readJson,
   runnerOf,
   withReporter,
+  karmaCommands,
+  fromKarma,
+  baseRunText,
   baselinePath,
   knownPath,
   readBaseline,

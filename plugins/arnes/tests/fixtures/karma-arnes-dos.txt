@@ -1,0 +1,7 @@
+{"tipo":"inicio"}
+{"tipo":"spec","suite":["Rojo"],"nombre":"queda pendiente","estado":"saltado","log":[],"total":5}
+{"tipo":"spec","suite":["Rojo"],"nombre":"resta mal","estado":"falla","log":["Expected 1 to be 3.\n    at <Jasmine>\n    at UserContext.<anonymous> (src/app/rojo.spec.ts:7:19)\n    at <Jasmine>"],"total":5}
+{"tipo":"spec","suite":["Rojo"],"nombre":"suma bien","estado":"pasa","log":[],"total":5}
+{"tipo":"spec","suite":["Verde"],"nombre":"crea la app","estado":"pasa","log":[],"total":5}
+{"tipo":"spec","suite":["Verde","el título"],"nombre":"lo pinta en el h1","estado":"pasa","log":[],"total":5}
+{"tipo":"fin","pasa":3,"falla":1,"saltado":1,"total":5,"error":false,"desconectado":false}

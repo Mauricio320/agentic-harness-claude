@@ -111,63 +111,13 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
    ```
 
    Una corrección se pide con `/arnes:init --ajustar`, por ejemplo `/arnes:init --ajustar en web, src/api/** también exige revisión humana`: la sesión la aplica en el archivo, sin repetir init. Va por ahí, y no en un mensaje suelto, porque fuera de init la configuración del arnés no se escribe. En una carpeta con back y front, el contract hace que ship sepa que el back va primero; si init no lo pudo deducir, como aquí, pídelo con `--ajustar`.
-4. Lo que init no puede hacer solo lo deja primero en esa lista, con el comando, y hace lo demás igual: la línea base de un repo con cambios sin commitear (`/arnes:init --baseline` cuando los commitees o los guardes), graphify sin instalar (`uv tool install graphify` y otra vez `/arnes:init`, que con lo demás ya escrito solo arma el grafo) o un runner de tests que el arnés no sabe leer (el punto 7). La línea base y las fallas que ya había, anotadas con la fecha de hoy en `tests/known-failures.txt`, las commiteas tú, con `gates:` al inicio del asunto.
+4. Lo que init no puede hacer solo lo deja primero en esa lista, con el comando, y hace lo demás igual: la línea base de un repo con cambios sin commitear (`/arnes:init --baseline` cuando los commitees o los guardes), graphify sin instalar (`uv tool install graphify` y otra vez `/arnes:init`, que con lo demás ya escrito solo arma el grafo) o un runner de tests que el arnés no sabe leer (el punto 7). Si la suite de tu repo se corta o no compila, la línea base se toma igual con su estado, y el cierre te lo dice. La línea base y las fallas que ya había, anotadas con la fecha de hoy en `tests/known-failures.txt`, las commiteas tú, con `gates:` al inicio del asunto.
 5. En una carpeta multi-repo, haz de la carpeta un repo (`git init`), commitea lo que escribió init y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
 6. `/arnes:init --check` corre las ocho comprobaciones del mínimo de adopción (`docs/PLAN.md` §8). Cada una sale `ok`, `FALTA`, `MANUAL` (configuración del host git que no se ve desde local) o `NO ADOPTABLE` (un repo sin manifiesto propio, como uno PHP, que no bloquea).
-7. **Si tus tests no son jest, vitest ni `node --test`.** El arnés lee los resultados de cada test (archivo, nombre completo y si pasó, falló o se saltó) para compararlos con la línea base. Con esos tres lo hace solo. Con otro runner, el repo declara en su manifiesto `commands.testJson`: un comando que corre los specs que recibe en `{specs}` e imprime por stdout `{ "tests": [{ "file", "name", "status" }], "summary": { "pasa", "falla", "saltado", "total" } }`, con `status` `pasa`, `falla` o `saltado`, `file` relativo al repo y `name` con ` › ` entre cada describe y el test. Si está, el arnés lo usa en vez de `commands.test`. Para Angular con Karma:
-
-   - Instala `karma-json-reporter` y súmalo en `karma.conf.js`: `require('karma-json-reporter')` en `plugins`, `'json'` en `reporters` y `jsonReporter: { stdout: false, outputFile: '.tmp/karma-result.json' }`.
-   - Guarda el adaptador en `scripts/karma-contract.js` y declara `"testJson": "node scripts/karma-contract.js {specs}"`. Corre `ng test` una vez con un `--include` por spec, y saca el archivo de cada test del `describe` raíz de su spec, porque Karma no lo informa: cada spec necesita un `describe` raíz propio, como el nombre del componente o del servicio.
-
-   ```js
-   // Adaptador de Karma para el arnés: corre ng test con los specs que recibe y deja por stdout el contrato de resultados.
-   'use strict';
-   const { spawnSync } = require('child_process');
-   const fs = require('fs');
-   const path = require('path');
-
-   const OUT = path.resolve('.tmp/karma-result.json');
-   const specs = process.argv.slice(2);
-   fs.rmSync(OUT, { force: true });
-   const run = spawnSync('npx', ['ng', 'test', '--watch=false', '--browsers=ChromeHeadless', ...specs.map((s) => `--include=${s}`)], { stdio: ['ignore', 2, 2], shell: true });
-   if (!fs.existsSync(OUT)) {
-     console.error('karma no dejó .tmp/karma-result.json: revisa jsonReporter en karma.conf.js');
-     process.exit(2);
-   }
-   const karma = JSON.parse(fs.readFileSync(OUT, 'utf8'));
-   const files = specs.length ? specs : spawnSync('git', ['ls-files', '*.spec.ts'], { encoding: 'utf8' }).stdout.split(/\r?\n/).filter(Boolean);
-   const owner = new Map();
-   for (const file of files) {
-     const m = fs.readFileSync(file, 'utf8').match(/\bdescribe\(\s*(['"`])(.+?)\1/);
-     if (m) owner.set(m[2], owner.has(m[2]) ? null : file);
-   }
-   const tests = [];
-   for (const entries of Object.values(karma.result || {})) {
-     for (const e of entries) {
-       const file = owner.get(e.suite[0]);
-       if (!file) {
-         console.error(`no encuentro un único spec con describe('${e.suite[0]}')`);
-         process.exit(2);
-       }
-       tests.push({ file, name: [...e.suite, e.description].join(' › '), status: e.skipped ? 'saltado' : e.success ? 'pasa' : 'falla' });
-     }
-   }
-   const summary = { pasa: 0, falla: 0, saltado: 0, total: 0 };
-   for (const b of Object.values(karma.browsers || {})) {
-     summary.pasa += b.lastResult.success;
-     summary.falla += b.lastResult.failed;
-     summary.saltado += b.lastResult.skipped;
-   }
-   if (karma.summary && (karma.summary.error || karma.summary.disconnected)) {
-     tests.push({ file: 'karma.conf.js', name: 'Test suite failed to run', status: 'falla' });
-     summary.falla += 1;
-   }
-   summary.total = summary.pasa + summary.falla + summary.saltado;
-   console.log(JSON.stringify({ tests, summary }));
-   process.exit(run.status == null ? 1 : run.status);
-   ```
-
-   Con eso, `/arnes:init` comprueba que el arnés lea los tests y captura la línea base como con jest. Sin `testJson`, el arnés solo ve si el comando salió bien o mal, y con una línea base el gate queda en rojo hasta declararlo.
+7. **Tus tests y el arnés.** El arnés lee los resultados de cada test (archivo, nombre completo y si pasó, falló o se saltó) para compararlos con la línea base. Lo hace solo con jest, vitest, `node --test` y, en Angular, con Karma.
+   - **Angular con Karma** (el test de tu `angular.json` usa `@angular-devkit/build-angular:karma` o `@angular/build:karma`): no escribes nada en tu repo, ni `karma.conf.js` ni un reporter. init deja `commands.test` en `npx ng test --watch=false --browsers=ChromeHeadless --include {specs}`, y al correrlo el arnés le agrega una configuración de Karma temporal: la tuya si el `angular.json` declara `karmaConfig`, o la de serie del builder con los plugins de tu `node_modules`, más un reporter propio que escribe cada test al terminar, en `.tmp/harness/karma/`. Siempre en Chrome sin cabeza y nunca en modo watch. Para la verificación de lo que tocaste corre solo esos specs, con un `--include` por spec, y el archivo de cada resultado es el que se incluyó; para la línea base corre la suite entera y saca el archivo del `describe` de más arriba de cada test. Si ese `describe` está en dos specs, no inventa uno: la línea base lo dice con los dos candidatos, y conviene que cada spec tenga un `describe` raíz propio, como el nombre del componente o del servicio.
+   - **Si la suite se corta o no compila.** Una suite que se aborta a la mitad (un spec que cuelga el navegador o que le pega a una API real) deja su línea base con lo que alcanzó a correr y el estado `abortada`, con hasta dónde llegó; la verificación de lo que tocas sigue funcionando por `--include`. Una que no compila deja el estado `no-compila` con los primeros errores. El `tsconfig.spec.json`, los `typeRoots` o cualquier arreglo así es de tu repo, no del arnés: con el builder de devkit en su modo de serie (webpack), un error de tipos en cualquier spec rompe también la corrida de un solo spec, y la verificación queda en rojo con ese error hasta que lo arregles.
+   - **Otro runner.** El repo declara en su manifiesto `commands.testJson`: un comando que corre los specs que recibe en `{specs}` e imprime por stdout `{ "tests": [{ "file", "name", "status" }], "summary": { "pasa", "falla", "saltado", "total" } }`, con `status` `pasa`, `falla` o `saltado`, `file` relativo al repo y `name` con ` › ` entre cada describe y el test. Si está, el arnés lo usa en vez de `commands.test`. Sin adaptador ni `testJson`, el arnés solo ve si el comando salió bien o mal, y con una línea base el gate queda en rojo hasta declararlo.
 
 ## 5. Qué vas a ver
 

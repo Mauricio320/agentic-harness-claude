@@ -38,7 +38,8 @@ init no pregunta. Todo lo que escribe son archivos sin commitear dentro de repos
 Init hace todo lo demás y deja cada uno en el cierre, con lo que lo resuelve:
 - **La línea base de un repo con cambios sin commitear** en código: los archivos que estorban, y que cuando los commitee o los guarde, `/arnes:init --baseline` corre solo ese paso.
 - **graphify sin instalar**: `uv tool install graphify`, y después `/arnes:init` otra vez, que con lo demás ya escrito solo arma el grafo.
-- **Un runner que el arnés no sabe leer** (dice que no hay adaptador de resultados, como con Karma): el repo necesita en su configuración un comando propio que entregue los resultados de cada test, `commands.testJson`; para Karma, el adaptador de la guía de probadores (`docs/PROBADORES.md` §4, punto 7). Lo escribe la persona en su repo; tú no.
+- **Un runner que el arnés no sabe leer** (dice que no hay adaptador de resultados; jest, vitest, `node --test` y Karma de Angular vienen de serie): el repo necesita en su configuración un comando propio que entregue los resultados de cada test, `commands.testJson` (`docs/PROBADORES.md` §4, punto 7). Lo escribe la persona en su repo; tú no.
+- **Una suite que se corta o no compila**: la línea base se toma igual, con lo que alcanzó a correr y su estado. Dilo en el cierre: hasta dónde llegó y por qué, o los primeros errores de compilación, que arregla la persona en su repo. No frena nada más.
 - **Una dependencia que falta** para correr los tests, como `node_modules`: el comando que la instala. init no instala.
 
 Si encuentras otra cosa que de verdad no puedes decidir solo, tampoco preguntes: hazlo todo menos eso y dilo en el cierre.

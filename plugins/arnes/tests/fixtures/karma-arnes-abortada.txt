@@ -1,0 +1,5 @@
+{"tipo":"inicio"}
+{"tipo":"spec","suite":["Verde","el título"],"nombre":"lo pinta en el h1","estado":"pasa","log":[],"total":6}
+{"tipo":"spec","suite":["Verde"],"nombre":"crea la app","estado":"pasa","log":[],"total":6}
+{"tipo":"error","error":"Disconnected reconnect failed before timeout of 2000ms (ping timeout)"}
+{"tipo":"fin","pasa":2,"falla":0,"saltado":0,"total":6,"error":false,"desconectado":true}
