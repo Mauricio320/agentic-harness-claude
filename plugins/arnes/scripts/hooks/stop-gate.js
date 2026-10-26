@@ -14,7 +14,9 @@
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
 // turno cambió algo: para (a) y (c), un archivo de código nuevo o cambiado respecto de la foto que
 // dejó prompt-context, archivo por archivo; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
-// solo avisa con systemMessage. Sin foto bloquea. Un solo bloqueo por turno: si la entrada trae
+// solo avisa con systemMessage. Sin foto bloquea, salvo con init o setup en curso: un workspace que
+// no está en la foto porque su configuración se escribió en este turno no cuenta para (a) ni (c) el
+// código que ya tenía, que es de la persona, y solo se avisa. Un solo bloqueo por turno: si la entrada trae
 // stop_hook_active (el turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el
 // pendiente en la timeline. Una sesión dentro del worktree de un set viejo no juzga (b): integrar le
 // toca a la del checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
@@ -38,7 +40,7 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
+const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
@@ -49,7 +51,7 @@ const { missingManifest } = require('../lib/configuracion.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
-function unverified(project, skip = []) {
+function unverified(project, skip = [], unseen = () => false) {
   const out = [];
   for (const ws of project.workspaces.filter((w) => w.adoptable && !skip.includes(w.name))) {
     const t = touched(ws, 'HEAD', project);
@@ -58,7 +60,7 @@ function unverified(project, skip = []) {
     if (!code.length) continue;
     const flag = checkFlag(project, ws);
     // Como (c), archivo por archivo: el código que la persona dejó antes del turno no lo bloquea.
-    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: codeChangedSince(project, ws, code).length > 0 });
+    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: !unseen(ws) && codeChangedSince(project, ws, code).length > 0 });
   }
   return out;
 }
@@ -67,11 +69,11 @@ function unverified(project, skip = []) {
 // .tmp/) fuera. Los tocados no traen borrados, así que borrar código no entra. El plan que cuenta es
 // el mismo que mira plan-guard. Cuenta archivo por archivo contra la foto del turno: el código que la
 // persona dejó tocado antes no entra, salvo que el turno lo vuelva a cambiar.
-function unplanned(project, home) {
+function unplanned(project, home, unseen) {
   const p = planState(read(home.root));
   if (p.approved) return [];
   const out = [];
-  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+  for (const ws of project.workspaces.filter((w) => w.adoptable && !unseen(w))) {
     const t = touched(ws, 'HEAD', project);
     if (t.error) continue;
     const code = codeChangedSince(project, ws, t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f)));
@@ -199,8 +201,11 @@ function stopGate(input) {
   }
   // El plan y init o setup se miran en la timeline que mira plan-guard.
   const home = ledger.projectFor(cwd) || project;
-  const noPlan = unplanned(project, home);
-  const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws)), wts: pendingWorktrees(cwd, turnStart(project)) };
+  const snap = readTurn(project);
+  const prep = prepOpen(read(home.root));
+  const unseen = (ws) => Boolean(prep) && !snap[ws.name];
+  const noPlan = unplanned(project, home, unseen);
+  const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws), unseen), wts: pendingWorktrees(cwd, turnStart(project)) };
   const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts];
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
   // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.

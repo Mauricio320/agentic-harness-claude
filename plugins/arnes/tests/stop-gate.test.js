@@ -286,6 +286,19 @@ test('(d) la configuración cambiada por el shell en el turno bloquea una vez; l
   assert.equal(stop(root).out, null, 'init corrió en el turno');
 });
 
+test('el turno de init que escribe la configuración no bloquea por el código que la persona ya tenía; sin init, sin foto, sí', () => {
+  const dir = h.tmp('stop-init');
+  h.repo(dir, { '.gitignore': '.tmp/\n', 'src/a.ts': 'a\n' });
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de la persona\n');
+  tl.append(dir, { event: 'start', stage: 'init' });
+  h.write(dir, '.claude/harness.json', h.repoManifest('api'));
+  const r = stop(dir);
+  assert.equal(r.out.decision, undefined, JSON.stringify(r.out));
+  assert.match(r.out.systemMessage, /este turno no los tocó/);
+  tl.append(dir, { event: 'start', stage: 'plan' });
+  assert.equal(stop(dir).out.decision, 'block', 'con el plan empezado init ya no está en curso, y sin foto bloquea');
+});
+
 test('(d) el manifiesto de un repo de la carpeta borrado en el turno bloquea; en un repo solo, sin proyecto, avisa', () => {
   const { root, api } = folder();
   promptAt(api);

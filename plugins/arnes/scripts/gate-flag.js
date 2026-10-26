@@ -270,7 +270,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, codeChangedSince, manifestsChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, readTurn, writeTurn, turnStart, takeOrigin, codeChangedSince, manifestsChanged, status };
 
 function main() {
   let args;
