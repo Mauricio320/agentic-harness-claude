@@ -21,7 +21,7 @@ Reglas:
 ## 1. Lo que se hace sin preguntar
 
 1. **El repo de carpeta:** `node "S" clone <fuente> [destino]`, y si dice "clonaría", lo mismo con `--write`: lo pidió la persona. Sin fuente, o si el destino ya tiene composición, usa esa carpeta. Si sale con 1, di el motivo y termina.
-2. **La etapa:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`. Mientras setup está en curso, las respuestas de la persona no se toman como pedidos de código.
+2. **La etapa:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`. La etapa dura el turno: si no la cierras, la cierra el Stop al terminarlo, y la configuración vuelve a quedar protegida.
 3. **Los repos:** `node "S" repos --dir "<carpeta>" --write` clona los que faltan y hace fetch de los que existen. Un repo en otra rama no se mueve: va a la ronda.
 4. **El entorno:** `node "S" env --dir "<carpeta>" --write` copia `.env.example` donde no hay `.env`. Anota las variables vacías, que llena la persona, y a qué host y puerto apunta cada conexión a base; si es local o un túnel, avisa que puede ser QA.
 5. **Mirar lo demás, sin escribir:** `deps`, `baseline`, `graph`, `claude-md` y `permissions`, cada uno con `--dir "<carpeta>"` y sin `--write`.
@@ -39,7 +39,7 @@ Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.
 
 ## 3. Con la respuesta
 
-Aplica lo aceptado, en este orden y sin volver a preguntar: `repos --switch <ruta> --write`, `deps --write` (o `--repo <ruta>` por cada repo aceptado), `probe` (si dice FALTA por una dependencia, dilo), `baseline --ws <ws> --write`, `graph --write`, `claude-md --write` y `permissions --write`. Lo que la persona dijo que no, anótalo para el cierre.
+Anota otra vez `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>" --detail "respuesta"`: la etapa se cerró con el turno de la ronda. Aplica lo aceptado, en este orden y sin volver a preguntar: `repos --switch <ruta> --write`, `deps --write` (o `--repo <ruta>` por cada repo aceptado), `probe` (si dice FALTA por una dependencia, dilo), `baseline --ws <ws> --write`, `graph --write`, `claude-md --write` y `permissions --write`. Lo que la persona dijo que no, anótalo para el cierre.
 
 ## 4. El cierre
 

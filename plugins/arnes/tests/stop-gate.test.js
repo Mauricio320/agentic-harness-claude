@@ -299,6 +299,37 @@ test('el turno de init que escribe la configuración no bloquea por el código q
   assert.equal(stop(dir).out.decision, 'block', 'el turno siguiente, sin init ni foto, bloquea');
 });
 
+test('el Stop cierra un init que quedó abierto: una corrección con --ajustar que no anotó su fin', () => {
+  const dir = h.tmp('stop-ajustar');
+  h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  const edit = (file) => h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, file) }, cwd: dir });
+  const denied = (r) => Boolean(r.out && r.out.hookSpecificOutput && r.out.hookSpecificOutput.permissionDecision === 'deny');
+  h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '/arnes:init --ajustar en api, src/auth/** también exige revisión humana', cwd: dir });
+  tl.append(dir, { event: 'start', stage: 'init', detail: 'ajuste' });
+  assert.ok(!denied(edit('.claude/harness.json')), 'con init abierto, la corrección se escribe');
+  const m = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'harness.json'), 'utf8'));
+  m.workspaces[0].riskPaths = ['src/auth/**'];
+  fs.writeFileSync(path.join(dir, '.claude', 'harness.json'), JSON.stringify(m, null, 2) + '\n');
+  const r = stop(dir);
+  assert.equal(r.out.decision, undefined, JSON.stringify(r.out));
+  assert.match(r.out.systemMessage, /^arnes: init seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida\./);
+  const last = tl.read(dir).filter((e) => e.stage === 'init').pop();
+  assert.deepEqual([last.event, last.result], ['end', 'ok']);
+  assert.match(last.detail, /lo cerró el Stop/);
+  assert.equal(tl.prepOpen(tl.read(dir)), null);
+  assert.ok(denied(edit('.claude/harness.json')), 'al turno siguiente, la configuración vuelve a estar protegida');
+  assert.ok(denied(edit('src/a.ts')), 'y escribir código sin plan vuelve a bloquearse');
+  assert.doesNotMatch(JSON.stringify(stop(dir).out || {}), /seguía abierto/, 'lo dice una sola vez');
+
+  promptAt(dir);
+  tl.append(dir, { event: 'start', stage: 'init', detail: 'ajuste' });
+  fs.appendFileSync(path.join(dir, 'src', 'a.ts'), 'código sin plan\n');
+  assert.equal(stop(dir).out.decision, 'block', 'un turno que el Stop bloquea sigue, y no se le cierra init todavía');
+  assert.equal(tl.prepOpen(tl.read(dir)), 'init');
+  assert.match(stop(dir, true).out.systemMessage, /init seguía abierto al terminar el turno; lo cerré/, 'lo cierra cuando el turno termina de verdad');
+  assert.equal(tl.prepOpen(tl.read(dir)), null);
+});
+
 test('(d) el manifiesto de un repo de la carpeta borrado en el turno bloquea; en un repo solo, sin proyecto, avisa', () => {
   const { root, api } = folder();
   promptAt(api);

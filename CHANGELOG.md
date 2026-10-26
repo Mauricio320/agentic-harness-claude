@@ -14,6 +14,7 @@ Karma de serie y cuatro ajustes a init sin preguntas (`docs/PLAN.md` §6.1, §6.
 
 ### Cambiado
 - init se cierra al final de su turno. Dejarlo abierto hasta el plan dejaba escribir código sin plan en esa ventana, cambiando `codeGlobs` en el manifiesto. El Stop mira si init o setup corrieron en el turno que cierra.
+- init y setup se cierran solos: si siguen abiertos cuando el turno termina, el Stop les anota el fin y lo dice en una línea, así una corrección que olvidó anotarlo no deja la configuración escribible. setup vuelve a abrir su etapa en el turno de la respuesta a su ronda.
 - La sección del arnés en un `CLAUDE.md` de carpeta existente se agrega siempre, sin el tope de 200 líneas.
 - `/arnes:init --check`, con una rama remota que trae la configuración, dice que init va a adoptar desde cero en la rama actual y nombra la rama, en vez de «cámbiate antes de seguir».
 - `docs/PROBADORES.md` deja de traer el adaptador de Karma que escribía la persona; `commands.testJson` queda para los runners que no vienen de serie.

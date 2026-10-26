@@ -21,7 +21,7 @@ Solo el paso de la línea base, para cuando init no la pudo tomar porque el árb
 
 ## Con --ajustar
 
-Una corrección de lo que escribió init, que la persona pide después del cierre: anota `node "S/lib/timeline.js" start init --detail "ajuste"`, aplica con Edit lo que dice el resto de los argumentos sobre su archivo (la configuración de un repo o de la carpeta, el `CLAUDE.md`, el `settings.json`), valida con `node "S/lib/manifest.js" show` y di en una línea qué cambió. Cierra con `end init --result ok` en este mismo turno: fuera de init la configuración no se escribe. Sin nada después de `--ajustar`, di que la corrección va escrita a continuación del flag, y cierra igual. No repitas init ni sus pasos.
+Una corrección de lo que escribió init, que la persona pide después del cierre: anota `node "S/lib/timeline.js" start init --detail "ajuste"`, aplica con Edit lo que dice el resto de los argumentos sobre su archivo (la configuración de un repo o de la carpeta, el `CLAUDE.md`, el `settings.json`), valida con `node "S/lib/manifest.js" show` y di en una línea qué cambió. Cierra con `end init --result ok` en este mismo turno: fuera de init la configuración no se escribe, y si no lo anotas, el Stop lo cierra al terminar el turno. Sin nada después de `--ajustar`, di que la corrección va escrita a continuación del flag, y cierra igual. No repitas init ni sus pasos.
 
 ## Sin argumentos
 

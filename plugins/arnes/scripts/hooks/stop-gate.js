@@ -21,7 +21,10 @@
 // pendiente en la timeline. Una sesión dentro del worktree de un set viejo no juzga (b): integrar le
 // toca a la del checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
 // no bloquea. Cuando el turno cierra de verdad (no lo bloquea), anota en la timeline la nota
-// "cerrado" del turno, de donde sale la espera de la persona; y si hay bandera vigente sin revisión
+// "cerrado" del turno, de donde sale la espera de la persona; antes, si init o setup siguen abiertos
+// en la timeline, también sin manifiesto o con uno inválido, les anota su end y lo dice en una línea:
+// una corrección que no anotó su fin dejaría la configuración escribible hasta el próximo plan o dos
+// horas. Si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea "verificado, falta review", sin bloquear. Con trabajo en
 // marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
 // registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
@@ -184,6 +187,18 @@ function unreviewed(project) {
     .map((ws) => ws.name);
 }
 
+function closePrep(root) {
+  const stage = prepOpen(read(root));
+  if (!stage) return null;
+  append(root, { event: 'end', stage, result: 'ok', detail: 'lo cerró el Stop: el turno terminó sin anotar su fin' });
+  return `arnes: ${stage} seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida.`;
+}
+
+function withClosed(closed, r) {
+  if (!closed) return r;
+  return { ...(r || {}), systemMessage: r && r.systemMessage ? `${closed}\n${r.systemMessage}` : closed };
+}
+
 function stopGate(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
@@ -191,9 +206,9 @@ function stopGate(input) {
     // Sin el manifiesto en el árbol el proyecto no carga, pero la persona tiene que saber que el arnés
     // quedó apagado ahí. Un aviso, no un bloqueo: plan-guard y el guard ya no dejan escribir ni commitear.
     const gone = missingManifest(cwd);
-    return gone ? { systemMessage: `arnes: falta la configuración del arnés en ${path.basename(gone)}; el arnés está apagado ahí hasta que vuelva, o hasta que commitees su borrado si lo quieres quitar.` } : null;
+    return withClosed(closePrep(cwd), gone ? { systemMessage: `arnes: falta la configuración del arnés en ${path.basename(gone)}; el arnés está apagado ahí hasta que vuelva, o hasta que commitees su borrado si lo quieres quitar.` } : null);
   }
-  if (project.errors.length) return null;
+  if (project.errors.length) return withClosed(closePrep(project.root), null);
   try {
     if (project.kind === 'folder') carpeta.protect(cwd);
   } catch {
@@ -216,15 +231,16 @@ function stopGate(input) {
   if (due && !busy.length) return block(project, w);
   // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
+  const closed = closePrep(home.root);
   append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
-  if (busy.length) return { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` };
+  if (busy.length) return withClosed(closed, { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` });
   if (pending && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(w)}` });
-    return { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.` };
+    return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.` });
   }
-  if (pending) return { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.` };
+  if (pending) return withClosed(closed, { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.` });
   const noReview = unreviewed(project);
-  return noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; falta revisarlo antes de entregar.` } : null;
+  return withClosed(closed, noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; falta revisarlo antes de entregar.` } : null);
 }
 
 function block(project, w) {
