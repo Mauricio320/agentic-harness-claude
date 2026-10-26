@@ -38,7 +38,7 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, turnChanged, turnStart, manifestsChanged } = require('../gate-flag.js');
+const { checkFlag, turnChanged, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
@@ -63,7 +63,8 @@ function unverified(project, skip = []) {
 
 // (c) Código que cambió en este turno sin plan aprobado, con lo que plan-guard no juzga (.claude/ y
 // .tmp/) fuera. Los tocados no traen borrados, así que borrar código no entra. El plan que cuenta es
-// el mismo que mira plan-guard. Lo que la persona dejó tocado antes del turno no entra.
+// el mismo que mira plan-guard. Cuenta archivo por archivo contra la foto del turno: el código que la
+// persona dejó tocado antes no entra, salvo que el turno lo vuelva a cambiar.
 function unplanned(project, home) {
   const p = planState(read(home.root));
   if (p.approved) return [];
@@ -71,8 +72,8 @@ function unplanned(project, home) {
   for (const ws of project.workspaces.filter((w) => w.adoptable)) {
     const t = touched(ws, 'HEAD', project);
     if (t.error) continue;
-    const code = t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f));
-    if (code.length && turnChanged(project, ws)) out.push({ ws: ws.name, files: code, reason: whyNoPlan(p), changed: true });
+    const code = codeChangedSince(project, ws, t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f)));
+    if (code.length) out.push({ ws: ws.name, files: code, reason: whyNoPlan(p), changed: true });
   }
   return out;
 }

@@ -24,4 +24,10 @@ function stateOf(project, ws, base = 'HEAD') {
   return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files };
 }
 
-module.exports = { stateOf };
+// El sha256 del contenido de un archivo del workspace, o "-" si no existe.
+const fileHash = (ws, f) => {
+  const p = path.join(ws.dir, f);
+  return fs.existsSync(p) ? sha(fs.readFileSync(p)) : '-';
+};
+
+module.exports = { stateOf, fileHash };

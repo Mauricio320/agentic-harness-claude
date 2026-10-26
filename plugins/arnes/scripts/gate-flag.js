@@ -41,7 +41,7 @@ const { requireProject, selectWorkspaces, harnessDir, posix, MANIFEST } = requir
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { matchAny } = require('./lib/glob.js');
-const { stateOf } = require('./lib/huella.js');
+const { stateOf, fileHash } = require('./lib/huella.js');
 const { checkReview } = require('./review.js');
 const ledger = require('./worktree-ledger.js');
 const issues = require('./lib/issues.js');
@@ -162,7 +162,7 @@ function writeTurn(project, workspaces, now = Date.now()) {
   const snap = { [SINCE]: now };
   for (const ws of workspaces) {
     const s = stateOf(project, ws);
-    if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash };
+    if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash, code: codeHashes(ws, s.files) };
   }
   snap[MANIFESTS] = manifestState(project);
   const origin = readTurn(project)[ORIGIN];
@@ -195,6 +195,23 @@ function takeOrigin(project, hash, now = Date.now()) {
   else delete data[ORIGIN];
   saveTurn(project, data);
   return hits.length ? hits : null;
+}
+
+// Los tocados de codeGlobs, con el sha256 de cada uno: lo que el Stop compara archivo por archivo
+// para no cobrarle a un turno el código que la persona dejó antes.
+function codeHashes(ws, files) {
+  const out = {};
+  for (const f of files.filter((x) => matchAny(ws.codeGlobs, x))) out[f] = fileHash(ws, f);
+  return out;
+}
+
+// De estos archivos de código, los nuevos o cambiados desde la foto del turno. Sin foto, todos, como
+// turnChanged; con una foto de una versión anterior, que no trae los archivos, ninguno.
+function codeChangedSince(project, ws, files) {
+  const snap = readTurn(project)[ws.name];
+  if (!snap) return files;
+  if (!snap.code || typeof snap.code !== 'object') return [];
+  return files.filter((f) => snap.code[f] !== fileHash(ws, f));
 }
 
 // true si el workspace cambió la lista o el contenido de sus tocados desde la foto, o si no hay foto.
@@ -265,7 +282,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, manifestsChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, codeChangedSince, manifestsChanged, status };
 
 function main() {
   let args;

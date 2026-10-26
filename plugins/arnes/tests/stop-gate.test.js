@@ -214,6 +214,25 @@ test('(c) lo que estaba tocado antes del turno no cuenta como escrito sin plan',
   assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api/);
 });
 
+test('(c) cuenta archivo por archivo: el código de la persona no se le cobra a un turno que tocó otra cosa', () => {
+  const root = h.tmp('stop-sin-plan-archivo');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n', 'README.md': 'x\n' });
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'de la persona\n');
+  promptAt(root);
+  fs.appendFileSync(path.join(root, 'README.md'), 'pedido de documentación\n');
+  assert.doesNotMatch(stop(root).out.reason || '', /sin plan/, 'el turno solo tocó el README');
+
+  promptAt(root);
+  h.write(root, 'src/b.ts', 'del turno\n');
+  const r = stop(root);
+  assert.match(r.out.reason, /sin plan aprobado en api \(1 archivo\(s\) de código\)/, 'solo el archivo del turno');
+  assert.match(notes(root).pop().detail, /sin plan: api \(1 archivo\(s\) de código: src\/b\.ts;/);
+
+  promptAt(root);
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'y el turno encima\n');
+  assert.match(stop(root).out.reason, /sin plan aprobado en api/, 'un archivo de la persona que el turno volvió a cambiar sí cuenta');
+});
+
 test('(c) con stop_hook_active deja pasar con aviso y anota el pendiente', () => {
   const root = sinPlan();
   fs.appendFileSync(path.join(root, 'src/a.ts'), 'b\n');

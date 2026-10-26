@@ -290,8 +290,8 @@ test('stash drop y clear deniegan con algo en la pila; push que borra una rama r
   h.git(api, 'stash');
   for (const cmd of ['git stash drop', 'git stash drop stash@{0}', 'git stash clear']) assert.match(reason(guard(api, cmd)), /borra cambios guardados/, cmd);
   for (const cmd of ['git stash list', 'git stash pop', 'git stash']) assert.ok(!denied(guard(api, cmd)), cmd);
-  for (const cmd of ['git push origin --delete tema', 'git push -d origin tema', 'git push origin :tema']) {
-    assert.match(reason(guard(api, cmd)), /borra una rama del remoto/, cmd);
+  for (const cmd of ['git push origin --delete tema', 'git push -d origin tema', 'git push origin :tema', 'git push --prune origin', 'git push --mirror origin']) {
+    assert.match(reason(guard(api, cmd)), /borra ramas del remoto/, cmd);
   }
   assert.ok(!denied(guard(api, 'git push origin tema:tema')), 'un refspec con origen no borra');
 });

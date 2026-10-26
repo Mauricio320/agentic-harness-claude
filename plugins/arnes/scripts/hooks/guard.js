@@ -8,7 +8,7 @@
 //
 // Deniega siempre, haya o no manifiesto:
 //   git reset --hard · git push forzado (--force, -f, --force-with-lease, refspec +) ·
-//   git push que borra una rama del remoto (--delete, -d, refspec :rama) ·
+//   git push que borra ramas del remoto (--delete, -d, refspec :rama, --prune, --mirror) ·
 //   git restore, git checkout de rutas y git checkout o switch forzados, si botan cambios sin
 //   commitear de archivos trackeados · git stash drop o clear con algo en la pila ·
 //   git clean -f · git branch -D de una rama con commits fuera de su destino ·
@@ -259,8 +259,8 @@ function judgeGit(args, dir) {
   if (sub === 'push' && (rest.some((a) => /^--force(-with-lease|-if-includes)?(=|$)/.test(a)) || shortHas(rest, 'f') || rest.some((a) => /^\+/.test(a)))) {
     return 'el push forzado reescribe historia remota. Si de verdad hace falta, lo corre la persona en su terminal.';
   }
-  if (sub === 'push' && (rest.includes('--delete') || shortHas(rest, 'd') || rest.some((a) => /^:./.test(a)))) {
-    return 'el push que borra una rama del remoto la quita para todos. Si de verdad hace falta, lo corre la persona en su terminal.';
+  if (sub === 'push' && (['--delete', '--prune', '--mirror'].some((o) => rest.includes(o)) || shortHas(rest, 'd') || rest.some((a) => /^:./.test(a)))) {
+    return 'el push que borra ramas del remoto las quita para todos. Si de verdad hace falta, lo corre la persona en su terminal.';
   }
   if (sub === 'restore') return judgeRestore(g.dir, rest);
   if (sub === 'checkout' || sub === 'switch') return judgeCheckout(g.dir, rest, sub);
