@@ -205,7 +205,8 @@ test('un repo de la carpeta sin manifiesto dice su rama; si una rama remota lo t
   h.git(legacy, 'switch', '-q', 'main');
   const r = check(root);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /FALTA\s+legacy \(legacy\) en main, sin \.claude\/harness\.json; origin\/fix\/adopcion-arnes sí lo trae; cámbiate antes de seguir/);
+  assert.match(r.stdout, /FALTA\s+legacy \(legacy\) en main, sin \.claude\/harness\.json; origin\/fix\/adopcion-arnes lo trae, y \/arnes:init va a adoptar desde cero aquí, en main$/m);
+  assert.doesNotMatch(r.stdout, /cámbiate|switch/);
   const solo = h.tmp('adopt-solo');
   h.repo(solo, { 'a.ts': 'a\n' });
   assert.match(check(solo).stderr, /sin manifiesto: no hay .*\narnes-adopt-solo-\S+ en main, sin \.claude\/harness\.json/);

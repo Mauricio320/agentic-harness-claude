@@ -13,7 +13,8 @@
 //   8. línea base de tests (tests/baseline.json, o testBaseline del manifiesto) válida contra el
 //      schema y commiteada; los saltos van declarados por nombre en ella
 // Un repo de la composición sin manifiesto propio sale como NO ADOPTABLE y no bloquea, con su rama
-// actual. Si una rama remota sí trae el manifiesto, es FALTA: el repo está en la rama equivocada.
+// actual. Si una rama remota sí trae el manifiesto, es FALTA, y la línea dice lo mismo que hace init:
+// que va a adoptar desde cero en la rama actual, y qué rama remota lo trae.
 //
 // Uso: node adoption-check.js [--ws <nombre>]...
 // Salida: una línea por comprobación: ok · FALTA · MANUAL (no verificable desde local) · NO ADOPTABLE
@@ -169,7 +170,6 @@ function main() {
     if (!exists(ws.dir)) say('FALTA', `${label}: la carpeta no existe`);
     else if (git(ws.gitRoot, ['rev-parse', '--git-dir']).status !== 0) say('FALTA', `${label}: ${ws.gitRoot} no es un repo git`);
     else if (!ws.adoptable) {
-      // Sin manifiesto puede ser la rama equivocada: si una remota lo trae, falta cambiarse.
       const where = manifestElsewhere(ws.repo);
       if (where.remotes.length) say('FALTA', missingManifest(label, where));
       else say('NO ADOPTABLE', `${missingManifest(label, where)} propio; se declara sin comandos y no bloquea`);

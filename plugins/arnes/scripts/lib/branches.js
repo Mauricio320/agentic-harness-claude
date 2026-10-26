@@ -4,8 +4,10 @@
 // la rama o la carpeta están abiertas en worktree-ledger.js, worktree-remove.js (targetsOf) y el
 // guard miden contra la rama del issue registrada ahí; si no, contra la rama por defecto de
 // mergeTargets. Además, dónde está el manifiesto que un repo no tiene (manifestElsewhere), para
-// init-draft y adoption-check, y la línea con que init dice qué rama remota lo trae sin cambiarse a
-// ella (adoptionElsewhere): entre varias remotas, la que lo agregó primero, con quién y cuándo.
+// init-draft y adoption-check: la línea de --check (missingManifest), que con una rama remota que lo
+// trae dice que init va a adoptar desde cero en la rama actual, y la de init (adoptionElsewhere), que
+// nombra esa rama sin cambiarse a ella: entre varias remotas, la que lo agregó primero, con quién y
+// cuándo.
 
 const { spawnSync } = require('child_process');
 const { git, lines } = require('./exec.js');
@@ -48,10 +50,9 @@ function manifestElsewhere(dir) {
   return { branch, remotes: refs.filter((_, i) => / blob \d+$/.test(out[i] || '')) };
 }
 
-// "api-academico en feature/x, sin .claude/harness.json; origin/y sí lo trae; cámbiate antes de seguir"
 function missingManifest(name, where) {
   const n = where.remotes.length;
-  const hint = n ? `; ${where.remotes.slice(0, 3).join(', ')}${n > 3 ? ` y ${n - 3} más` : ''} ${n > 1 ? 'lo traen' : 'sí lo trae'}; cámbiate antes de seguir` : '';
+  const hint = n ? `; ${where.remotes.slice(0, 3).join(', ')}${n > 3 ? ` y ${n - 3} más` : ''} ${n > 1 ? 'lo traen' : 'lo trae'}, y /arnes:init va a adoptar desde cero aquí, en ${where.branch}` : '';
   return `${name} en ${where.branch}, sin .claude/harness.json${hint}`;
 }
 

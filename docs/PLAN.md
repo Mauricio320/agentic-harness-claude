@@ -861,6 +861,7 @@ Cambio de la ronda de init sin preguntas (2026-10-26, rama `feature/init-sin-pre
 
 Cambio de la ronda de Karma de serie (2026-10-26, rama `feature/init-sin-preguntas`, versión 0.7.3): ajustes a init sin preguntas.
 - **La sección del `CLAUDE.md` se agrega siempre.** El tope de 200 líneas se va: un `CLAUDE.md` largo es justo donde más hace falta saber que ahora manda el arnés. Va una sola vez, al final, y el resto queda intacto. `adoption-check` sigue marcando un `CLAUDE.md` de más de 200 líneas en la comprobación 2 (principio 6).
+- **`--check` dice lo mismo que hace init.** Con una rama remota que trae la configuración, `adoption-check` decía «cámbiate antes de seguir», pero init ya no se cambia y `adopt.js switch` ya no existe. Ahora la comprobación 1 sigue en FALTA, porque el manifiesto falta, y la línea dice que init va a adoptar desde cero en la rama actual y nombra la rama remota (`lib/branches.js` `missingManifest`).
 
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
