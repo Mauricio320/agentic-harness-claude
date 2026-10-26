@@ -137,8 +137,8 @@ test('deja la foto del turno con la huella de cada workspace', () => {
   assert.deepEqual(Object.keys(snap), ['_desde', 'api', '_configuracion']);
   assert.deepEqual(snap._configuracion, {}, 'la configuración está igual que en su HEAD');
   assert.ok(Math.abs(snap._desde - Date.now()) < 60000, 'el inicio del turno va en la foto, no en la fecha del archivo');
-  assert.match(snap.api.touchedHash, /^[0-9a-f]{64}$/);
-  assert.match(snap.api.contentHash, /^[0-9a-f]{64}$/);
+  assert.deepEqual(Object.keys(snap.api.code), ['src/a.ts'], 'archivo por archivo, solo el código');
+  assert.match(snap.api.code['src/a.ts'], /^[0-9a-f]{64}$/);
 });
 
 test('con código tocado dice cuántos y si la bandera está vigente', () => {

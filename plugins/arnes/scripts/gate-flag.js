@@ -105,7 +105,8 @@ function checkFlag(project, ws, now = new Date()) {
   return { ok: true };
 }
 
-// Foto del turno: la huella de cada workspace al enviarse el prompt, en .tmp/harness/turn.json.
+// Foto del turno: por workspace, el sha256 de cada archivo de código tocado al enviarse el prompt
+// ({ code: { ruta: sha256 } }), en .tmp/harness/turn.json.
 // La escribe prompt-context y la compara stop-gate, que bloquea solo si el turno cambió algo. Las
 // claves con _ no pueden ser nombres de workspace: SINCE es cuándo se tomó la foto, el inicio del
 // turno, y bajo ORIGIN arnes-mod deja de dónde vino cada prompt antes de que corra UserPromptSubmit
@@ -163,7 +164,7 @@ function writeTurn(project, workspaces, now = Date.now()) {
   const snap = { [SINCE]: now };
   for (const ws of workspaces) {
     const s = stateOf(project, ws);
-    if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash, code: codeHashes(ws, s.files) };
+    if (!s.error) snap[ws.name] = { code: codeHashes(ws, s) };
   }
   snap[MANIFESTS] = manifestState(project);
   const origin = readTurn(project)[ORIGIN];
@@ -198,33 +199,19 @@ function takeOrigin(project, hash, now = Date.now()) {
   return hits.length ? hits : null;
 }
 
-// Los tocados de codeGlobs, con el sha256 de cada uno: lo que el Stop compara archivo por archivo
-// para no cobrarle a un turno el código que la persona dejó antes.
-function codeHashes(ws, files) {
-  const out = {};
-  for (const f of files.filter((x) => matchAny(ws.codeGlobs, x))) out[f] = fileHash(ws, f);
-  return out;
+// Los tocados de codeGlobs del estado (stateOf), con el sha256 que ya calculó: lo que el Stop compara
+// archivo por archivo para no cobrarle a un turno el código que la persona dejó antes.
+function codeHashes(ws, s) {
+  return Object.fromEntries(s.files.filter((f) => matchAny(ws.codeGlobs, f)).map((f) => [f, s.hashes[f]]));
 }
 
-// De estos archivos de código, los nuevos o cambiados desde la foto del turno. Sin foto, todos, como
-// turnChanged; con una foto de una versión anterior, que no trae los archivos, ninguno.
+// De estos archivos de código, los nuevos o cambiados desde la foto del turno. Sin foto, todos: el
+// Stop bloquea sin foto. Con una foto de una versión anterior, que no trae los archivos, ninguno.
 function codeChangedSince(project, ws, files) {
   const snap = readTurn(project)[ws.name];
   if (!snap) return files;
   if (!snap.code || typeof snap.code !== 'object') return [];
   return files.filter((f) => snap.code[f] !== fileHash(ws, f));
-}
-
-// true si el workspace cambió la lista o el contenido de sus tocados desde la foto, o si no hay foto.
-function turnChanged(project, ws) {
-  let snap;
-  try {
-    snap = JSON.parse(fs.readFileSync(turnPath(project), 'utf8'))[ws.name];
-  } catch {
-    return true;
-  }
-  const s = stateOf(project, ws);
-  return !snap || !!s.error || s.touchedHash !== snap.touchedHash || s.contentHash !== snap.contentHash;
 }
 
 // La última corrida de ci-gate del workspace, con la huella contra su base.
@@ -283,7 +270,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, codeChangedSince, manifestsChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, codeChangedSince, manifestsChanged, status };
 
 function main() {
   let args;

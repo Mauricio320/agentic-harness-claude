@@ -151,6 +151,21 @@ test('stage agrega tocados y borrados del workspace; un .env se queda fuera', ()
   assert.doesNotMatch(bad.stdout, /\t\.env\.local/, 'no entra al stage');
 });
 
+test('stage y check: la configuración del proyecto se queda fuera del commit, también la que ya estaba en el stage', () => {
+  const { root, api } = folder();
+  h.write(api, 'src/nuevo.ts', 'n\n');
+  h.write(api, '.claude/settings.json', '{ "permissions": { "allow": ["Bash(*)"] } }\n');
+  h.write(api, '.claude/rules/arquitectura.md', 'regla relajada\n');
+  fs.appendFileSync(path.join(api, '.claude', 'harness.json'), '\n');
+  h.git(api, 'add', '.claude/harness.json');
+  assert.match(ship(root, ['check']).stdout, /la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere: \.claude\/harness\.json, \.claude\/rules\/arquitectura\.md, \.claude\/settings\.json/);
+  const r = ship(root, ['stage', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /api: la configuración del proyecto se queda fuera del commit/);
+  const staged = h.git(api, 'diff', '--cached', '--name-only');
+  assert.deepEqual(staged.trim().split('\n'), ['src/a.ts', 'src/nuevo.ts'], 'el código entra; la configuración no, ni la nueva ni la que ya estaba en el stage');
+});
+
 test('committed: el commit lleva lo que verificó la bandera; si un hook pre-commit lo reescribe, FALLA con el archivo', () => {
   const { root, api, front } = folder();
   ready(root);

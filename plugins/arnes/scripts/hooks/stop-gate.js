@@ -12,8 +12,8 @@
 //   (d) el turno cambió la configuración del arnés (un .claude/harness.json) fuera de init y setup,
 //       lo que plan-guard niega en Edit y Write.
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
-// turno cambió algo: para (a), la lista o el contenido de los tocados respecto de la foto que dejó
-// prompt-context; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
+// turno cambió algo: para (a) y (c), un archivo de código nuevo o cambiado respecto de la foto que
+// dejó prompt-context, archivo por archivo; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
 // solo avisa con systemMessage. Sin foto bloquea. Un solo bloqueo por turno: si la entrada trae
 // stop_hook_active (el turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el
 // pendiente en la timeline. Una sesión dentro del worktree de un set viejo no juzga (b): integrar le
@@ -38,7 +38,7 @@ const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, turnChanged, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
+const { checkFlag, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
@@ -57,7 +57,8 @@ function unverified(project, skip = []) {
     const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
     if (!code.length) continue;
     const flag = checkFlag(project, ws);
-    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: turnChanged(project, ws) });
+    // Como (c), archivo por archivo: el código que la persona dejó antes del turno no lo bloquea.
+    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: codeChangedSince(project, ws, code).length > 0 });
   }
   return out;
 }

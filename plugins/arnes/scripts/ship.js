@@ -90,9 +90,15 @@ const I = require('./lib/issues.js');
 const entrega = require('./lib/entrega.js');
 const { baselinePath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
+const { configRoot } = require('./lib/configuracion.js');
 const ledger = require('./worktree-ledger.js');
 const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
 const { readPlan, section, slugOf } = require('./lib/plan.js');
+
+// La configuración del proyecto (lib/configuracion.js) no entra al commit de un issue: la commitea la
+// persona, que decide si queda. ship corre git en su propio proceso y el guard no lo ve.
+const isConfig = (ws, f) => Boolean(configRoot(path.join(ws.dir, f)));
+const CONFIG_OUT = 'la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere';
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
@@ -190,6 +196,7 @@ function check(project) {
     const red = last && last.current && last.result === 'fail';
     const rev = reviews.get(ws.name) || { ok: false, reason: 'sin revisión' };
     const bad = files.filter(suspicious);
+    const config = [...files, ...gone].filter((f) => isConfig(ws, f));
     const risk = files.filter((f) => matchAny(ws.riskPaths, f));
     const baseline = files.includes(posix(path.relative(ws.dir, baselinePath(ws))));
     const conv = convention(ws);
@@ -200,6 +207,7 @@ function check(project) {
     console.log(`    bandera: ${flag.ok ? 'vigente' : red ? `la última verificación de este contenido quedó en rojo (${(last.first && last.first.step) || 'gate'})` : `falta: ${flag.reason || flag.error}`}`);
     console.log(`    revisión: ${rev.ok ? rev.reason : `falta: ${rev.reason}`}`);
     if (bad.length) console.log(`    se quedan fuera del commit: ${bad.join(', ')}`);
+    if (config.length) console.log(`    ${CONFIG_OUT}: ${config.join(', ')}`);
     console.log(`    riskPaths tocadas: ${risk.length ? `${risk.join(', ')} → ${local ? (revisado ? `revisadas por ${revisado}` : 'sin revisión humana, y la entrega va sin MR') : `${RISK} en el MR`}` : 'ninguna'}`);
     console.log(`    línea base de tests: ${baseline ? 'cambia → el asunto del commit empieza con gates:' : 'no cambia'}`);
     console.log(`    convención: ${conv.commitlint.length ? `commitlint en ${conv.commitlint.join(', ')}` : 'sin commitlint'} · CLAUDE.md ${conv.claude || 'no hay'}`);
@@ -309,16 +317,25 @@ function stage(project, wsName) {
   const item = shipping(project).find((x) => x.ws.name === ws.name);
   if (!item) die(`ship: ${ws.name} no tiene cambios que commitear`, 1);
   const bad = item.files.filter(suspicious);
-  const keep = item.files.filter((f) => !suspicious(f));
+  const config = [...item.files, ...item.gone].filter((f) => isConfig(ws, f));
+  const keep = item.files.filter((f) => !suspicious(f) && !isConfig(ws, f));
+  const gone = item.gone.filter((f) => !isConfig(ws, f));
   if (bad.length) console.log(`${ws.name}: se quedan fuera del commit, porque no deben entrar: ${bad.join(', ')}`);
-  if (!keep.length && !item.gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
+  if (config.length) console.log(`${ws.name}: ${CONFIG_OUT}: ${config.join(', ')}`);
+  if (!keep.length && !gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
   // Un borrado puede seguir en el índice o haber salido ya (git rm --cached): rm --ignore-unmatch
   // sirve para los dos, y git add fallaría en el segundo.
-  for (const [args, files] of [[['add', '--'], keep], [['rm', '-q', '--cached', '--ignore-unmatch', '--'], item.gone]]) {
+  for (const [args, files] of [[['add', '--'], keep], [['rm', '-q', '--cached', '--ignore-unmatch', '--'], gone]]) {
     for (let i = 0; i < files.length; i += 200) {
       const r = git(ws.dir, [...args, ...files.slice(i, i + 200)]);
       if (r.status !== 0) die(`ship: git ${args[0]} falló en ${ws.name}: ${firstLine(r.stderr)}`);
     }
+  }
+  // El commit lleva el índice entero: la configuración que alguien dejó en el stage antes también sale.
+  const before = lines(git(ws.dir, ['diff', '--cached', '--name-only', '--relative']).stdout).filter((f) => isConfig(ws, f));
+  if (before.length) {
+    const r = git(ws.dir, ['reset', '-q', '--', ...before]);
+    if (r.status !== 0) die(`ship: no pude sacar del stage la configuración de ${ws.name}: ${firstLine(r.stderr)}`);
   }
   const staged = git(ws.dir, ['diff', '--cached', '--name-status', '--relative']);
   console.log(`${ws.name}: ${lines(staged.stdout).length} archivo(s) en el stage`);

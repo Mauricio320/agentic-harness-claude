@@ -271,6 +271,15 @@ test('restore y checkout de rutas: deniegan si botan cambios sin commitear; sin 
   assert.ok(denied(guard(api, 'git checkout HEAD -- src/a.ts')), 'desde HEAD también bota lo staged');
 });
 
+test('reset --merge deniega con cambios sin commitear; --keep, que los conserva o aborta, pasa', () => {
+  const { api } = folder();
+  assert.ok(!denied(guard(api, 'git reset --merge HEAD~0')), 'sin cambios');
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'x\n');
+  h.git(api, 'add', 'src/a.ts');
+  assert.match(reason(guard(api, 'git reset --merge HEAD')), /git reset --merge descarta los cambios sin commitear de 1 archivo\(s\) \(src\/a\.ts\)/);
+  assert.ok(!denied(guard(api, 'git reset --keep HEAD')));
+});
+
 test('checkout y switch forzados deniegan con cambios sin commitear', () => {
   const { api } = folder();
   h.git(api, 'branch', 'tema');

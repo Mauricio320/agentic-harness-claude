@@ -77,6 +77,17 @@ test('un turno que no cambió los tocados desde el prompt solo avisa; uno que lo
   assert.deepEqual(notes(root).map((n) => n.result), ['bloqueado', 'bloqueado']);
 });
 
+test('(a) también archivo por archivo: el código sin verificar que dejó la persona no bloquea un turno que tocó otra cosa', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'de la persona\n');
+  promptAt(api);
+  fs.appendFileSync(path.join(api, 'README.md'), 'pedido de documentación\n');
+  const r = stop(api);
+  assert.equal(r.out.decision, undefined, 'avisa, no bloquea');
+  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\.$/);
+  assert.deepEqual(notes(root), []);
+});
+
 test('con stop_hook_active deja pasar, avisa con systemMessage y lo anota en la timeline', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');

@@ -22,7 +22,7 @@ Corre `node "S/ship.js" deliver`, con `--solo-commit` y `--rama <rama>` si viene
   - `revisar`: carga la skill review.
   Hasta tres vueltas. Si sigue pidiendo lo mismo, dilo en una línea y termina.
 - **`SE DETIENE`:** es una de las tres razones para no entregar: el gate en rojo, bloqueantes o una zona de riesgo sin revisión humana. Copia en el chat, textual, el bloque que sigue a `para la persona:`, con lo que pasó en una o dos frases y los pasos numerados; nada más. La etapa ya quedó cerrada. Si la persona responde "corrígelo", corrige, verifica, revisa y vuelve a ship.
-- **`LISTO`:** `deliver` ya dejó la rama (la del issue, la actual; en un worktree nativo, la del worktree) y el stage de cada workspace, en el orden de commit (back antes que front); lo que no debe entrar (`.env`, logs) quedó fuera, y lo dice. Sigue con los mensajes.
+- **`LISTO`:** `deliver` ya dejó la rama (la del issue, la actual; en un worktree nativo, la del worktree) y el stage de cada workspace, en el orden de commit (back antes que front); lo que no debe entrar (`.env`, logs) quedó fuera, y lo dice; la configuración del proyecto (`.claude/harness.json`, `settings*.json`, `rules/`, `hooks/`) también: díselo a la persona en una línea, porque la commitea ella si la quiere. Sigue con los mensajes.
 - **`LISTO PARA SUBIR`:** no hay nada que commitear y la rama tiene commits sin subir: ve a la sección 3. **`LISTO PARA MERGEAR`:** ve al merge local.
 
 ## 2. Mensajes y commits

@@ -264,6 +264,11 @@ function judgeGit(args, dir) {
   const g = splitGit(args, dir);
   const { sub, rest } = g;
   if (sub === 'reset' && rest.includes('--hard')) return 'git reset --hard descarta trabajo sin vuelta. Si de verdad hace falta, lo corre la persona en su terminal.';
+  // --merge bota lo staged cuyo árbol es igual al índice; --keep conserva los cambios locales o aborta.
+  if (sub === 'reset' && rest.includes('--merge')) {
+    const files = changed(g.dir, [], true);
+    if (files.length) return lostText('git reset --merge', files);
+  }
   if (sub === 'push' && (rest.some((a) => /^--force(-with-lease|-if-includes)?(=|$)/.test(a)) || shortHas(rest, 'f') || rest.some((a) => /^\+/.test(a)))) {
     return 'el push forzado reescribe historia remota. Si de verdad hace falta, lo corre la persona en su terminal.';
   }

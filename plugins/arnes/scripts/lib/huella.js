@@ -18,16 +18,16 @@ function stateOf(project, ws, base = 'HEAD') {
   if (head.status !== 0) return { error: `git rev-parse HEAD falló en ${ws.name}: ${firstLine(head.stderr)}` };
   const t = touched(ws, base, project);
   if (t.error) return { error: t.error };
-  const file = (f) => path.join(ws.dir, f);
+  const hashes = Object.fromEntries(t.files.map((f) => [f, fileHash(ws, f)]));
   const touchedHash = sha(t.files.join('\n'));
-  const contentHash = sha(t.files.map((f) => `${f}\0${fs.existsSync(file(f)) ? sha(fs.readFileSync(file(f))) : '-'}`).join('\n'));
-  return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files };
+  const contentHash = sha(t.files.map((f) => `${f}\0${hashes[f]}`).join('\n'));
+  return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files, hashes };
 }
 
 // El sha256 del contenido de un archivo del workspace, o "-" si no existe.
-const fileHash = (ws, f) => {
+function fileHash(ws, f) {
   const p = path.join(ws.dir, f);
   return fs.existsSync(p) ? sha(fs.readFileSync(p)) : '-';
-};
+}
 
 module.exports = { stateOf, fileHash };
