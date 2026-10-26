@@ -275,6 +275,23 @@ test('(d) la configuración cambiada por el shell en el turno bloquea una vez; l
   assert.equal(stop(root).out, null, 'init corrió en el turno');
 });
 
+test('(d) el manifiesto de un repo de la carpeta borrado en el turno bloquea; en un repo solo, sin proyecto, avisa', () => {
+  const { root, api } = folder();
+  promptAt(api);
+  fs.rmSync(path.join(api, '.claude', 'harness.json'));
+  const r = stop(root);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /cambió la configuración del arnés de api/);
+  assert.match(notes(root).pop().detail, /configuración cambiada: api\/\.claude\/harness\.json/);
+
+  const solo = h.tmp('stop-solo-sin');
+  h.repo(solo, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  fs.rmSync(path.join(solo, '.claude', 'harness.json'));
+  const s = stop(solo);
+  assert.equal(s.out.decision, undefined);
+  assert.match(s.out.systemMessage, /^arnes: falta la configuración del arnés en .*; el arnés está apagado ahí hasta que vuelva/);
+});
+
 // ---------- (b) worktrees del issue sin integrar ----------
 
 const ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };

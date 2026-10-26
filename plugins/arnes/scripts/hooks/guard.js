@@ -11,6 +11,9 @@
 //   git push que borra ramas del remoto (--delete, -d, refspec :rama, --prune, --mirror) ·
 //   git restore, git checkout de rutas y git checkout o switch forzados, si botan cambios sin
 //   commitear de archivos trackeados · git stash drop o clear con algo en la pila ·
+//   fuera de init o setup en curso, en un proyecto del arnés: cualquier comando que escriba, borre o
+//   mueva su configuración (lib/configuracion.js; por el shell solo se lee), o la carpeta que la
+//   tiene, y el git commit que la lleva (también sin el manifiesto en el árbol) ·
 //   git clean -f · git branch -D de una rama con commits fuera de su destino ·
 //   git worktree remove de un worktree cuya rama tiene commits fuera de su destino ·
 //   cualquier comando cuyos argumentos nombren la ruta de un archivo de secretos (los de
@@ -52,6 +55,7 @@ const { targetsOf } = require('./worktree-remove.js');
 const { secretPath, maskedFile } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
+const { CONFIG_SPEC, configRoot, configHome, prepAt } = require('../lib/configuracion.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item']);
@@ -184,11 +188,15 @@ function judgeAdd(dir, rest) {
 
 const TO_LOSE = 'Si de verdad hace falta, lo corre la persona en su terminal; para guardarlo antes, git stash.';
 
-// Los archivos con cambios que se perderían, o [] si no hay nada o git falla. vsHead compara contra
-// HEAD (lo staged también se pierde); si no, contra el índice.
+// Los archivos con cambios que se perderían, o [] si no hay nada o git falla. Un borrado no cuenta:
+// devolverlo no pierde nada. Sin vsHead, el árbol contra el índice; con vsHead, también se pierde lo
+// staged, así que suma el índice contra HEAD (un cambio staged con el árbol igual a HEAD también).
 function changed(dir, paths, vsHead) {
-  const r = git(dir, ['diff', '--name-only', ...(vsHead ? ['HEAD'] : []), '--', ...paths]);
-  return r.status === 0 ? lines(r.stdout) : [];
+  const diff = (extra) => {
+    const r = git(dir, ['diff', '--name-only', '--diff-filter=d', ...extra, '--', ...paths]);
+    return r.status === 0 ? lines(r.stdout) : [];
+  };
+  return vsHead ? [...new Set([...diff(['HEAD']), ...diff(['--cached'])])] : diff([]);
 }
 
 const lostText = (what, files) => `${what} descarta los cambios sin commitear de ${files.length} archivo(s) (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) sin vuelta. ${TO_LOSE}`;
@@ -270,7 +278,7 @@ function judgeGit(args, dir) {
   }
   if (sub === 'branch') return judgeBranchDelete(g.dir, rest);
   if (sub === 'worktree') return judgeWorktreeRemove(g.dir, rest);
-  if (sub === 'commit') return judgeCommit(g.dir);
+  if (sub === 'commit') return judgeConfigCommit(g.dir, rest) || judgeCommit(g.dir);
   if (sub === 'add') return judgeAdd(g.dir, rest);
   return null;
 }
@@ -296,6 +304,79 @@ function judgeSecrets(cmd, piece, dir) {
   if (LISTERS.has(cmd.exe) && piece.sep !== '|' && !/\$\(|<\(|`/.test(piece.text)) return null;
   const shown = maskedFile(hit.abs, project);
   return `${cmd.raw} ${hit.p}: ${secretPath(hit.abs, project)}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
+}
+
+// ---------- configuración del proyecto ----------
+// La de lib/configuracion.js. Fuera de init o setup en curso, un comando que la nombra solo pasa si
+// la lee; la redirección de salida hacia ella nunca. Uno que borra o mueve la carpeta que la tiene
+// (el repo o su .claude/), tampoco. Un commit no la lleva: ni lo staged, ni lo modificado con -a.
+
+const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'rg', 'select-string', 'sls', 'findstr', 'jq', 'wc', 'diff', 'ls', 'dir', 'get-childitem', 'gci', 'stat', 'test-path', 'echo', 'printf', 'write-output']);
+const GIT_READS = new Set(['diff', 'log', 'show', 'status', 'blame', 'ls-files', 'cat-file', 'grep']);
+const MOVERS = new Set(['rm', 'rmdir', 'del', 'erase', 'rd', 'remove-item', 'ri', 'mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni']);
+
+// Los destinos de las redirecciones de salida (> f, >> f, 2>f), sin los de un descriptor (2>&1).
+function redirectTargets(args) {
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    if (/^[0-9&]?>>?$/.test(args[i])) {
+      if (args[i + 1]) out.push(args[i + 1]);
+      i++;
+      continue;
+    }
+    const m = /^[0-9&]?>>?(.+)$/.exec(args[i]);
+    if (m && !/^&\d$/.test(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+// La carpeta tiene configuración directa: es un repo o carpeta con .claude/harness.json, o su .claude/.
+// Un worktree bajo .claude/worktrees/ no cuenta: borrarlo no apaga el arnés del checkout (lo cuidan
+// ExitWorktree y git worktree remove).
+const holdsConfig = (abs) =>
+  !/[\\/]\.claude[\\/]worktrees[\\/]/i.test(abs) &&
+  (fs.existsSync(path.join(abs, '.claude', 'harness.json')) || (path.basename(abs) === '.claude' && fs.existsSync(path.join(abs, 'harness.json'))));
+
+const CONFIG_WHY = 'es configuración del proyecto (las reglas del arnés, o los permisos, hooks o reglas de Claude Code): fuera de /arnes:init o setup, por el shell solo se lee. Si hay que cambiarla, díselo a la persona: lo hace con /arnes:init o a mano.';
+
+// La primera de esas rutas que es configuración de un proyecto sin init ni setup en curso, o null.
+// holder: en vez de la configuración misma, la carpeta que la tiene.
+function liveConfig(list, dir, holder = false) {
+  for (const p of list) {
+    const abs = toPath(dir, p);
+    const root = holder ? (holdsConfig(abs) ? (path.basename(abs) === '.claude' ? path.dirname(abs) : abs) : null) : configRoot(abs);
+    const home = root && configHome(root);
+    if (home && !prepAt(home)) return p;
+  }
+  return null;
+}
+
+function judgeConfig(cmd, dir) {
+  const out = liveConfig(redirectTargets(cmd.args), dir);
+  if (out) return `${cmd.raw} > ${out}: ${CONFIG_WHY}`;
+  const reads = cmd.exe === 'git' ? GIT_READS.has(splitGit(cmd.args, dir).sub) : READERS.has(cmd.exe);
+  const hit = reads ? null : liveConfig(namedPaths(cmd.args), dir);
+  if (hit) return `${cmd.raw} ${hit}: ${CONFIG_WHY}`;
+  const holder = MOVERS.has(cmd.exe) ? liveConfig(namedPaths(cmd.args), dir, true) : null;
+  return holder ? `${cmd.raw} ${holder}: borra o mueve una carpeta con configuración del proyecto, y sin ella el arnés se apaga. Si de verdad hace falta, lo corre la persona en su terminal.` : null;
+}
+
+// El commit que lleva configuración fuera de init o setup, en un repo del arnés (con manifiesto en el
+// árbol o en HEAD). Mira git, no el proyecto cargado: así vale aunque el manifiesto ya no esté.
+function judgeConfigCommit(dir, rest) {
+  const top = git(dir, ['rev-parse', '--show-toplevel']);
+  if (top.status !== 0) return null;
+  const root = path.resolve(top.stdout.trim());
+  const home = configHome(root);
+  if (!home || prepAt(home)) return null;
+  const list = (extra) => {
+    const r = git(root, ['diff', '--name-only', ...extra, '--', ...CONFIG_SPEC]);
+    return r.status === 0 ? lines(r.stdout) : [];
+  };
+  const all = rest.includes('--all') || shortHas(rest, 'a');
+  const files = [...new Set([...list(['--cached']), ...(all ? list([]) : [])])];
+  if (!files.length) return null;
+  return `git commit con configuración del proyecto (${files.slice(0, 3).join(', ')}) fuera de /arnes:init o setup: la commitea la persona, que decide si queda.`;
 }
 
 // ---------- forbidden del manifiesto ----------
@@ -377,7 +458,7 @@ function judge(text, dir, depth = 0, dialect = 'bash') {
       continue;
     }
     noteGraph(cmd, cwd);
-    const why = judgeSecrets(cmd, piece, cwd) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
+    const why = judgeSecrets(cmd, piece, cwd) || judgeConfig(cmd, cwd) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }
   return null;

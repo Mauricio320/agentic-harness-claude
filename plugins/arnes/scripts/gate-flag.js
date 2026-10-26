@@ -121,7 +121,8 @@ const ORIGIN_MS = 60 * 60 * 1000;
 // su HEAD: { ruta relativa a la raíz: sha256 del contenido, o "borrado" }. Lo que trae un checkout, un
 // pull o un merge llega igual al árbol y al HEAD, así que no cuenta; lo escrito a mano, sí.
 function manifestState(project) {
-  const files = [...new Set([project.file, ...project.workspaces.map((w) => w.manifest).filter(Boolean)])];
+  // El de un repo que lo perdió también: la composición lo sigue listando, ya sin manifiesto.
+  const files = [...new Set([project.file, ...project.workspaces.map((w) => w.manifest || (w.repo && path.join(w.repo, MANIFEST))).filter(Boolean)])];
   const out = {};
   for (const f of files) {
     const r = git(path.dirname(path.dirname(f)), ['status', '--porcelain', '--', MANIFEST]);

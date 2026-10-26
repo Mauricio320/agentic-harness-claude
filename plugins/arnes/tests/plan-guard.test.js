@@ -47,7 +47,7 @@ test('con el plan escrito sin aprobar niega; con el plan aprobado permite; despu
 
 test('lo que no es código, lo de .claude o .tmp, fuera de todo workspace o sin manifiesto, no se juzga', () => {
   const dir = repo();
-  for (const f of ['README.md', 'docs/nota.md', '.claude/hooks/viejo.js', '.tmp/harness/plan.md']) {
+  for (const f of ['README.md', 'docs/nota.md', '.claude/commands/x.md', '.tmp/harness/plan.md']) {
     assert.equal(edit(dir, f, 'Write').out, null, f);
   }
   assert.equal(edit(dir, path.join(h.tmp('fuera'), 'x.ts')).out, null);
@@ -56,23 +56,39 @@ test('lo que no es código, lo de .claude o .tmp, fuera de todo workspace o sin 
   assert.equal(edit(sin, 'a.ts').out, null);
 });
 
-test('la configuración del arnés solo se edita con init o setup en curso, aunque haya plan aprobado', () => {
+test('la configuración del proyecto solo se escribe con init o setup en curso, aunque haya plan aprobado', () => {
   const dir = repo();
-  const r = edit(dir, '.claude/harness.json');
-  assert.ok(denied(r));
-  assert.match(reason(r), /harness\.json es la configuración del arnés: sus reglas .* solo cambian con \/arnes:init, que corre la persona/);
-  assert.ok(denied(edit(dir, path.join(dir, '.claude', 'harness.json'), 'Write')), 'con Write y ruta absoluta');
+  const config = ['.claude/harness.json', '.claude/settings.json', '.claude/settings.local.json', '.claude/rules/x.md', '.claude/hooks/viejo.js'];
+  for (const f of config) {
+    const r = edit(dir, f, 'Write');
+    assert.ok(denied(r), f);
+    assert.match(reason(r), /es configuración del proyecto .*: solo cambia con \/arnes:init, que corre la persona, o la cambia ella/);
+  }
+  assert.ok(denied(edit(dir, path.join(dir, '.claude', 'harness.json'))), 'con ruta absoluta');
   note(dir, { event: 'start', stage: 'plan' });
   note(dir, { event: 'note', stage: 'plan', result: 'aprobado' });
   assert.equal(edit(dir, 'src/a.ts').out, null, 'el código pasa con el plan aprobado');
   assert.ok(denied(edit(dir, '.claude/harness.json')), 'la configuración no');
   note(dir, { event: 'start', stage: 'init' });
-  assert.equal(edit(dir, '.claude/harness.json').out, null, 'init en curso');
+  for (const f of config) assert.equal(edit(dir, f, 'Write').out, null, `init en curso: ${f}`);
   note(dir, { event: 'end', stage: 'init', result: 'ok' });
   assert.ok(denied(edit(dir, '.claude/harness.json')), 'init terminado');
-  const nuevo = h.tmp('plan-guard-nuevo');
-  h.repo(nuevo, { 'a.ts': 'a\n' });
-  assert.equal(edit(nuevo, '.claude/harness.json', 'Write').out, null, 'crear una configuración nueva pasa');
+  const fuera = h.tmp('plan-guard-fuera');
+  h.repo(fuera, { 'a.ts': 'a\n' });
+  for (const f of ['.claude/harness.json', '.claude/settings.json']) assert.equal(edit(fuera, f, 'Write').out, null, `fuera de un proyecto del arnés: ${f}`);
+});
+
+test('con el manifiesto borrado del árbol, nada se escribe en el repo ni se recrea, hasta que se commitee el borrado', () => {
+  const dir = repo();
+  fs.rmSync(path.join(dir, '.claude', 'harness.json'));
+  const r = edit(dir, 'src/a.ts');
+  assert.match(reason(r), /falta la configuración del arnés en .*: está en el último commit y no en el árbol/);
+  assert.ok(denied(edit(dir, 'README.md')), 'tampoco lo que no es código: sin manifiesto no se sabe qué es');
+  assert.ok(denied(edit(dir, '.claude/harness.json', 'Write')), 'recrearlo distinto tampoco');
+  assert.equal(edit(dir, '.tmp/harness/plan.md', 'Write').out, null);
+  h.git(dir, 'add', '-A');
+  h.git(dir, 'commit', '-q', '-m', 'la persona quita el arnés');
+  assert.equal(edit(dir, 'src/a.ts').out, null, 'con el borrado commiteado, el repo ya no es del arnés');
 });
 
 test('el dev aislado en su worktree usa el plan del checkout que lo lanzó; un worktree de agente sin registro, ninguno', () => {

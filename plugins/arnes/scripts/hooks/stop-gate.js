@@ -45,6 +45,7 @@ const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 const { whyNoPlan } = require('./plan-guard.js');
+const { missingManifest } = require('../lib/configuracion.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
@@ -183,7 +184,13 @@ function unreviewed(project) {
 function stopGate(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
-  if (!project || project.errors.length) return null;
+  if (!project) {
+    // Sin el manifiesto en el árbol el proyecto no carga, pero la persona tiene que saber que el arnés
+    // quedó apagado ahí. Un aviso, no un bloqueo: plan-guard y el guard ya no dejan escribir ni commitear.
+    const gone = missingManifest(cwd);
+    return gone ? { systemMessage: `arnes: falta la configuración del arnés en ${path.basename(gone)}; el arnés está apagado ahí hasta que vuelva, o hasta que commitees su borrado si lo quieres quitar.` } : null;
+  }
+  if (project.errors.length) return null;
   try {
     if (project.kind === 'folder') carpeta.protect(cwd);
   } catch {

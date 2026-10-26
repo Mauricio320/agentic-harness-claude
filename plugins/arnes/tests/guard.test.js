@@ -296,6 +296,72 @@ test('stash drop y clear deniegan con algo en la pila; push que borra una rama r
   assert.ok(!denied(guard(api, 'git push origin tema:tema')), 'un refspec con origen no borra');
 });
 
+test('red team: la configuración no se borra, mueve ni escribe por el shell; leerla sí; con init en curso, todo', () => {
+  const { root, api } = folder();
+  const tl = require('../scripts/lib/timeline.js');
+  for (const cmd of [
+    'rm .claude/harness.json',
+    'mv .claude/harness.json /tmp/x.json',
+    'cp otro.json .claude/harness.json',
+    'echo {} > .claude/harness.json',
+    'cat nuevo >> .claude/settings.local.json',
+    "sed -i 's/src/x/' .claude/harness.json",
+    'node -e "require(\'fs\').unlinkSync(\'.claude/harness.json\')"',
+    'git rm .claude/harness.json',
+    'git checkout -- .claude/harness.json',
+    'rm -rf .claude',
+    'rm -rf .',
+    'rm .claude/rules/arquitectura.md',
+    'cd .. && rm -rf api',
+  ]) {
+    assert.match(reason(guard(api, cmd)), /configuración del proyecto/, cmd);
+  }
+  for (const cmd of ['Remove-Item .claude\\harness.json', 'Set-Content .claude/settings.json "{}"', 'Move-Item .claude ..\\respaldo']) {
+    assert.ok(denied(guard(api, cmd, { tool: 'PowerShell' })), cmd);
+  }
+  for (const cmd of ['cat .claude/harness.json', 'jq .workspaces .claude/harness.json', 'git diff -- .claude/harness.json', 'git log -p .claude/settings.json', 'ls .claude', 'grep -n riskPaths .claude/harness.json', 'rm -rf .claude/worktrees/x']) {
+    assert.ok(!denied(guard(api, cmd)), cmd);
+  }
+  assert.ok(denied(guard(root, 'rm .claude/harness.json')), 'la composición de la carpeta también');
+  tl.append(root, { event: 'start', stage: 'init' });
+  assert.ok(!denied(guard(api, 'rm .claude/harness.json')), 'init en curso en la carpeta');
+});
+
+test('red team: un commit no lleva la configuración, ni staged ni con -a, aunque el manifiesto ya no esté', () => {
+  const { api } = folder();
+  flag(api, 'api');
+  const file = path.join(api, '.claude', 'harness.json');
+  const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  m.workspaces[0].riskPaths = [];
+  fs.writeFileSync(file, JSON.stringify(m));
+  assert.match(reason(guard(api, 'git commit -am "relaja"')), /git commit con configuración del proyecto \(\.claude\/harness\.json\) fuera de \/arnes:init o setup: la commitea la persona/);
+  h.git(api, 'add', '.claude/harness.json');
+  assert.ok(denied(guard(api, 'git commit -m "relaja"')), 'staged');
+  h.git(api, 'rm', '-q', '--cached', '.claude/harness.json');
+  fs.rmSync(file);
+  assert.ok(denied(guard(api, 'git commit -m "sin arnés"')), 'el borrado staged, con el manifiesto fuera del árbol');
+  const solo = h.tmp('guard-solo');
+  h.repo(solo, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  fs.rmSync(path.join(solo, '.claude', 'harness.json'));
+  assert.ok(denied(guard(solo, 'git commit -am "sin arnés"')), 'repo solo: sin manifiesto no hay proyecto, y el commit se niega igual');
+  const fuera = h.tmp('guard-fuera');
+  h.repo(fuera, { 'a.ts': 'a\n' });
+  h.write(fuera, '.claude/settings.json', '{}');
+  h.git(fuera, 'add', '-A');
+  assert.ok(!denied(guard(fuera, 'git commit -m x')), 'fuera de un proyecto del arnés no se juzga');
+});
+
+test('restore --staged --worktree con el cambio solo en el índice también lo pierde; devolver un borrado, no', () => {
+  const { api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'x\n');
+  h.git(api, 'add', 'src/a.ts');
+  fs.writeFileSync(path.join(api, 'src/a.ts'), 'a\n');
+  assert.ok(denied(guard(api, 'git restore --staged --worktree src/a.ts')), 'el árbol es igual a HEAD, pero el índice no');
+  h.git(api, 'reset', '-q');
+  fs.rmSync(path.join(api, 'src/a.ts'));
+  assert.ok(!denied(guard(api, 'git restore src/a.ts')), 'devolver un archivo borrado no pierde nada');
+});
+
 test('branch -D: deniega una rama con commits sin mergear y permite una ya integrada', () => {
   const { api } = folder();
   h.git(api, 'checkout', '-q', '-b', 'tema');
