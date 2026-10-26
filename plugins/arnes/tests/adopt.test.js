@@ -210,17 +210,17 @@ test('folder-settings: el settings.json del repo de carpeta fija el marketplace 
   assert.match(r.stdout, /ya está fijado a .*v0\.6\.0.*; no lo cambio/);
 });
 
-test('folder-settings sin --ref fija el marketplace a la rama probadores', () => {
-  const root = h.tmp('adopt-probadores');
+test('folder-settings sin --ref fija el marketplace a main', () => {
+  const root = h.tmp('adopt-main');
   h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
   const r = adopt(root, ['folder-settings', '--marketplace', 'https://gitlab.com/g/agentic-harness.git', '--write']);
   assert.equal(r.status, 0, r.stderr);
   const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
-  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'probadores' });
+  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'main' });
 });
 
-test('folder-settings sin --marketplace toma la url y el ref del marketplace instalado, sin credenciales', () => {
+test('folder-settings sin --marketplace toma la url del marketplace instalado, sin credenciales, y fija main aunque el instalado esté en otra rama', () => {
   const root = h.tmp('adopt-instalado');
   h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
@@ -230,7 +230,7 @@ test('folder-settings sin --marketplace toma la url y el ref del marketplace ins
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /marketplace del plugin instalado: https:\/\/gitlab\.com\/g\/agentic-harness\.git en v0\.6\.4/);
   const s = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
-  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'v0.6.4' });
+  assert.deepEqual(s.extraKnownMarketplaces['agentic-harness'].source, { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'main' });
 });
 
 test('baseref: avisa de un settings versionado que fija worktree.baseRef en head y lo quita sin tocar lo demás', () => {
@@ -273,7 +273,7 @@ test('all: la pasada de init hace todo lo que puede sin preguntar, dice lo que n
   assert.ok(JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.local.json'), 'utf8')).permissions.allow.includes('Bash(jest *)'));
   assert.match(fs.readFileSync(path.join(root, 'api/.worktreeinclude'), 'utf8'), /^\.env$/m);
   assert.ok(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8').startsWith('# carpeta\n\nLo mío.\n\n## Arnés\n'));
-  assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8')).extraKnownMarketplaces['agentic-harness'].source.ref, 'probadores');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8')).extraKnownMarketplaces['agentic-harness'].source.ref, 'main', 'una rama que ya no existe no pasa a la carpeta');
   assert.match(r.stdout, /^api: no tomo la línea base: .*src\/a\.ts.*\/arnes:init --baseline$/m);
   assert.ok(!fs.existsSync(path.join(root, 'api/tests/baseline.json')), 'con código sin commitear no hay base');
   assert.ok(fs.existsSync(path.join(root, 'web/tests/baseline.json')), 'el repo limpio sí la tiene: un paso que no avanza no frena a los demás');

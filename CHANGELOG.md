@@ -18,6 +18,7 @@ Karma de serie y cuatro ajustes a init sin preguntas (`docs/PLAN.md` §6.1, §6.
 - La sección del arnés en un `CLAUDE.md` de carpeta existente se agrega siempre, sin el tope de 200 líneas.
 - `/arnes:init --check`, con una rama remota que trae la configuración, dice que init va a adoptar desde cero en la rama actual y nombra la rama, en vez de «cámbiate antes de seguir».
 - `docs/PROBADORES.md` deja de traer el adaptador de Karma que escribía la persona; `commands.testJson` queda para los runners que no vienen de serie.
+- La rama `probadores` se retira: cada versión se publica en `main`, y la guía instala desde ahí. `adopt.js folder-settings` fija el marketplace del repo de carpeta a `main` salvo un `--ref`, aunque el plugin instalado esté en otra rama.
 
 ### Corregido
 - El `remote` de un repo cuyo origen es una ruta local de Windows se guardaba `C//Users/...`; queda como ruta.

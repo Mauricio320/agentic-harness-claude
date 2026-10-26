@@ -52,9 +52,10 @@
 //   folder-settings [--marketplace <url>] [--ref <tag o rama>] [--write]
 //                           el .claude/settings.json del repo de carpeta: extraKnownMarketplaces con el
 //                           marketplace del arnés fijado a ese tag o rama y enabledPlugins con los tres
-//                           plugins. Sin --marketplace, la url y el ref son los del marketplace con que
-//                           está instalado este plugin (known_marketplaces.json de la configuración de
-//                           Claude Code); sin ref, la rama probadores, donde se publica cada versión.
+//                           plugins. Sin --marketplace, la url es la del marketplace con que está
+//                           instalado este plugin (known_marketplaces.json de la configuración de
+//                           Claude Code); sin --ref, main, donde se publica cada versión, aunque el
+//                           instalado esté fijado a otra rama.
 //                           --write agrega lo que falte; un marketplace ya fijado no se cambia
 // Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuyo contrato de tests no se lee, una base
 //       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write, o un
@@ -77,8 +78,7 @@ const { ownScript, MAX_CLAUDE_MD } = require('./adoption-check.js');
 
 const FIELDS = ['conventions', 'riskPaths', 'forbidden', 'afterBuild', 'contract'];
 const MARKETPLACE = 'agentic-harness';
-// La rama de nombre fijo donde se publica cada versión para los probadores: publicar es un push ahí.
-const PROBADORES = 'probadores';
+const MAIN = 'main';
 const PLUGINS = ['arnes', 'arnes-ui', 'arnes-mod'];
 const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'merge-base'].map((c) => `Bash(git ${c} *)`);
 const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
@@ -423,7 +423,7 @@ function installedMarketplace() {
 
 // El settings.json que se commitea en el repo de carpeta: quien la clona recibe el marketplace y los
 // plugins al confiar en la carpeta. Lleva la url sin credenciales: el clon usa las de git. Sin
-// --marketplace, la url y el ref salen del marketplace con que está instalado este plugin.
+// --marketplace, la url sale del marketplace con que está instalado este plugin.
 function folderSettings(project, marketplace, ref, write) {
   if (project.kind !== 'folder') {
     console.log('no es una carpeta multi-repo: el settings.json del repo de carpeta no aplica');
@@ -433,10 +433,9 @@ function folderSettings(project, marketplace, ref, write) {
     const inst = installedMarketplace();
     if (!inst) die(`adopt: no encuentro el marketplace ${MARKETPLACE} instalado; pásalo con --marketplace <url>`);
     marketplace = inst.url;
-    ref = ref || inst.ref;
     console.log(`marketplace del plugin instalado: ${inst.url}${inst.ref ? ` en ${inst.ref}` : ''}`);
   }
-  ref = ref || PROBADORES;
+  ref = ref || MAIN;
   if (/^[a-z+]+:\/\/[^@/]+@/i.test(marketplace)) die('adopt: la url del marketplace lleva usuario o token; usa la url sin credenciales');
   const file = path.join(project.root, '.claude', 'settings.json');
   const s = fs.existsSync(file) ? readJson(file) : {};

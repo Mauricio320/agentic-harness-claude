@@ -894,6 +894,7 @@ El README del arnés trae además la lista de permisos recomendada para `~/.clau
 - README con matriz tag ↔ versiones de Claude Code probadas. CI del arnés: `claude plugin validate` sobre los tres, tests de scripts con repos de juguete (`node --test`), `claude plugin test` para los mods, y más adelante `claude plugin eval`.
 - El equipo sube CLI y arnés juntos, nunca uno solo.
 - Cambio de la ronda de menos turnos (2026-10-21): **la rama `probadores`.** Los probadores instalaban desde una rama de feature, que cambiaba de nombre en cada ronda y obligaba a reinstalar. Ahora instalan desde `probadores`, con nombre fijo: publicar una versión es un push sobre esa rama, y ellos solo corren `claude plugin marketplace update agentic-harness` y `claude plugin update <plugin>@agentic-harness`. `adopt.js folder-settings` fija el marketplace a `probadores` por defecto, y `--ref` elige un tag. `docs/PROBADORES.md` instala desde ahí.
+- Cambio de la 0.7.3 (2026-10-26): **la rama `probadores` se retira; solo `main`.** Cada versión se publica mergeando a main, y los probadores instalan desde ahí (`#main` en el marketplace). `adopt.js folder-settings` fija el marketplace del repo de carpeta a `main` salvo un `--ref` explícito, aunque el plugin instalado esté fijado a otra rama: si heredara ese ref, un init corrido en una máquina que instaló desde `probadores` dejaría la carpeta apuntando a una rama que ya no existe. Test en `tests/adopt.test.js`.
 
 ## 10. Fases y criterio de salida
 

@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.6.6, desde la rama `probadores`: cada versión se publica con un push sobre esa rama, que tiene nombre fijo. Probada con Claude Code 2.1.306 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.7.3, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.310 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -11,13 +11,13 @@ Hay dos caminos:
 Claude Code clona con `git` sin preguntar credenciales: la de GitLab tiene que estar guardada antes (Git Credential Manager). Después, en cualquier terminal:
 
 ```
-claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#probadores"
+claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#main"
 claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.6.6`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.7.3`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -40,7 +40,7 @@ Va paso por paso, diciendo cada uno, y te pregunta antes de lo que cambia algo t
 
 `/arnes:setup --check <url>` solo te dice qué haría, sin tocar nada. Nunca corre un comando de `forbidden` ni escribe credenciales.
 
-Para recibir una versión nueva no reinstalas nada: cada versión se publica con un push sobre `probadores`, y tú corres `claude plugin marketplace update agentic-harness` y después `claude plugin update arnes@agentic-harness`, `claude plugin update arnes-ui@agentic-harness` y `claude plugin update arnes-mod@agentic-harness`. Solo llega si subió `version` en `plugin.json`. Un repo de carpeta que escribió `/arnes:init` ya apunta a `probadores`. Para quitarlo todo: `claude plugin marketplace remove agentic-harness`.
+Para recibir una versión nueva no reinstalas nada: cada versión se publica mergeando a `main`, y tú corres `claude plugin marketplace update agentic-harness` y después `claude plugin update arnes@agentic-harness`, `claude plugin update arnes-ui@agentic-harness` y `claude plugin update arnes-mod@agentic-harness`. Solo llega si subió `version` en `plugin.json`. Un repo de carpeta que escribió `/arnes:init` ya apunta a `main`. Si instalaste desde la rama `probadores`, que ya no existe, vuelve a instalar con la línea de arriba. Para quitarlo todo: `claude plugin marketplace remove agentic-harness`.
 
 Trabaja en la terminal y con opus como modelo de la sesión principal (`/model opus`): con él, las skills del arnés se cargan solas con más fiabilidad, y el plan, que es obligatorio, sale sin que lo pidas. Los devs y los test-writers van en sonnet igual, porque así los define el arnés. El mod `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop. En los dos sirve la terminal integrada.
 
