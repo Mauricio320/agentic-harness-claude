@@ -1,7 +1,7 @@
 # Valida el marketplace y los tres plugins contra la versión fijada del CLI.
 # Al subir CLAUDE_CODE_VERSION, actualizar también la matriz del README.
 variables:
-  CLAUDE_CODE_VERSION: "2.1.305"
+  CLAUDE_CODE_VERSION: "2.1.310"
 
 stages:
   - validate

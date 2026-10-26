@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.1] - 2026-10-26
+
+Huecos cerrados antes del piloto, por una revisión propia del arnés y una externa leyendo el código. Rama `feature/consolidacion-a`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test` y `claude plugin test` de los mods. El CI pasa a fijar 2.1.310, y el README alinea el estado y la matriz.
+
+### Corregido
+- El plan obligatorio ya no se rodea por el shell. plan-guard solo mira Edit y Write, así que un `sed -i`, un `Set-Content` o un `node -e` escribían código sin plan aprobado, y el Stop solo pedía verificarlo. Ahora el Stop bloquea el turno que cambió código de un workspace adoptable sin plan aprobado, mirando los tocados y no los comandos; una bandera de verificación vigente no lo absuelve. Lo tocado antes del turno y los archivos borrados no cuentan (`docs/PLAN.md` §6.2).
+- La configuración del arnés (`.claude/harness.json` de un repo o de la carpeta) solo cambia con init o setup en curso: plan-guard niega Edit y Write sobre una que existe, también con plan aprobado, y el Stop bloquea una vez el turno que la cambió por el shell, comparando lo que difiere de su HEAD con la foto del turno (`_configuracion` en `turn.json`). Lo que llega commiteado con un checkout, un pull o un merge no cuenta. Crear una nueva pasa.
+- El guard niega, haya o no manifiesto, `git restore` (salvo solo `--staged`), `git checkout` de rutas y `git checkout` o `git switch` forzados cuando botan cambios sin commitear de archivos trackeados, `git stash drop` y `clear` con algo en la pila, y el push que borra una rama del remoto (`--delete`, `-d`, refspec `:rama`). Sin nada que perder, pasan. `git rebase` sigue pasando: el reflog lo deshace y el push que haría falta después ya es forzado.
+
+### Cambiado
+- El README ya no ofrece `/arnes:worktree open`, que se retiró en la 0.7.0.
+
 ## [0.7.0] - 2026-10-24
 
 Ronda de consolidación: no agrega funciones; quita turnos, duplicación y huecos, y mide antes y después (`docs/PLAN.md` §6.1). Rama `feature/consolidacion-a`. En la corrida A de §7, de 83 llamadas a Bash del hilo principal a 37 y de US$4,60 a US$3,17; el plan de talleres, de 16 a 3 (§10).
