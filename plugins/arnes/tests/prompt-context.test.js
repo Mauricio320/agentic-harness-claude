@@ -47,7 +47,10 @@ test('mientras init o setup están en curso, y en el mensaje que los invoca, no 
   }
   const old = { at: new Date(Date.now() - 3 * 3600e3).toISOString(), event: 'start', stage: 'init' };
   assert.equal(tl.prepOpen([old]), null, 'un init de hace tres horas sin fin no cuenta');
-  assert.equal(tl.prepOpen([{ ...old, at: new Date().toISOString() }]), 'init');
+  const now = { ...old, at: new Date().toISOString() };
+  assert.equal(tl.prepOpen([now]), 'init');
+  assert.equal(tl.prepOpen([now, { ...now, event: 'note', stage: 'turno', result: 'respuesta' }]), 'init', 'una corrección de la persona no lo cierra');
+  assert.equal(tl.prepOpen([now, { ...now, stage: 'plan' }]), null, 'el plan que empieza después lo cierra');
 });
 
 test('init y setup anotan su etapa aunque el proyecto no tenga manifiesto todavía, en la carpeta de --dir', () => {

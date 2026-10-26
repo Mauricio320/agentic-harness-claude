@@ -93,16 +93,17 @@ function planState(entries) {
   return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
 }
 
-// Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end
-// después, de menos de dos horas, para que una skill cortada no lo deje así para siempre), el aviso
-// de UserPromptSubmit que pide cargar arnes:plan no se inyecta y arnes-mod no pregunta.
+// Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end ni un
+// start de plan después, de menos de dos horas, para que una skill cortada no lo deje así para
+// siempre), el aviso de UserPromptSubmit que pide cargar arnes:plan no se inyecta y arnes-mod no
+// pregunta. init no anota su end: queda en curso para las correcciones de la persona, hasta el plan.
 const PREP = ['init', 'setup'];
 const PREP_MS = 2 * 60 * 60 * 1000;
 function prepOpen(entries, now = Date.now()) {
   const i = entries.map((e) => PREP.includes(e.stage) && e.event === 'start').lastIndexOf(true);
   if (i < 0) return null;
   const { stage, at } = entries[i];
-  if (entries.slice(i + 1).some((e) => e.stage === stage && e.event === 'end')) return null;
+  if (entries.slice(i + 1).some((e) => e.event === 'start' ? e.stage === 'plan' : e.stage === stage && e.event === 'end')) return null;
   return now - new Date(at).getTime() < PREP_MS ? stage : null;
 }
 

@@ -23,7 +23,7 @@ Solo el paso de la línea base, para cuando init no la pudo tomar porque el árb
 
 init no pregunta. Todo lo que escribe son archivos sin commitear dentro de repos git, que se revisan en el diff y se revierten con git; la protección real es que init no commitea ni hace push. Lo que antes recomendaba es la decisión, y la dice al cerrar. No uses la herramienta de preguntas ni termines el turno esperando una respuesta: hay pasos que pueden no avanzar (abajo), y ni ahí te detienes.
 
-1. `node "S/lib/timeline.js" start init`, y al cerrar `end init --result ok`: mientras init está en curso, las respuestas de la persona no se toman como pedidos de código.
+1. `node "S/lib/timeline.js" start init`. No anotes el fin: init queda en curso hasta que empiece un plan, así las correcciones de la persona no se toman como pedidos de código y pueden escribir la configuración.
 2. `node "S/init-draft.js" --write`: la configuración de cada repo que no la tiene y la composición de la carpeta, y lo que le falta al `.gitignore` de la carpeta. Lo que existe no se toca. Cada línea `propuesto`, `prohibido`, `sin riskPaths` y `otra rama` es una decisión para el cierre. Con `otra rama` no te cambies de rama: el script ya adoptó desde cero en la actual, porque la adopción tiene que salir de main.
 3. `node "S/adopt.js" all --write`, en una pasada: completa la configuración que ya existía, quita los hooks del arnés anterior y `worktree.baseRef: "head"`, escribe los permisos (en `.claude/settings.local.json`, que no se commitea), el `.worktreeinclude` de cada repo con `.env`, la sección del arnés en el `CLAUDE.md` de la carpeta (nuevo, o al final del que ya existe), el `settings.json` de la carpeta con el marketplace, la línea base de cada repo que no la tiene y después el grafo. Salir con 1 no es un error: algún paso no pudo avanzar y va al cierre. Si dice que la configuración no valida, corrígela con Edit y córrelo otra vez.
 4. El detalle (cada archivo escrito, la salida de los dos pasos) va al informe: `node "S/informe.js" path init` da la ruta; escríbelo ahí con Write.
@@ -40,10 +40,14 @@ Si encuentras otra cosa que de verdad no puedes decidir solo, tampoco preguntes:
 
 ### El cierre
 
-El detalle va al informe (paso 4). En el chat, una línea con lo que quedó escrito y la ruta del informe, lo que decidiste sin preguntar en una línea cada cosa, y una lista corta de lo que le toca a la persona:
-- commitear la configuración de cada repo en ese repo, y la línea base con `gates:` al inicio del asunto;
-- si la carpeta no es un repo, `git init` y subirla: con eso otra persona la prepara con `/arnes:setup <url>`.
+Un solo mensaje, corto:
+1. Una línea con lo que quedó escrito y dónde.
+2. Lo que decidiste sin preguntar, una línea cada cosa con su porqué en una frase: las rutas que exigen revisión humana y de dónde salieron (o que no hubo ninguna en un repo), lo que se le prohíbe al modelo, el contract y la misma rama del issue en todos los repos, la sincronización después del build si la hay, los hooks que quitaste, la línea base con sus rojos conocidos (anotados con la fecha de hoy), el grafo y cuánto tardó, y la rama remota que trae configuración, con su nombre, si la hubo.
+3. Lo que le toca a la persona: primero lo que no pudo avanzar, con su comando exacto; después commitear la configuración de cada repo en ese repo y la línea base con `gates:` al inicio del asunto; si la carpeta no es un repo, `git init` y subirla, y con eso otra persona la prepara con `/arnes:setup <url>`.
+4. La ruta del informe.
+5. "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Nunca sugieras invocar plan, build, verify ni review a mano. Si informe.js dijo `frase: dila`, "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
+6. Termina con: "Si algo no te sirve, dímelo en un mensaje y lo corrijo en el archivo; no hace falta repetir init."
 
-Cierra con `node "S/lib/timeline.js" end init --result ok` y termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Nunca sugieras invocar plan, build, verify ni review a mano. Si informe.js dijo `frase: dila`, cierra con "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
+Una corrección que llegue después se aplica con Edit sobre su archivo (la configuración de un repo o de la carpeta, el `CLAUDE.md`, el `settings.json`), y dices en una línea qué cambió. No repitas init ni sus pasos.
 
 Un repo con solo `composer.json` (PHP), o sin typecheck ni test detectables, entra en la composición sin manifiesto propio, y eso no es un error.

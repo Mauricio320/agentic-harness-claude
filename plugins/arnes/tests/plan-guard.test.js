@@ -73,6 +73,10 @@ test('la configuración del proyecto solo se escribe con init o setup en curso, 
   for (const f of config) assert.equal(edit(dir, f, 'Write').out, null, `init en curso: ${f}`);
   note(dir, { event: 'end', stage: 'init', result: 'ok' });
   assert.ok(denied(edit(dir, '.claude/harness.json')), 'init terminado');
+  note(dir, { event: 'start', stage: 'init' });
+  assert.equal(edit(dir, '.claude/harness.json').out, null, 'init sin fin sigue en curso para las correcciones');
+  note(dir, { event: 'start', stage: 'plan' });
+  assert.ok(denied(edit(dir, '.claude/harness.json')), 'el plan que empieza después cierra init');
   const fuera = h.tmp('plan-guard-fuera');
   h.repo(fuera, { 'a.ts': 'a\n' });
   for (const f of ['.claude/harness.json', '.claude/settings.json']) assert.equal(edit(fuera, f, 'Write').out, null, `fuera de un proyecto del arnés: ${f}`);
