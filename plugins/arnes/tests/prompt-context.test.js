@@ -134,7 +134,8 @@ test('deja la foto del turno con la huella de cada workspace', () => {
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
   prompt(dir);
   const snap = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'turn.json'), 'utf8'));
-  assert.deepEqual(Object.keys(snap), ['_desde', 'api']);
+  assert.deepEqual(Object.keys(snap), ['_desde', 'api', '_configuracion']);
+  assert.deepEqual(snap._configuracion, {}, 'la configuración está igual que en su HEAD');
   assert.ok(Math.abs(snap._desde - Date.now()) < 60000, 'el inicio del turno va en la foto, no en la fecha del archivo');
   assert.match(snap.api.touchedHash, /^[0-9a-f]{64}$/);
   assert.match(snap.api.contentHash, /^[0-9a-f]{64}$/);

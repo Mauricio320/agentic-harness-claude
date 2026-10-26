@@ -4,7 +4,13 @@
 //       vigente, o
 //   (b) el registro de worktrees tiene trabajo sin integrar en la rama del issue: los worktrees de
 //       agentes aislados (o de sets viejos) abiertos, con commits o archivos sin commitear, cuyo
-//       destino es la rama en que está el checkout que los lanzó.
+//       destino es la rama en que está el checkout que los lanzó, o
+//   (c) el turno cambió archivos de codeGlobs sin plan aprobado. plan-guard lo niega en Edit y Write;
+//       esto cubre lo que llega por el shell (un sed -i, un Set-Content, un node -e) sin adivinar
+//       comandos, porque mira los tocados. Un workspace sin plan no se juzga además por (a): primero
+//       el plan, después la verificación, o
+//   (d) el turno cambió la configuración del arnés (un .claude/harness.json) fuera de init y setup,
+//       lo que plan-guard niega en Edit y Write.
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
 // turno cambió algo: para (a), la lista o el contenido de los tocados respecto de la foto que dejó
 // prompt-context; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
@@ -30,20 +36,21 @@ const path = require('path');
 const { run } = require('../lib/hook.js');
 const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { append, read, planState } = require('../lib/timeline.js');
+const { append, read, planState, prepOpen, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, turnChanged, turnStart } = require('../gate-flag.js');
+const { checkFlag, turnChanged, turnStart, manifestsChanged } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
+const { whyNoPlan } = require('./plan-guard.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
-function unverified(project) {
+function unverified(project, skip = []) {
   const out = [];
-  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+  for (const ws of project.workspaces.filter((w) => w.adoptable && !skip.includes(w.name))) {
     const t = touched(ws, 'HEAD', project);
     if (t.error) continue;
     const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
@@ -52,6 +59,35 @@ function unverified(project) {
     if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: turnChanged(project, ws) });
   }
   return out;
+}
+
+// (c) Código que cambió en este turno sin plan aprobado, con lo que plan-guard no juzga (.claude/ y
+// .tmp/) fuera. Los tocados no traen borrados, así que borrar código no entra. El plan que cuenta es
+// el mismo que mira plan-guard. Lo que la persona dejó tocado antes del turno no entra.
+function unplanned(project, home) {
+  const p = planState(read(home.root));
+  if (p.approved) return [];
+  const out = [];
+  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+    const t = touched(ws, 'HEAD', project);
+    if (t.error) continue;
+    const code = t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f));
+    if (code.length && turnChanged(project, ws)) out.push({ ws: ws.name, files: code, reason: whyNoPlan(p), changed: true });
+  }
+  return out;
+}
+
+// (d) La configuración del arnés cambiada en este turno, salvo que init o setup estén en curso o hayan
+// corrido en el turno (el que los cierra también la escribió). plan-guard niega Edit y Write; esto
+// cubre el shell. El turno siguiente la toma en su foto: se avisa una vez.
+function rulesChanged(project, home) {
+  const entries = read(home.root);
+  const since = turnStart(project);
+  if (prepOpen(entries) || entries.some((e) => PREP.includes(e.stage) && since != null && Date.parse(e.at) >= since - 1000)) return [];
+  return manifestsChanged(project).map((file) => {
+    const dir = path.posix.dirname(path.posix.dirname(file));
+    return { file, name: dir === '.' ? project.name : dir, changed: true };
+  });
 }
 
 // (b) El trabajo más nuevo del worktree (su último commit o el último archivo que tocó) cuenta como de
@@ -95,9 +131,16 @@ function describeWt(items) {
   return items.map((w) => `${w.ws} ${w.branch} (${workWt(w)} fuera de ${w.target})`).join('; ');
 }
 
-// "sin verificar: …; sin integrar: …" para la timeline, y la frase para los avisos.
-function detailOf(code, wts) {
-  return [code.length && `sin verificar: ${describe(code)}`, wts.length && `sin integrar: ${describeWt(wts)}`].filter(Boolean).join('; ');
+// "configuración cambiada: …; sin plan: …; sin verificar: …; sin integrar: …" para la timeline.
+function detailOf(w) {
+  return [
+    w.rules.length && `configuración cambiada: ${w.rules.map((r) => r.file).join(', ')}`,
+    w.noPlan.length && `sin plan: ${describe(w.noPlan)}`,
+    w.code.length && `sin verificar: ${describe(w.code)}`,
+    w.wts.length && `sin integrar: ${describeWt(w.wts)}`,
+  ]
+    .filter(Boolean)
+    .join('; ');
 }
 
 // Lo mismo, para la persona (principio 7 de docs/PLAN.md §2): qué y dónde, sin rutas, motivos
@@ -110,8 +153,17 @@ function plainWt(items) {
   return items.map((w) => `${w.ws}, rama ${w.branch}, ${workWt(w)}`).join('; ');
 }
 
-function pendingText(code, wts) {
-  return [code.length && `cambios sin verificar en ${plain(code)}`, wts.length && `trabajo sin integrar en ${plainWt(wts)}`].filter(Boolean).join(', y ');
+const plainRules = (items) => items.map((r) => r.name).join(', ');
+
+function pendingText(w) {
+  return [
+    w.rules.length && `la configuración del arnés cambiada en ${plainRules(w.rules)}`,
+    w.noPlan.length && `cambios sin plan aprobado en ${plain(w.noPlan)}`,
+    w.code.length && `cambios sin verificar en ${plain(w.code)}`,
+    w.wts.length && `trabajo sin integrar en ${plainWt(w.wts)}`,
+  ]
+    .filter(Boolean)
+    .join(', y ');
 }
 
 // Bandera vigente pero sin revisión de ese contenido: los workspaces del aviso "verificado, falta
@@ -136,31 +188,49 @@ function stopGate(input) {
   } catch {
     /* el rescate nunca frena el cierre del turno */
   }
-  const code = unverified(project);
-  const wts = pendingWorktrees(cwd, turnStart(project));
+  // El plan y init o setup se miran en la timeline que mira plan-guard.
+  const home = ledger.projectFor(cwd) || project;
+  const noPlan = unplanned(project, home);
+  const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws)), wts: pendingWorktrees(cwd, turnStart(project)) };
+  const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts];
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
   // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
-  const pending = code.length || wts.length;
-  const due = pending && !input.stop_hook_active && [...code, ...wts].some((p) => p.changed);
+  const pending = all.length > 0;
+  const due = pending && !input.stop_hook_active && all.some((p) => p.changed);
   const busy = due ? inProgress(project) : [];
-  if (due && !busy.length) return block(project, code, wts);
+  if (due && !busy.length) return block(project, w);
   // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
   append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
   if (busy.length) return { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` };
   if (pending && input.stop_hook_active) {
-    append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(code, wts)}` });
-    return { systemMessage: `arnes: el turno termina con ${pendingText(code, wts)}; queda como pendiente.` };
+    append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(w)}` });
+    return { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.` };
   }
-  if (pending) return { systemMessage: `arnes: siguen ${pendingText(code, wts)}; este turno no los tocó.` };
+  if (pending) return { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.` };
   const noReview = unreviewed(project);
   return noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; falta revisarlo antes de entregar.` } : null;
 }
 
-function block(project, code, wts) {
+function block(project, w) {
+  const { rules, noPlan, code, wts } = w;
   // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
-  append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado ${detailOf(code, wts)}` });
+  append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado ${detailOf(w)}` });
   const parts = [];
+  if (rules.length) {
+    parts.push(
+      `este turno cambió la configuración del arnés de ${plainRules(rules)} fuera de init y setup: son las reglas que ` +
+        `aplica (rutas de riesgo, comandos prohibidos, qué es código). Dile a la persona qué cambiaste y por qué; decidir ` +
+        `si queda es de ella, con /arnes:init o deshaciéndolo en su terminal.`,
+    );
+  }
+  if (noPlan.length) {
+    parts.push(
+      `este turno cambió código sin plan aprobado en ${plain(noPlan)} (${noPlan[0].reason}). Escribir código pide un plan ` +
+        `aprobado también por el shell: dile a la persona qué cambiaste, carga arnes:plan y espera su aprobación, o que ` +
+        `ella escriba /arnes:plan --trivial si el cambio es mínimo. No lo verifiques ni lo entregues antes.`,
+    );
+  }
   if (code.length) {
     parts.push(
       `hay cambios de código sin verificar en ${plain(code)}. Verifícalos antes de cerrar el turno: la marca de ` +

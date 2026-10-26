@@ -13,12 +13,21 @@ function folder() {
   h.repo(api, { '.gitignore': '.claude/worktrees/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n', 'README.md': 'x\n' });
   h.repo(path.join(root, 'legacy'), { 'composer.json': '{}', 'x.php': '<?php' });
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }, { path: 'legacy' }] }));
+  aprobado(root);
   return { root, api };
 }
 
+// Una corrida con plan aprobado, la única en que el arnés deja escribir código. En los tests de (c)
+// se escribe la timeline sin él. La nota la escribe plan-state.js approve; aquí va directo, como fixture.
+function aprobado(root) {
+  tl.append(root, { event: 'start', stage: 'plan' });
+  tl.append(root, { event: 'note', stage: 'plan', result: 'aprobado' });
+}
+
 const stop = (cwd, active = false, opts = {}) => h.hook('stop-gate', { hook_event_name: 'Stop', stop_hook_active: active, cwd }, opts);
-// Las notas del Stop sin las del turno (cerrado y respuesta), que tienen su propio test.
-const notes = (root) => tl.read(root).filter((n) => n.stage !== 'turno');
+const promptAt = (cwd) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd });
+// Las notas del Stop sin las del turno (cerrado y respuesta), que tienen su propio test, ni las del plan.
+const notes = (root) => tl.read(root).filter((n) => n.stage !== 'turno' && n.stage !== 'plan');
 
 test('código tocado sin bandera vigente: bloquea con decision block y reason, y lo anota en la timeline', () => {
   const { root, api } = folder();
@@ -29,7 +38,7 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. Verifícalos antes de cerrar el turno: la marca de verificación la escribe la verificación solo si todo pasa, nunca a mano/);
   assert.doesNotMatch(r.out.reason, /\.js\b|\/arnes:verify|src\/a\.ts/, 'sin scripts, sin la skill que carga el modelo y sin rutas');
   assert.match(r.out.reason, /una sola vez por turno/);
-  const list = tl.read(root);
+  const list = tl.read(root).filter((n) => n.stage !== 'plan');
   assert.equal(list.length, 1, 'un turno bloqueado no anota "cerrado"');
   assert.deepEqual([list[0].event, list[0].stage, list[0].result], ['note', 'stop-gate', 'bloqueado']);
   assert.match(list[0].detail, /^turno bloqueado sin verificar: api \(1 archivo\(s\) de código: src\/a\.ts/);
@@ -155,6 +164,98 @@ test('cwd dentro de un worktree: juzga el worktree, no el checkout principal', (
   assert.equal(stop(api, false, { env }).out, null, 'el checkout principal sigue limpio');
 });
 
+// ---------- (c) código del turno sin plan aprobado ----------
+
+// Un repo sin corrida: el código que aparece lo escribió el shell, porque plan-guard niega Edit y Write.
+function sinPlan() {
+  const root = h.tmp('stop-sin-plan');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  promptAt(root);
+  return root;
+}
+
+test('(c) código escrito por el shell sin plan: bloquea pidiendo el plan, no la verificación', () => {
+  const root = sinPlan();
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'sed -i\n');
+  const r = stop(root);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /^arnes: este turno cambió código sin plan aprobado en api \(1 archivo\(s\) de código\) \(esta corrida no tiene plan\)\./);
+  assert.match(r.out.reason, /carga arnes:plan y espera su aprobación, o que ella escriba \/arnes:plan --trivial/);
+  assert.doesNotMatch(r.out.reason, /sin verificar/, 'primero el plan');
+  assert.match(notes(root).pop().detail, /^turno bloqueado sin plan: api \(1 archivo\(s\) de código: src\/a\.ts; esta corrida no tiene plan\)$/);
+});
+
+test('(c) verificar por su cuenta no lo absuelve: con bandera vigente y sin plan, bloquea igual', () => {
+  const root = sinPlan();
+  h.write(root, 'src/nuevo.ts', 'x\n');
+  h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: root });
+  assert.match(stop(root).out.reason, /sin plan aprobado en api/);
+});
+
+test('(c) el plan escrito sin aprobar lo dice; aprobado, vuelve a pedir la verificación', () => {
+  const root = sinPlan();
+  tl.append(root, { event: 'start', stage: 'plan' });
+  tl.append(root, { event: 'end', stage: 'plan', result: 'ok' });
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'b\n');
+  assert.match(stop(root).out.reason, /\(el plan está escrito y espera la aprobación de la persona\)/);
+  tl.append(root, { event: 'note', stage: 'plan', result: 'aprobado' });
+  const r = stop(root);
+  assert.match(r.out.reason, /sin verificar en api/);
+  assert.doesNotMatch(r.out.reason, /sin plan/);
+});
+
+test('(c) lo que estaba tocado antes del turno no cuenta como escrito sin plan', () => {
+  const root = h.tmp('stop-sin-plan-previo');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'de la persona\n');
+  promptAt(root);
+  const r = stop(root);
+  assert.equal(r.out.decision, undefined);
+  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api/);
+});
+
+test('(c) con stop_hook_active deja pasar con aviso y anota el pendiente', () => {
+  const root = sinPlan();
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'b\n');
+  const r = stop(root, true);
+  assert.equal(r.out.systemMessage, 'arnes: el turno termina con cambios sin plan aprobado en api (1 archivo(s) de código); queda como pendiente.');
+  assert.match(notes(root).pop().detail, /^turno cerrado sin plan: api/);
+});
+
+// ---------- (d) la configuración del arnés ----------
+
+test('(d) la configuración cambiada por el shell en el turno bloquea una vez; lo de antes, un pull o init, no', () => {
+  const root = h.tmp('stop-config');
+  h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  promptAt(root);
+  const file = path.join(root, '.claude', 'harness.json');
+  const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  m.workspaces[0].riskPaths = [];
+  fs.writeFileSync(file, JSON.stringify(m, null, 2) + '\n');
+  const r = stop(root);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /^arnes: este turno cambió la configuración del arnés de api fuera de init y setup: son las reglas que aplica/);
+  assert.match(r.out.reason, /decidir si queda es de ella, con \/arnes:init o deshaciéndolo en su terminal/);
+  assert.match(notes(root).pop().detail, /^turno bloqueado configuración cambiada: \.claude\/harness\.json$/);
+
+  promptAt(root);
+  assert.equal(stop(root).out, null, 'el turno siguiente ya la tiene en su foto: no vuelve a bloquear');
+
+  h.commitAll(root, 'la persona la commitea');
+  promptAt(root);
+  h.git(root, 'checkout', '-q', '-b', 'otra');
+  m.workspaces[0].riskPaths = ['src/**'];
+  fs.writeFileSync(file, JSON.stringify(m, null, 2) + '\n');
+  h.commitAll(root, 'llega con la rama');
+  assert.equal(stop(root).out, null, 'lo que llega commiteado, como un pull o un merge, no cuenta');
+
+  promptAt(root);
+  tl.append(root, { event: 'start', stage: 'init' });
+  fs.appendFileSync(file, '\n');
+  tl.append(root, { event: 'end', stage: 'init', result: 'ok' });
+  assert.equal(stop(root).out, null, 'init corrió en el turno');
+});
+
 // ---------- (b) worktrees del issue sin integrar ----------
 
 const ID = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
@@ -164,12 +265,11 @@ function issueRepo() {
   const root = h.tmp('stop-wt');
   h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
   h.git(root, 'checkout', '-q', '-b', 'feature/x');
+  aprobado(root);
   const wt = h.isolatedDev(root, 'a1');
   h.hook('agents', { hook_event_name: 'SubagentStop', agent_id: 'a1', agent_type: 'arnes:dev', cwd: wt });
   return { root, wt };
 }
-
-const promptAt = (cwd) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd });
 
 test('(b) un worktree del issue con trabajo de este turno bloquea y dice cómo integrarlo', () => {
   const { root, wt } = issueRepo();
@@ -261,7 +361,7 @@ test('un error propio sale con 0 y no bloquea', () => {
 test('con un build abierto en la timeline o un agente del arnés corriendo, el Stop avisa en una línea y no bloquea', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
-  tl.append(root, { event: 'start', stage: 'plan' });
+  aprobado(root);
   tl.append(root, { event: 'start', stage: 'build', ws: 'api' });
   tl.append(root, { event: 'end', stage: 'build', ws: 'api', result: 'ok' });
   tl.append(root, { event: 'start', stage: 'build', ws: 'front' });

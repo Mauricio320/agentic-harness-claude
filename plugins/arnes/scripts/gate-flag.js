@@ -37,7 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { spawnSync } = require('child_process');
-const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
+const { requireProject, selectWorkspaces, harnessDir, posix, MANIFEST } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { matchAny } = require('./lib/glob.js');
@@ -110,10 +110,35 @@ function checkFlag(project, ws, now = new Date()) {
 // claves con _ no pueden ser nombres de workspace: SINCE es cuándo se tomó la foto, el inicio del
 // turno, y bajo ORIGIN arnes-mod deja de dónde vino cada prompt antes de que corra UserPromptSubmit
 // (docs/PLAN.md §6.5): { kind, hash, at }, con el sha256 del texto. Como el mod reescribe el archivo
-// con cada prompt, también con el aviso de un agente, el inicio del turno no es su fecha.
+// con cada prompt, también con el aviso de un agente, el inicio del turno no es su fecha. Bajo
+// MANIFESTS va la configuración del arnés que difiere de su HEAD (manifestState).
 const SINCE = '_desde';
 const ORIGIN = '_origen';
+const MANIFESTS = '_configuracion';
 const ORIGIN_MS = 60 * 60 * 1000;
+
+// La configuración del arnés (la composición y el .claude/harness.json de cada repo) que difiere de
+// su HEAD: { ruta relativa a la raíz: sha256 del contenido, o "borrado" }. Lo que trae un checkout, un
+// pull o un merge llega igual al árbol y al HEAD, así que no cuenta; lo escrito a mano, sí.
+function manifestState(project) {
+  const files = [...new Set([project.file, ...project.workspaces.map((w) => w.manifest).filter(Boolean)])];
+  const out = {};
+  for (const f of files) {
+    const r = git(path.dirname(path.dirname(f)), ['status', '--porcelain', '--', MANIFEST]);
+    if (r.status !== 0 || !r.stdout.trim()) continue;
+    out[posix(path.relative(project.root, f)) || MANIFEST] = fs.existsSync(f) ? crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex') : 'borrado';
+  }
+  return out;
+}
+
+// Las rutas de la configuración que cambiaron desde la foto del turno. Una foto sin esa clave (de una
+// versión anterior) no sabe nada: no cuenta como cambio.
+function manifestsChanged(project) {
+  const before = readTurn(project)[MANIFESTS];
+  if (!before || typeof before !== 'object') return [];
+  const now = manifestState(project);
+  return Object.keys(now).filter((f) => now[f] !== before[f]);
+}
 
 function turnPath(project) {
   return path.join(harnessDir(project), 'turn.json');
@@ -139,6 +164,7 @@ function writeTurn(project, workspaces, now = Date.now()) {
     const s = stateOf(project, ws);
     if (!s.error) snap[ws.name] = { touchedHash: s.touchedHash, contentHash: s.contentHash };
   }
+  snap[MANIFESTS] = manifestState(project);
   const origin = readTurn(project)[ORIGIN];
   if (origin) snap[ORIGIN] = origin;
   saveTurn(project, snap);
@@ -239,7 +265,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, writeTurn, turnStart, takeOrigin, turnChanged, manifestsChanged, status };
 
 function main() {
   let args;
