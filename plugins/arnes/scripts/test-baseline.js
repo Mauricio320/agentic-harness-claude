@@ -23,7 +23,10 @@
 // Karma es un `ng test` cuyo workspace tiene en angular.json un test con builder de Karma
 // (lib/karma-config.js). El script le agrega --karma-config con una configuración temporal que suma el
 // reporter lib/karma-reporter.js, más --watch=false y --browsers=ChromeHeadless si no los trae, y
-// {specs} pasa a un --include por spec; la suite completa va sin --include. El reporter escribe cada
+// {specs} pasa a un --include por spec, y cada corrida del gate lleva además --ts-config con un
+// tsconfig temporal que compila solo sus specs (lib/karma-config.js karmaTsconfig), para que un spec
+// roto que nadie tocó no la tumbe; la suite completa va sin --include y con el tsconfig del repo tal
+// cual. Con la línea base en no-compila y los tocados corriendo, el gate lo dice en una nota. El reporter escribe cada
 // test al terminar en <raíz>/.tmp/harness/karma/<ws>-resultados.jsonl. El archivo de cada test es el
 // spec incluido si hay uno solo; si no, el que tiene el describe de más arriba entre los incluidos o, en
 // la suite completa, entre los specs trackeados. Si ninguno o más de uno lo tiene, el test no entra en
@@ -60,7 +63,7 @@ const { touched } = require('./touched-files.js');
 const { selectSpecs, patternRegExp } = require('./test-select.js');
 const { toolOf } = require('./typecheck-baseline.js');
 const { SUITE_FAILED } = require('./lib/node-test-reporter.js');
-const { karmaTarget, karmaSetup } = require('./lib/karma-config.js');
+const { karmaTarget, karmaSetup, karmaTsconfig } = require('./lib/karma-config.js');
 
 const DEFAULT_BASELINE = 'tests/baseline.json';
 const KNOWN = 'tests/known-failures.txt';
@@ -273,10 +276,12 @@ function runKarma(ws, cmd, specs, all, env) {
   const parts = [];
   let status = 0;
   let out = '';
+  const ownTs = /(^|\s)--ts-config(=|\s)/.test(cmd);
   for (const [i, chunk] of karmaCommands(cmd, specs, all, conf).entries()) {
     const file = path.join(root, '.tmp', 'harness', 'karma', `${ws.name}-resultados${i ? `-${i + 1}` : ''}.jsonl`);
     fs.rmSync(file, { force: true });
-    const r = sh(chunk.cmd, ws.dir, { ...env, ARNES_KARMA_RESULTADOS: file });
+    const ts = chunk.specs && !ownTs ? karmaTsconfig(ws, root, chunk.specs, i ? i + 1 : 0) : null;
+    const r = sh(ts ? `${chunk.cmd} --ts-config ${quote(ts)}` : chunk.cmd, ws.dir, { ...env, ARNES_KARMA_RESULTADOS: file });
     let text = '';
     try {
       text = fs.readFileSync(file, 'utf8');
@@ -429,6 +434,7 @@ function checkTests(ws, p) {
     if (p.all && baseRun && baseRun.estado === 'abortada' && res.run.estado === 'abortada' && res.run.corrieron >= baseRun.corrieron) notes.push(`${runText(res.run)}; la línea base también se cortó, en ${baseRun.corrieron} de ${baseRun.total}`);
     else reds.push(runText(res.run));
   }
+  if (!p.all && baseRun && baseRun.estado === 'no-compila' && res.run && res.run.estado !== 'no-compila') notes.push('los specs tocados corren aislados, con un tsconfig que compila solo a ellos; el repo entero no compila sus specs (la línea base quedó en no-compila), y ese error lo cuenta el typecheck como diagnóstico previo');
   for (const a of (res.run && res.run.ambiguos) || []) if (a.status === 'falla') reds.push(`falla sin archivo cierto: ${a.name} (${a.candidatos.length ? `el describe está en ${a.candidatos.join(', ')}` : 'ningún spec tiene su describe'})`);
   if (run.status !== 0 && !failed.length && !cut) reds.push(`el comando salió con ${run.status} sin fallas en sus resultados`);
   const now = countOf(res.tests);
@@ -443,7 +449,7 @@ function checkTests(ws, p) {
     const c = compare(base.data, scope, m, measured.filter((t) => t.status === 'saltado'));
     reds.push(...c.reds);
     detail += ` · base ${fmt(c.b)}`;
-    if (unmeasured.size) notes.push(`sin medir en la línea base, que se cortó antes de llegar: ${[...unmeasured].join(', ')}; sus fallas cuentan, sus saltos y sus totales no`);
+    if (unmeasured.size) notes.push(`sin medir en la línea base, que ${baseRun.estado === 'no-compila' ? 'no compiló' : 'se cortó antes de llegar'}: ${[...unmeasured].join(', ')}; sus fallas cuentan, sus saltos y sus totales no`);
     if (total(m) > total(c.b)) notes.push(`línea base: hay ${total(m) - total(c.b)} test(s) más que en la base; quedan protegidos al recapturarla (test-baseline.js capture, commit con gates:)`);
   } else detail += ` · sin línea base (${posix(path.relative(ws.dir, base.file))})`;
   if (reds.length) return { status: 'falla', detail, out: [...reds, ...notes, tail(run.out, 30)].filter(Boolean).join('\n') };

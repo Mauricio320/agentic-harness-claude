@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const h = require('./helpers.js');
 const tb = require('../scripts/test-baseline.js');
-const { karmaTarget, karmaSetup } = require('../scripts/lib/karma-config.js');
+const { karmaTarget, karmaSetup, karmaTsconfig } = require('../scripts/lib/karma-config.js');
 
 const FIXTURES = path.join(__dirname, 'fixtures');
 const ANGULAR = path.join(FIXTURES, 'angular-karma');
@@ -31,10 +31,13 @@ const NG = h.fakeBin(
     "require(path.resolve(args[args.indexOf('--karma-config') + 1]))(config);",
     "const rep = new (config.plugins.find((p) => p && p['reporter:arnes'])['reporter:arnes'][1])(config);",
     "const text = (f) => fs.readFileSync(f, 'utf8');",
-    "const specs = includes.length ? includes : execSync('git ls-files', { encoding: 'utf8' }).split(/\\r?\\n/).filter((f) => f.endsWith('.spec.ts'));",
+    "const all = execSync('git ls-files', { encoding: 'utf8' }).split(/\\r?\\n/).filter((f) => f.endsWith('.spec.ts'));",
+    "const specs = includes.length ? includes : all;",
     "const orden = (f) => Number((text(f).match(/@orden (\\d+)/) || [0, 50])[1]);",
     'specs.sort((a, b) => orden(a) - orden(b));',
-    "if (specs.some((f) => text(f).includes('@no-compila'))) {",
+    "const ts = args.indexOf('--ts-config');",
+    "const program = ts < 0 ? all : JSON.parse(text(args[ts + 1])).files;",
+    "if (program.some((f) => text(f).includes('@no-compila'))) {",
     '  rep.onRunStart();',
     "  console.log(\"Error: src/app/roto.spec.ts:1:7 - error TS2322: Type 'string' is not assignable to type 'number'.\");",
     "  console.log('26 10 2026 16:41:09.088:ERROR [karma-server]: Error: Found 1 load error');",
@@ -72,6 +75,7 @@ function front(specs, extra = {}) {
     '.claude/harness.json': h.repoManifest('front', h.workspace({ name: 'front', commands: { typecheck: ['tsc --noEmit'], test: 'ng test --watch=false --browsers=ChromeHeadless --include {specs}' }, specPattern: '{dir}/{name}.spec.ts', ...extra })),
     'angular.json': ANGULAR_JSON({ builder: '@angular-devkit/build-angular:karma', options: { tsConfig: 'tsconfig.spec.json' } }),
     'src/app/app.ts': 'export class App {}\n',
+    'tsconfig.spec.json': '{ "compilerOptions": { "types": ["jasmine"] }, "include": ["src/**/*.spec.ts"] }\n',
     ...MODULES,
     ...specs,
   });
@@ -150,6 +154,26 @@ test('la configuración temporal: la de serie del builder con los plugins del wo
   assert.equal(karmaTarget(make({ builder: '@angular/build:unit-test', options: { runner: 'karma' } })), null);
 });
 
+test('el tsconfig del gate: extiende el de specs del target, compila solo los specs dados, conserva sus types con jasmine y busca los tipos en el workspace', () => {
+  const dir = h.tmp('karma-ts');
+  h.write(dir, 'angular.json', ANGULAR_JSON({ builder: '@angular-devkit/build-angular:karma', options: { tsConfig: 'tsconfig.spec.json' } }));
+  h.write(dir, 'tsconfig.spec.json', '/* de Angular */\n{\n  // tipos\n  "extends": "./tsconfig.json",\n  "compilerOptions": { "types": ["node"] }\n}\n');
+  const root = h.tmp('karma-ts-raiz');
+  const file = karmaTsconfig({ dir, name: 'front' }, root, ['src/app/verde.spec.ts', 'src/app/rojo.spec.ts']);
+  assert.equal(file, path.join(root, '.tmp', 'harness', 'karma', 'front.tsconfig.json'), 'bajo .tmp del arnés, junto a la configuración de Karma');
+  const posix = (p) => p.replace(/\\/g, '/');
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+    extends: posix(path.join(dir, 'tsconfig.spec.json')),
+    compilerOptions: { types: ['node', 'jasmine'], typeRoots: [posix(path.join(dir, 'node_modules', '@types'))] },
+    files: [posix(path.join(dir, 'src', 'app', 'verde.spec.ts')), posix(path.join(dir, 'src', 'app', 'rojo.spec.ts'))],
+    include: [posix(path.join(dir, 'src', '**', '*.d.ts'))],
+  });
+  assert.match(karmaTsconfig({ dir, name: 'front' }, root, ['a.spec.ts'], 2), /front\.tsconfig-2\.json$/);
+  const sin = h.tmp('karma-ts-sin');
+  h.write(sin, 'angular.json', ANGULAR_JSON({ builder: '@angular-devkit/build-angular:karma' }));
+  assert.equal(karmaTsconfig({ dir: sin, name: 'front' }, root, ['a.spec.ts']), null, 'sin tsConfig en el target no hay qué extender');
+});
+
 test('lo que dejó Karma de verdad: el gate de dos specs con el archivo de cada test, la suite abortada y una corrida que no compila', () => {
   const ws = { dir: ANGULAR, name: 'front' };
   const both = ['src/app/verde.spec.ts', 'src/app/rojo.spec.ts'];
@@ -169,6 +193,13 @@ test('lo que dejó Karma de verdad: el gate de dos specs con el archivo de cada 
   assert.deepEqual(r.tests.map((t) => t.file), ['src/app/verde.spec.ts', 'src/app/verde.spec.ts'], 'en la suite completa, el archivo sale del describe');
   assert.deepEqual(r.run, { estado: 'abortada', corrieron: 2, total: 6, ultimo: 'Verde › crea la app', errores: ['Disconnected reconnect failed before timeout of 2000ms (ping timeout)'] });
   assert.deepEqual(r.summary, { pasa: 2, falla: 0, saltado: 0, total: 2 });
+
+  r = tb.fromKarma(fixture('karma-arnes-aislado.txt'), ws, both, '', 1);
+  assert.deepEqual(r.tests.map((t) => t.file), ['src/app/rojo.spec.ts', 'src/app/rojo.spec.ts', 'src/app/rojo.spec.ts', 'src/app/verde.spec.ts', 'src/app/verde.spec.ts'], 'con roto.spec.ts roto en el repo, el gate aislado corrió los dos');
+  assert.equal(r.run.estado, 'completa');
+  r = tb.fromKarma('{"tipo":"inicio"}\n', ws, ['src/app/cuelga.spec.ts', 'src/app/rojo.spec.ts', 'src/app/roto.spec.ts', 'src/app/verde.spec.ts'], fixture('karma-base-no-compila.txt'), 1);
+  assert.equal(r.run.estado, 'no-compila');
+  assert.equal(r.run.errores[0], "Error: src/app/roto.spec.ts:3:20 - error TS7006: Parameter 'n' implicitly has an 'any' type.", 'la línea base completa, con el tsconfig del repo tal cual');
 
   r = tb.fromKarma('{"tipo":"inicio"}\n', ws, ['src/app/verde.spec.ts'], fixture('karma-no-compila.txt'), 1);
   assert.equal(r.run.estado, 'no-compila');
@@ -220,7 +251,7 @@ test('línea base abortada con lo que alcanzó a correr, y el gate por --include
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stdout, /falla nueva: src\/app\/rojo\.spec\.ts › Rojo › resta mal/);
   assert.doesNotMatch(r.stdout, /verde\.spec\.ts ›/);
-  assert.match(fs.readFileSync(path.join(dir, 'ng-args.txt'), 'utf8'), /--include src\/app\/verde\.spec\.ts --include src\/app\/rojo\.spec\.ts$/m);
+  assert.match(fs.readFileSync(path.join(dir, 'ng-args.txt'), 'utf8'), /--include src\/app\/verde\.spec\.ts --include src\/app\/rojo\.spec\.ts --ts-config \S+front\.tsconfig\.json$/m);
   h.write(dir, 'tests/known-failures.txt', '2026-10-26 | src/app/rojo.spec.ts | Rojo › resta mal\n');
   r = run(dir, ['check', 'front', 'src/app/verde.spec.ts', 'src/app/rojo.spec.ts']);
   assert.equal(r.status, 0, r.stdout);
@@ -287,4 +318,20 @@ test('una suite que no compila: la línea base se toma con su estado y sus error
   const p = h.run('adopt.js', ['probe'], { cwd: front(SPECS), env: h.withPath(NG) });
   assert.doesNotMatch(p.stdout, /no hay adaptador/);
   assert.match(p.stdout, /^front: ok · src\/app\/cuelga\.spec\.ts: 0 test\(s\) leídos con su detalle; la corrida se cortó/m);
+});
+
+test('un spec roto que nadie tocó: la base completa no compila, y el gate de los tocados corre aislado con --ts-config', () => {
+  const dir = front({ 'src/app/verde.spec.ts': SPECS['src/app/verde.spec.ts'], 'src/app/rojo.spec.ts': SPECS['src/app/rojo.spec.ts'], 'src/app/roto.spec.ts': "describe('Roto', () => {});\n@no-compila\n" });
+  const cap = run(dir, ['capture', 'front']);
+  assert.equal(cap.status, 0, cap.stdout + cap.stderr);
+  assert.equal(base(dir).run.estado, 'no-compila', 'la línea base completa va con el tsconfig del repo tal cual');
+  const r = run(dir, ['check', 'front', 'src/app/verde.spec.ts', 'src/app/rojo.spec.ts']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /falla nueva: src\/app\/rojo\.spec\.ts › Rojo › resta mal/);
+  assert.doesNotMatch(r.stdout, /no compila:|verde\.spec\.ts ›/);
+  assert.match(r.stdout, /los specs tocados corren aislados, con un tsconfig que compila solo a ellos; el repo entero no compila sus specs/);
+  assert.match(r.stdout, /sin medir en la línea base, que no compiló: src\/app\/verde\.spec\.ts, src\/app\/rojo\.spec\.ts/);
+  const ts = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'karma', 'front.tsconfig.json'), 'utf8'));
+  assert.deepEqual(ts.files.map((f) => path.basename(f)), ['verde.spec.ts', 'rojo.spec.ts']);
+  assert.match(fs.readFileSync(path.join(dir, 'ng-args.txt'), 'utf8'), /^test --watch=false --browsers=ChromeHeadless --karma-config \S+front\.conf\.js$/m, 'la línea base, sin --ts-config');
 });

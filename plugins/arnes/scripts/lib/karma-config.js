@@ -13,6 +13,15 @@
 //                      plugin de devkit con webpack, resueltos desde el node_modules del workspace. En
 //                      los dos casos, el reporter de lib/karma-reporter.js con su archivo en la
 //                      variable ARNES_KARMA_RESULTADOS, Chrome sin cabeza, una sola corrida y nunca watch.
+//   karmaTsconfig(ws, root, specs, n)
+//                      el tsconfig temporal del gate, <root>/.tmp/harness/karma/<ws>.tsconfig[-n].json,
+//                      que test-baseline pasa con --ts-config: extiende el tsConfig del target de test
+//                      (ruta absoluta), compila solo los specs dados y los src/**/*.d.ts de su carpeta,
+//                      conserva sus types con jasmine y apunta typeRoots al node_modules/@types del
+//                      workspace, porque el archivo vive fuera de él y sin eso no encuentra it ni
+//                      describe. Así un spec roto que nadie tocó no tumba la corrida de los tocados: el
+//                      builder de devkit con webpack revisa los tipos de todo el programa del tsconfig.
+//                      null si el target no declara tsConfig
 // Lo demás (basePath, files, el bundle de los specs) lo pone el builder de Angular, que pisa esas
 // opciones de la configuración.
 
@@ -38,7 +47,7 @@ function karmaTarget(dir) {
     const mode = options.builderMode || 'browser';
     const build = (arch.build || {}).builder;
     const webpack = test.builder === DEVKIT && (mode === 'browser' || (mode === 'detect' && !ESBUILD.includes(build)));
-    return { project, builder: test.builder, karmaConfig: options.karmaConfig ? path.resolve(dir, options.karmaConfig) : null, webpack, root: path.resolve(dir, p.root || '') };
+    return { project, builder: test.builder, karmaConfig: options.karmaConfig ? path.resolve(dir, options.karmaConfig) : null, tsConfig: options.tsConfig ? path.resolve(dir, options.tsConfig) : null, webpack, root: path.resolve(dir, p.root || '') };
   }
   return null;
 }
@@ -82,4 +91,30 @@ function karmaSetup(ws, root) {
   return file;
 }
 
-module.exports = { karmaTarget, karmaSetup };
+function typesOf(tsconfig) {
+  try {
+    const text = fs.readFileSync(tsconfig, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const types = (JSON.parse(text).compilerOptions || {}).types;
+    return Array.isArray(types) ? types : [];
+  } catch {
+    return [];
+  }
+}
+
+function karmaTsconfig(ws, root, specs, n = 0) {
+  const target = karmaTarget(ws.dir);
+  if (!target || !target.tsConfig) return null;
+  const posix = (p) => p.replace(/\\/g, '/');
+  const file = path.join(root, '.tmp', 'harness', 'karma', `${ws.name}.tsconfig${n ? `-${n}` : ''}.json`);
+  const data = {
+    extends: posix(target.tsConfig),
+    compilerOptions: { types: [...new Set([...typesOf(target.tsConfig), 'jasmine'])], typeRoots: [posix(path.join(ws.dir, 'node_modules', '@types'))] },
+    files: specs.map((s) => posix(path.resolve(ws.dir, s))),
+    include: [posix(path.join(path.dirname(target.tsConfig), 'src', '**', '*.d.ts'))],
+  };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+  return file;
+}
+
+module.exports = { karmaTarget, karmaSetup, karmaTsconfig };
