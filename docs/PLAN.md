@@ -1056,6 +1056,13 @@ Lectura:
 
 Lo que no se comprobó o quedó fuera: una sesión interactiva y la corrección por mensaje después del cierre (con init en curso, plan-guard deja editar la configuración; Claude Code pide su propio permiso para `.claude/harness.json`); graphify sin instalar, un runner sin adaptador y una rama remota que trae la configuración, que cubren los tests y no estas corridas; y el `remote` de un repo cuyo origen es una ruta de Windows, que `cleanRemote` escribe `C//Users/...` porque lee `C:` como un host ssh. No es de esta ronda, ningún script lee ese campo y en GitLab o GitHub no pasa, pero el modelo lo investiga en cada init y suma llamadas.
 
+Ronda de Karma de serie (2026-10-26, misma rama, versión 0.7.3). Cada cambio está en su sección:
+- Karma de serie, con el reporter propio, la configuración temporal, un `--include` por spec y el estado de la corrida en el contrato y en la línea base, probado con Angular de verdad (§6.1);
+- init se cierra al final de su turno y las correcciones van por `/arnes:init --ajustar`, porque con init abierto se podía escribir código sin plan cambiando `codeGlobs` (§6.2);
+- la sección del `CLAUDE.md` se agrega siempre, `--check` dice lo mismo que hace init con la rama remota, y el `remote` de una ruta de Windows (§8).
+
+La corrida de init de la 0.7.2, otra vez, con los plugins de la 0.7.3 sobre una copia fresca de la carpeta contable y las mismas condiciones: un turno, ninguna pregunta, todo escrito (los tres manifiestos, la sección del `CLAUDE.md`, los permisos, el `settings.json` de la carpeta, `.worktreeinclude`, el `settings.json` de api sin el hook ni `baseRef`, la línea base de los dos repos y el grafo, en 3 s), init abierto y cerrado en la timeline (`start`, `end` y el turno cerrado sin bloqueo), y el cierre termina ofreciendo `/arnes:init --ajustar`. 12 requests, 17 llamadas (5 a scripts del arnés, 1 negada por la lista de la prueba), 98 s del modelo y US$0,49, dentro de lo de las dos corridas limpias de la 0.7.2 (81 y 104 s, 18 y 22 llamadas). El `remote` de cada repo quedó `C:/Users/.../origen/api`, y el cierre ya no lo menciona.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.

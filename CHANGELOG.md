@@ -2,6 +2,24 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.3] - 2026-10-26
+
+Karma de serie y cuatro ajustes a init sin preguntas (`docs/PLAN.md` §6.1, §6.2 y §8). Rama `feature/init-sin-preguntas`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con Angular 21.2, `@angular-devkit/build-angular` 21.2.28, karma 6.4.4 y Chrome sin cabeza sobre el repo de prueba `tests/fixtures/angular-karma`, y con `/arnes:init` en `claude -p` sobre la carpeta de prueba contable (§10).
+
+### Agregado
+- Karma de serie: un `ng test` cuyo `angular.json` usa un builder de Karma se lee sin que la persona escriba nada en su repo. El arnés le pasa `--karma-config` con una configuración temporal (la del repo si declara `karmaConfig`, o la de serie del builder con los plugins del `node_modules` del workspace) que suma un reporter propio, `lib/karma-reporter.js`, que escribe cada test al terminar en `.tmp/harness/karma`. `{specs}` pasa a un `--include` por spec; la suite completa va sin `--include` y saca el archivo de cada test del `describe` de más arriba, sin inventar uno si está en dos specs. init escribe `npx ng test --watch=false --browsers=ChromeHeadless --include {specs}`, y probe ya no pide un adaptador.
+- El estado de la corrida (`$defs.testRun`) en el contrato de resultados y en la línea base: completa, abortada (cuántos tests corrieron de cuántos y el último) o no-compila (los primeros errores). La línea base se toma igual con una suite que se corta o no compila, y el gate de los specs tocados sigue por `--include`; un spec tocado que la base abortada no alcanzó cuenta sus fallas, no sus saltos.
+- `/arnes:init --ajustar <qué cambiar>`: la corrección de lo que escribió init, en un turno que abre init solo para eso.
+
+### Cambiado
+- init se cierra al final de su turno. Dejarlo abierto hasta el plan dejaba escribir código sin plan en esa ventana, cambiando `codeGlobs` en el manifiesto. El Stop mira si init o setup corrieron en el turno que cierra.
+- La sección del arnés en un `CLAUDE.md` de carpeta existente se agrega siempre, sin el tope de 200 líneas.
+- `/arnes:init --check`, con una rama remota que trae la configuración, dice que init va a adoptar desde cero en la rama actual y nombra la rama, en vez de «cámbiate antes de seguir».
+- `docs/PROBADORES.md` deja de traer el adaptador de Karma que escribía la persona; `commands.testJson` queda para los runners que no vienen de serie.
+
+### Corregido
+- El `remote` de un repo cuyo origen es una ruta local de Windows se guardaba `C//Users/...`; queda como ruta.
+
 ## [0.7.2] - 2026-10-26
 
 init deja de preguntar (`docs/PLAN.md` §8). Rama `feature/init-sin-preguntas`, desde el tag `v0.7.1`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y con `/arnes:init` en `claude -p` sobre la carpeta de prueba contable (§10): de dos turnos de la persona a uno, de 65 llamadas del hilo principal a 18 y 22 en dos corridas, de 227 s del modelo a 81 y 104 s, y de US$1,20 a US$0,41 y US$0,56. Con un repo con cambios sin commitear, un turno: todo escrito menos esa línea base, que queda en el cierre con `/arnes:init --baseline`.
