@@ -183,6 +183,14 @@ test('cleanRemote quita protocolo, credenciales y .git', () => {
   assert.equal(cleanRemote('https://github.com/renovasolutions/gestion-api.git\n'), 'github.com/renovasolutions/gestion-api');
 });
 
+test('cleanRemote deja una ruta local de Windows como ruta, no como host ssh', () => {
+  assert.equal(cleanRemote('C:/Users/x/origen/api.git'), 'C:/Users/x/origen/api');
+  assert.equal(cleanRemote('C:\\Users\\x\\origen\\api.git'), 'C:/Users/x/origen/api');
+  assert.equal(cleanRemote('file:///C:/Users/x/origen/api.git'), 'C:/Users/x/origen/api');
+  assert.equal(cleanRemote('/srv/repos/api.git'), '/srv/repos/api');
+  assert.equal(cleanRemote('git@gitlab.com:g/api.git'), 'gitlab.com/g/api');
+});
+
 // Un repo que trae su manifiesto en una rama remota y está parado en otra rama sin él.
 function wrongBranch() {
   const dir = h.tmp('init-rama');

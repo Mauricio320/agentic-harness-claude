@@ -81,6 +81,8 @@ function nestedRepos(dir) {
 
 function cleanRemote(url) {
   const u = url.trim().replace(/\.git$/, '');
+  const local = u.replace(/^file:\/\/\/?(?=[A-Za-z]:|\/)/i, '');
+  if (/^[A-Za-z]:[\\/]/.test(local)) return local.replace(/\\/g, '/');
   const web = u.match(/^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i);
   if (web) return `${web[1]}/${web[2]}`;
   const scp = u.match(/^(?:[^@]+@)?([^:/]+):(.+)$/);
