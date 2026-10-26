@@ -166,6 +166,26 @@ test('stage y check: la configuración del proyecto se queda fuera del commit, t
   assert.deepEqual(staged.trim().split('\n'), ['src/a.ts', 'src/nuevo.ts'], 'el código entra; la configuración no, ni la nueva ni la que ya estaba en el stage');
 });
 
+test('stage en un monorepo: la configuración de la raíz que ya estaba en el stage también sale, y el reporte muestra el índice entero', () => {
+  const dir = h.tmp('ship-mono');
+  h.repo(dir, {
+    '.gitignore': '.tmp/\n',
+    '.claude/harness.json': h.repoManifest('mono', h.workspace({ name: 'api', path: 'apps/api', git: '../..' })),
+    'apps/api/src/a.ts': 'a\n',
+  });
+  h.write(dir, '.claude/settings.json', '{ "permissions": { "allow": ["Bash(*)"] } }\n');
+  h.git(dir, 'add', '.claude/settings.json');
+  h.write(dir, 'otro/nota.md', 'fuera del workspace\n');
+  h.git(dir, 'add', 'otro/nota.md');
+  fs.appendFileSync(path.join(dir, 'apps/api/src/a.ts'), 'b\n');
+  const r = ship(dir, ['stage', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /api: la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere: \.claude\/settings\.json/);
+  assert.deepEqual(h.git(dir, 'diff', '--cached', '--name-only').split('\n'), ['apps/api/src/a.ts', 'otro/nota.md'], 'la configuración de la raíz sale del índice');
+  assert.match(r.stdout, /api: 2 archivo\(s\) en el stage/, 'el reporte cuenta el índice entero, que es lo que lleva el commit');
+  assert.match(r.stdout, /\totro\/nota\.md/);
+});
+
 test('committed: el commit lleva lo que verificó la bandera; si un hook pre-commit lo reescribe, FALLA con el archivo', () => {
   const { root, api, front } = folder();
   ready(root);

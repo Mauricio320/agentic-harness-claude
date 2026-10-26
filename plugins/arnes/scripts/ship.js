@@ -321,7 +321,6 @@ function stage(project, wsName) {
   const keep = item.files.filter((f) => !suspicious(f) && !isConfig(ws, f));
   const gone = item.gone.filter((f) => !isConfig(ws, f));
   if (bad.length) console.log(`${ws.name}: se quedan fuera del commit, porque no deben entrar: ${bad.join(', ')}`);
-  if (config.length) console.log(`${ws.name}: ${CONFIG_OUT}: ${config.join(', ')}`);
   if (!keep.length && !gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
   // Un borrado puede seguir en el índice o haber salido ya (git rm --cached): rm --ignore-unmatch
   // sirve para los dos, y git add fallaría en el segundo.
@@ -331,13 +330,18 @@ function stage(project, wsName) {
       if (r.status !== 0) die(`ship: git ${args[0]} falló en ${ws.name}: ${firstLine(r.stderr)}`);
     }
   }
-  // El commit lleva el índice entero: la configuración que alguien dejó en el stage antes también sale.
-  const before = lines(git(ws.dir, ['diff', '--cached', '--name-only', '--relative']).stdout).filter((f) => isConfig(ws, f));
+  // El commit lleva el índice entero del repo, también lo que está fuera de la carpeta del workspace
+  // (en un monorepo, la configuración vive en la raíz): la que alguien dejó en el stage antes también
+  // sale, buscada desde la raíz y sin --relative. Las rutas del aviso y del reporte son desde ahí.
+  const before = lines(git(ws.gitRoot, ['diff', '--cached', '--name-only']).stdout).filter((f) => configRoot(path.join(ws.gitRoot, f)));
   if (before.length) {
-    const r = git(ws.dir, ['reset', '-q', '--', ...before]);
+    const r = git(ws.gitRoot, ['reset', '-q', '--', ...before]);
     if (r.status !== 0) die(`ship: no pude sacar del stage la configuración de ${ws.name}: ${firstLine(r.stderr)}`);
   }
-  const staged = git(ws.dir, ['diff', '--cached', '--name-status', '--relative']);
+  const fromRoot = (f) => posix(path.relative(ws.gitRoot, path.join(ws.dir, f)));
+  const out = [...new Set([...config.map(fromRoot), ...before])].sort();
+  if (out.length) console.log(`${ws.name}: ${CONFIG_OUT}: ${out.join(', ')}`);
+  const staged = git(ws.gitRoot, ['diff', '--cached', '--name-status']);
   console.log(`${ws.name}: ${lines(staged.stdout).length} archivo(s) en el stage`);
   for (const l of lines(staged.stdout)) console.log(`  ${l}`);
   return 0;
