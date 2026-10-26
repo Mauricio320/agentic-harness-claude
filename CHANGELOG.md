@@ -2,6 +2,22 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.2] - 2026-10-26
+
+init deja de preguntar (`docs/PLAN.md` §8). Rama `feature/init-sin-preguntas`, desde el tag `v0.7.1`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, y con `/arnes:init` en `claude -p` sobre la carpeta de prueba contable (§10): de dos turnos de la persona a uno, de 65 llamadas del hilo principal a 18 y 22 en dos corridas, de 227 s del modelo a 81 y 104 s, y de US$1,20 a US$0,41 y US$0,56. Con un repo con cambios sin commitear, un turno: todo escrito menos esa línea base, que queda en el cierre con `/arnes:init --baseline`.
+
+### Cambiado
+- `/arnes:init` no hace ronda de preguntas: escribe todo en un solo turno, y lo que antes recomendaba es la decisión. Todo lo que escribe queda sin commitear, a la vista en el diff; init no commitea ni hace push. La skill corre `init-draft.js --write` y `adopt.js all --write`, la pasada de la adopción en un proceso (lo que le falta a la configuración existente, los hooks del arnés anterior, `worktree.baseRef`, los permisos, `.worktreeinclude`, el `CLAUDE.md` y el `settings.json` de la carpeta, la línea base y el grafo).
+- El cierre es un solo mensaje: lo escrito y dónde, lo que decidió solo con su porqué, lo que le toca a la persona (primero lo que no pudo avanzar, con su comando) y la ruta del informe. Una corrección se pide en un mensaje y se aplica con Edit sobre el archivo, sin repetir init; para eso init queda en curso hasta que empieza un plan, que lo cierra.
+- Un paso que no puede avanzar (la línea base con cambios sin commitear, graphify sin instalar, un runner sin adaptador) no detiene init: hace lo demás y lo deja en el cierre con `/arnes:init --baseline`, `uv tool install graphify` o un `commands.testJson` con el adaptador de Karma de la guía.
+- `init-draft` propone `riskPaths` por el nombre de las rutas (migraciones, autenticación, permisos, roles, seguridad) y dice de dónde salen; `adopt.js complete` se las propone a un manifiesto existente que no declara ninguna.
+- Si una rama remota trae la configuración que le falta a un repo, init ya no pregunta ni se cambia a ella: adopta desde cero en la rama actual y la nombra en el cierre. `adopt.js switch` se retira.
+- Un `CLAUDE.md` de carpeta que ya existe recibe la sección `## Arnés` al final, sin reescribir lo demás y solo si cabe bajo las 200 líneas. Una línea base que ya existe no se vuelve a tomar en la pasada.
+- `docs/PROBADORES.md`, `docs/como-funciona.html` y el README cuentan el flujo nuevo.
+
+### Corregido
+- El Stop bloqueaba el turno de init pidiendo plan por el código sin commitear que la persona ya tenía: sin configuración al empezar el turno no había foto de ese repo, y sin foto todo contaba como del turno. Con init o setup en curso, un workspace sin foto no cuenta ese código, y el Stop solo avisa.
+
 ## [0.7.1] - 2026-10-26
 
 Huecos cerrados antes del piloto, por una revisión propia del arnés y una externa leyendo el código. Rama `feature/consolidacion-a`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test` y `claude plugin test` de los mods. El CI pasa a fijar 2.1.310, y el README alinea el estado y la matriz.
