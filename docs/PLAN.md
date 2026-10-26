@@ -859,6 +859,9 @@ Cambio de la ronda de init sin preguntas (2026-10-26, rama `feature/init-sin-pre
 - `--check` y `--baseline` no cambian.
 - Tests en `tests/init-draft.test.js` (las riskPaths con su origen y la rama remota que no frena el `--write`), `tests/adopt.test.js` (la pasada de `all` con un repo sucio y sin graphify, que no pisa la línea base ni repite la sección; la sección en un `CLAUDE.md` existente; las riskPaths en complete). El test de `switch` de `tests/init-remates.test.js` se va con él.
 
+Cambio de la ronda de Karma de serie (2026-10-26, rama `feature/init-sin-preguntas`, versión 0.7.3): ajustes a init sin preguntas.
+- **La sección del `CLAUDE.md` se agrega siempre.** El tope de 200 líneas se va: un `CLAUDE.md` largo es justo donde más hace falta saber que ahora manda el arnés. Va una sola vez, al final, y el resto queda intacto. `adoption-check` sigue marcando un `CLAUDE.md` de más de 200 líneas en la comprobación 2 (principio 6).
+
 El README del arnés trae además la lista de permisos recomendada para `~/.claude/settings.json` (los `node` de los scripts del plugin, `git` de lectura, los comandos de test del manifiesto), para que el flujo no se detenga en diálogos de permiso; sin ella el arnés funciona, pero pregunta.
 
 ## 9. Versionado y compatibilidad

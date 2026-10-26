@@ -123,12 +123,12 @@ test('claude-md: en una carpeta multi-repo escribe el borrador de composición, 
   assert.equal(mine.match(/^## Arnés$/gm).length, 1);
   assert.match(adopt(root, ['claude-md', '--write']).stdout, /ya tiene la sección del arnés/);
   assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), mine, 'una segunda vez no la repite');
-  const long = `# largo\n${'- regla\n'.repeat(190)}`;
+  const long = `# largo\n${'- regla\n'.repeat(250)}`;
   fs.writeFileSync(path.join(root, 'CLAUDE.md'), long);
-  r = adopt(root, ['claude-md', '--write']);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /no le agrego la sección del arnés, porque pasaría de 200 líneas/);
-  assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), long);
+  assert.equal(adopt(root, ['claude-md', '--write']).status, 0, 'un CLAUDE.md largo también la recibe');
+  const after = fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+  assert.ok(after.startsWith(long) && after.split('\n').length > 260, 'al final, con lo demás intacto');
+  assert.equal(after.match(/^## Arnés$/gm).length, 1);
   assert.match(adopt(repo(), ['claude-md']).stdout, /no es una carpeta multi-repo/);
 });
 

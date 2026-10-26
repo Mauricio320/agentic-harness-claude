@@ -27,7 +27,7 @@
 //   claude-md [--write]     en una carpeta multi-repo, la sección "## Arnés" del CLAUDE.md: los repos,
 //                           sus comandos y su contrato, lo que cruza entre ellos y el flujo. Sin
 //                           CLAUDE.md, --write lo crea con esa sección; con uno que no la tiene, se la
-//                           agrega al final sin reescribir lo demás, salvo que pase de 200 líneas
+//                           agrega al final, una sola vez, sin reescribir lo demás y sea cual sea su largo
 //   complete [--only campo]... [--write]
 //                           lo que le falta a un manifiesto existente, campo por campo, contra lo que
 //                           init-draft propondría: conventions de cada workspace si no tiene, riskPaths
@@ -255,10 +255,6 @@ function claudeMd(project, write) {
   }
   const section = compositionSection(project);
   const text = before === null ? compositionDraft(project) : `${before}${before.endsWith('\n') ? '' : '\n'}\n${section}`;
-  if (before !== null && text.split(/\r?\n/).length > MAX_CLAUDE_MD) {
-    console.log(`${file}: no le agrego la sección del arnés, porque pasaría de ${MAX_CLAUDE_MD} líneas; va a mano y resumida`);
-    return 1;
-  }
   if (!write) {
     console.log(before === null ? `falta ${file}; el borrador:\n\n${text}` : `a ${file} le falta la sección del arnés, que va al final:\n\n${section}`);
     return 1;
