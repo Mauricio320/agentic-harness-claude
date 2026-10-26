@@ -96,7 +96,8 @@ function planState(entries) {
 // Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end ni un
 // start de plan después, de menos de dos horas, para que una skill cortada no lo deje así para
 // siempre), el aviso de UserPromptSubmit que pide cargar arnes:plan no se inyecta y arnes-mod no
-// pregunta. init no anota su end: queda en curso para las correcciones de la persona, hasta el plan.
+// pregunta. init y setup anotan su end en el mismo turno; prepInTurn dice si alguna corrió en el turno
+// que está cerrando: un start o un end después de la última nota "cerrado" del turno.
 const PREP = ['init', 'setup'];
 const PREP_MS = 2 * 60 * 60 * 1000;
 function prepOpen(entries, now = Date.now()) {
@@ -105,6 +106,11 @@ function prepOpen(entries, now = Date.now()) {
   const { stage, at } = entries[i];
   if (entries.slice(i + 1).some((e) => e.event === 'start' ? e.stage === 'plan' : e.stage === stage && e.event === 'end')) return null;
   return now - new Date(at).getTime() < PREP_MS ? stage : null;
+}
+
+function prepInTurn(entries) {
+  const i = entries.map((e) => e.stage === 'turno' && e.result === 'cerrado').lastIndexOf(true);
+  return entries.slice(i + 1).some((e) => PREP.includes(e.stage) && (e.event === 'start' || e.event === 'end'));
 }
 
 // La lista de tareas de la corrida (la nota "tareas" de plan), con el estado de cada una según la
@@ -271,7 +277,7 @@ function bringBack(fromRoot, toRoot) {
   return back.length;
 }
 
-module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, tasks, corrida, summary, bringBack };
+module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, prepInTurn, tasks, corrida, summary, bringBack };
 
 function main() {
   let args;

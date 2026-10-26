@@ -38,6 +38,7 @@ test('sin plan en curso ni código tocado, una sola línea: un pedido de código
 test('mientras init o setup están en curso, y en el mensaje que los invoca, no pide cargar el plan', () => {
   const dir = repo();
   assert.equal(prompt(dir, '/arnes:init').out, null, 'el mensaje que invoca init');
+  assert.equal(prompt(dir, '/arnes:init --ajustar en web, src/api/** también exige revisión humana').out, null, 'una corrección por --ajustar');
   assert.equal(prompt(dir, '<command-name>/arnes:setup</command-name>\n<command-args>x</command-args>').out, null, 'setup expandido por el CLI');
   for (const stage of ['init', 'setup']) {
     assert.equal(h.run('lib/timeline.js', ['start', stage], { cwd: dir }).status, 0);

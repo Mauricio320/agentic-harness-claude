@@ -292,11 +292,11 @@ test('el turno de init que escribe la configuración no bloquea por el código q
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de la persona\n');
   tl.append(dir, { event: 'start', stage: 'init' });
   h.write(dir, '.claude/harness.json', h.repoManifest('api'));
+  tl.append(dir, { event: 'end', stage: 'init', result: 'ok' });
   const r = stop(dir);
-  assert.equal(r.out.decision, undefined, JSON.stringify(r.out));
+  assert.equal(r.out.decision, undefined, 'init cerró en este mismo turno: ' + JSON.stringify(r.out));
   assert.match(r.out.systemMessage, /este turno no los tocó/);
-  tl.append(dir, { event: 'start', stage: 'plan' });
-  assert.equal(stop(dir).out.decision, 'block', 'con el plan empezado init ya no está en curso, y sin foto bloquea');
+  assert.equal(stop(dir).out.decision, 'block', 'el turno siguiente, sin init ni foto, bloquea');
 });
 
 test('(d) el manifiesto de un repo de la carpeta borrado en el turno bloquea; en un repo solo, sin proyecto, avisa', () => {

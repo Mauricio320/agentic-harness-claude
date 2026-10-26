@@ -106,10 +106,11 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
    Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y
    revisa solo, y al final pides /arnes:ship.
 
-   Si algo no te sirve, dímelo en un mensaje y lo corrijo en el archivo; no hace falta repetir init.
+   Si algo no te sirve, escribe /arnes:init --ajustar y lo que quieres cambiar, y lo corrijo en el
+   archivo; no hace falta repetir init.
    ```
 
-   Una corrección, como "en web, src/api/** también exige revisión humana", la dices en un mensaje y la sesión la aplica en el archivo, sin repetir init. En una carpeta con back y front, el contract hace que ship sepa que el back va primero; si init no lo pudo deducir, como aquí, pídelo igual, en un mensaje.
+   Una corrección se pide con `/arnes:init --ajustar`, por ejemplo `/arnes:init --ajustar en web, src/api/** también exige revisión humana`: la sesión la aplica en el archivo, sin repetir init. Va por ahí, y no en un mensaje suelto, porque fuera de init la configuración del arnés no se escribe. En una carpeta con back y front, el contract hace que ship sepa que el back va primero; si init no lo pudo deducir, como aquí, pídelo con `--ajustar`.
 4. Lo que init no puede hacer solo lo deja primero en esa lista, con el comando, y hace lo demás igual: la línea base de un repo con cambios sin commitear (`/arnes:init --baseline` cuando los commitees o los guardes), graphify sin instalar (`uv tool install graphify` y otra vez `/arnes:init`, que con lo demás ya escrito solo arma el grafo) o un runner de tests que el arnés no sabe leer (el punto 7). La línea base y las fallas que ya había, anotadas con la fecha de hoy en `tests/known-failures.txt`, las commiteas tú, con `gates:` al inicio del asunto.
 5. En una carpeta multi-repo, haz de la carpeta un repo (`git init`), commitea lo que escribió init y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
 6. `/arnes:init --check` corre las ocho comprobaciones del mínimo de adopción (`docs/PLAN.md` §8). Cada una sale `ok`, `FALTA`, `MANUAL` (configuración del host git que no se ve desde local) o `NO ADOPTABLE` (un repo sin manifiesto propio, como uno PHP, que no bloquea).

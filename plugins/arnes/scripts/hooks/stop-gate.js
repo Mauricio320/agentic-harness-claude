@@ -14,9 +14,9 @@
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
 // turno cambió algo: para (a) y (c), un archivo de código nuevo o cambiado respecto de la foto que
 // dejó prompt-context, archivo por archivo; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
-// solo avisa con systemMessage. Sin foto bloquea, salvo con init o setup en curso: un workspace que
-// no está en la foto porque su configuración se escribió en este turno no cuenta para (a) ni (c) el
-// código que ya tenía, que es de la persona, y solo se avisa. Un solo bloqueo por turno: si la entrada trae
+// solo avisa con systemMessage. Sin foto bloquea, salvo con init o setup en curso o que corrieron en
+// este turno: un workspace que no está en la foto porque su configuración se escribió en el turno no
+// cuenta para (a) ni (c) el código que ya tenía, que es de la persona, y solo se avisa. Un solo bloqueo por turno: si la entrada trae
 // stop_hook_active (el turno ya continúa por un bloqueo), deja pasar con un aviso visible y anota el
 // pendiente en la timeline. Una sesión dentro del worktree de un set viejo no juzga (b): integrar le
 // toca a la del checkout principal. No se engancha a SubagentStop: el gate es del hilo principal. Sin manifiesto
@@ -38,7 +38,7 @@ const path = require('path');
 const { run } = require('../lib/hook.js');
 const { loadProject } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { append, read, planState, prepOpen, PREP } = require('../lib/timeline.js');
+const { append, read, planState, prepOpen, prepInTurn, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
@@ -88,7 +88,7 @@ function unplanned(project, home, unseen) {
 function rulesChanged(project, home) {
   const entries = read(home.root);
   const since = turnStart(project);
-  if (prepOpen(entries) || entries.some((e) => PREP.includes(e.stage) && since != null && Date.parse(e.at) >= since - 1000)) return [];
+  if (prepOpen(entries) || prepInTurn(entries) || entries.some((e) => PREP.includes(e.stage) && since != null && Date.parse(e.at) >= since - 1000)) return [];
   return manifestsChanged(project).map((file) => {
     const dir = path.posix.dirname(path.posix.dirname(file));
     return { file, name: dir === '.' ? project.name : dir, changed: true };
@@ -202,7 +202,8 @@ function stopGate(input) {
   // El plan y init o setup se miran en la timeline que mira plan-guard.
   const home = ledger.projectFor(cwd) || project;
   const snap = readTurn(project);
-  const prep = prepOpen(read(home.root));
+  const timeline = read(home.root);
+  const prep = prepOpen(timeline) || prepInTurn(timeline);
   const unseen = (ws) => Boolean(prep) && !snap[ws.name];
   const noPlan = unplanned(project, home, unseen);
   const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws), unseen), wts: pendingWorktrees(cwd, turnStart(project)) };
