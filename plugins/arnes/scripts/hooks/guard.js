@@ -8,6 +8,9 @@
 //
 // Deniega siempre, haya o no manifiesto:
 //   git reset --hard · git push forzado (--force, -f, --force-with-lease, refspec +) ·
+//   git push que borra una rama del remoto (--delete, -d, refspec :rama) ·
+//   git restore, git checkout de rutas y git checkout o switch forzados, si botan cambios sin
+//   commitear de archivos trackeados · git stash drop o clear con algo en la pila ·
 //   git clean -f · git branch -D de una rama con commits fuera de su destino ·
 //   git worktree remove de un worktree cuya rama tiene commits fuera de su destino ·
 //   cualquier comando cuyos argumentos nombren la ruta de un archivo de secretos (los de
@@ -174,6 +177,81 @@ function judgeAdd(dir, rest) {
   return `git add masivo con archivos sin trackear que no deberían entrar: ${found.slice(0, 5).join(', ')}. Agrega archivos explícitos o ignóralos primero.`;
 }
 
+// ---------- descartar cambios sin commitear ----------
+// restore, checkout de rutas y checkout o switch forzados botan lo que no está commiteado, igual que
+// reset --hard. Se niegan solo si de verdad hay algo que perder: los archivos trackeados con cambios
+// (git diff, contra el índice o contra HEAD) en las rutas que nombran.
+
+const TO_LOSE = 'Si de verdad hace falta, lo corre la persona en su terminal; para guardarlo antes, git stash.';
+
+// Los archivos con cambios que se perderían, o [] si no hay nada o git falla. vsHead compara contra
+// HEAD (lo staged también se pierde); si no, contra el índice.
+function changed(dir, paths, vsHead) {
+  const r = git(dir, ['diff', '--name-only', ...(vsHead ? ['HEAD'] : []), '--', ...paths]);
+  return r.status === 0 ? lines(r.stdout) : [];
+}
+
+const lostText = (what, files) => `${what} descarta los cambios sin commitear de ${files.length} archivo(s) (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) sin vuelta. ${TO_LOSE}`;
+
+// git restore: solo --staged saca del índice y no pierde nada; el resto pisa el árbol, desde el
+// índice o, con --source, desde otro árbol.
+function judgeRestore(dir, rest) {
+  const staged = rest.some((a) => a === '--staged') || shortHas(rest, 'S');
+  const worktree = rest.some((a) => a === '--worktree') || shortHas(rest, 'W');
+  if (staged && !worktree) return null;
+  const paths = [];
+  let source = false;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === '--') {
+      paths.push(...rest.slice(i + 1));
+      break;
+    }
+    if (a === '-s' || a === '--source') {
+      source = true;
+      i++;
+    } else if (a.startsWith('--source=') || /^-s./.test(a)) source = true;
+    else if (!a.startsWith('-')) paths.push(a);
+  }
+  if (!paths.length) return null;
+  const files = changed(dir, paths, source || staged);
+  return files.length ? lostText('git restore', files) : null;
+}
+
+const isCommit = (dir, ref) => git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).status === 0;
+
+// git checkout: crear una rama no pierde nada; forzar el cambio de rama bota todo lo sin commitear;
+// las rutas (después de --, o las que existen y no son una referencia) se pisan desde el índice o
+// desde la referencia que va delante.
+function judgeCheckout(dir, rest, sub) {
+  if (rest.some((a) => ['-b', '-B', '--orphan', '-c', '-C', '--create', '--force-create'].includes(a))) return null;
+  if (sub === 'switch') {
+    const force = rest.includes('--discard-changes') || rest.includes('--force') || shortHas(rest, 'f');
+    const files = force ? changed(dir, [], true) : [];
+    return files.length ? lostText('git switch forzado', files) : null;
+  }
+  if (rest.includes('--force') || shortHas(rest, 'f')) {
+    const files = changed(dir, [], true);
+    if (files.length) return lostText('git checkout forzado', files);
+  }
+  const dd = rest.indexOf('--');
+  const words = (dd >= 0 ? rest.slice(0, dd) : rest).filter((a) => !a.startsWith('-'));
+  const tree = words.length && isCommit(dir, words[0]);
+  const paths = dd >= 0 ? rest.slice(dd + 1) : words.slice(tree ? 1 : 0).filter((a) => a === '.' || fs.existsSync(toPath(dir, a)));
+  if (!paths.length) return null;
+  const files = changed(dir, paths, tree);
+  return files.length ? lostText('git checkout de rutas', files) : null;
+}
+
+// git stash drop o clear: lo que se borra de la pila no se recupera sin buscar en los objetos sueltos.
+function judgeStash(dir, rest) {
+  const op = rest.find((a) => !a.startsWith('-'));
+  if (op !== 'drop' && op !== 'clear') return null;
+  const list = git(dir, ['stash', 'list']);
+  if (list.status !== 0 || !list.stdout.trim()) return null;
+  return `git stash ${op} borra cambios guardados que después no se recuperan. Si de verdad hace falta, lo corre la persona en su terminal.`;
+}
+
 function judgeGit(args, dir) {
   const g = splitGit(args, dir);
   const { sub, rest } = g;
@@ -181,6 +259,12 @@ function judgeGit(args, dir) {
   if (sub === 'push' && (rest.some((a) => /^--force(-with-lease|-if-includes)?(=|$)/.test(a)) || shortHas(rest, 'f') || rest.some((a) => /^\+/.test(a)))) {
     return 'el push forzado reescribe historia remota. Si de verdad hace falta, lo corre la persona en su terminal.';
   }
+  if (sub === 'push' && (rest.includes('--delete') || shortHas(rest, 'd') || rest.some((a) => /^:./.test(a)))) {
+    return 'el push que borra una rama del remoto la quita para todos. Si de verdad hace falta, lo corre la persona en su terminal.';
+  }
+  if (sub === 'restore') return judgeRestore(g.dir, rest);
+  if (sub === 'checkout' || sub === 'switch') return judgeCheckout(g.dir, rest, sub);
+  if (sub === 'stash') return judgeStash(g.dir, rest);
   if (sub === 'clean' && (shortHas(rest, 'f') || rest.includes('--force')) && !(shortHas(rest, 'n') || rest.includes('--dry-run'))) {
     return 'git clean -f borra archivos sin trackear sin vuelta. Si de verdad hace falta, lo corre la persona en su terminal.';
   }

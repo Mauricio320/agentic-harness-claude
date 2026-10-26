@@ -252,6 +252,50 @@ test('una comilla escapada no esconde ni inventa un comando: cada shell con sus 
   assert.ok(!denied(guard(api, 'bash -c "echo \\"x; git reset --hard\\""')));
 });
 
+test('restore y checkout de rutas: deniegan si botan cambios sin commitear; sin cambios, o solo --staged, pasan', () => {
+  const { api } = folder();
+  for (const cmd of ['git restore src/a.ts', 'git restore .', 'git checkout -- .', 'git checkout .', 'git checkout src/a.ts', 'git checkout HEAD -- src/a.ts', 'git restore --source=HEAD src/a.ts']) {
+    assert.ok(!denied(guard(api, cmd)), `${cmd}: sin cambios no hay nada que perder`);
+  }
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'sin commitear\n');
+  for (const cmd of ['git restore src/a.ts', 'git restore .', 'git restore -W src', 'git checkout -- .', 'git checkout .', 'git checkout src/a.ts', 'git checkout HEAD -- src/a.ts', 'git -C . restore -s HEAD -- src']) {
+    assert.match(reason(guard(api, cmd)), /descarta los cambios sin commitear de 1 archivo\(s\) \(src\/a\.ts\) sin vuelta\. Si de verdad hace falta, lo corre la persona en su terminal/, cmd);
+  }
+  assert.ok(!denied(guard(api, 'git restore README.md')), 'otro archivo, sin cambios');
+  assert.ok(!denied(guard(api, 'git checkout main')), 'cambiar de rama lo cuida git');
+  assert.ok(!denied(guard(api, 'git checkout -b tema')), 'crear una rama no pierde nada');
+  h.git(api, 'add', 'src/a.ts');
+  assert.ok(!denied(guard(api, 'git restore --staged src/a.ts')), '--staged solo saca del índice');
+  assert.ok(!denied(guard(api, 'git restore src/a.ts')), 'staged y el árbol igual al índice: restore desde el índice no pierde nada');
+  assert.ok(denied(guard(api, 'git restore --staged --worktree src/a.ts')), 'con --worktree también pisa el árbol');
+  assert.ok(denied(guard(api, 'git checkout HEAD -- src/a.ts')), 'desde HEAD también bota lo staged');
+});
+
+test('checkout y switch forzados deniegan con cambios sin commitear', () => {
+  const { api } = folder();
+  h.git(api, 'branch', 'tema');
+  assert.ok(!denied(guard(api, 'git checkout -f tema')), 'sin cambios');
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'x\n');
+  assert.match(reason(guard(api, 'git checkout -f tema')), /^arnes guard: git checkout forzado descarta/);
+  assert.match(reason(guard(api, 'git switch --discard-changes tema')), /git switch forzado descarta/);
+  assert.ok(denied(guard(api, 'git switch -f tema')));
+  assert.ok(!denied(guard(api, 'git switch tema')), 'sin forzar lo cuida git');
+  assert.ok(!denied(guard(api, 'git switch -c otra')), 'crear una rama no pierde nada');
+});
+
+test('stash drop y clear deniegan con algo en la pila; push que borra una rama remota, siempre', () => {
+  const { api } = folder();
+  assert.ok(!denied(guard(api, 'git stash drop')), 'pila vacía');
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'x\n');
+  h.git(api, 'stash');
+  for (const cmd of ['git stash drop', 'git stash drop stash@{0}', 'git stash clear']) assert.match(reason(guard(api, cmd)), /borra cambios guardados/, cmd);
+  for (const cmd of ['git stash list', 'git stash pop', 'git stash']) assert.ok(!denied(guard(api, cmd)), cmd);
+  for (const cmd of ['git push origin --delete tema', 'git push -d origin tema', 'git push origin :tema']) {
+    assert.match(reason(guard(api, cmd)), /borra una rama del remoto/, cmd);
+  }
+  assert.ok(!denied(guard(api, 'git push origin tema:tema')), 'un refspec con origen no borra');
+});
+
 test('branch -D: deniega una rama con commits sin mergear y permite una ya integrada', () => {
   const { api } = folder();
   h.git(api, 'checkout', '-q', '-b', 'tema');
@@ -282,7 +326,10 @@ test('sin manifiesto: git destructivo se deniega igual; commit, add y forbidden 
   const dir = h.tmp('guard-sin');
   h.repo(dir, { 'a.ts': 'a\n' });
   h.write(dir, '.env', 'secreto');
-  for (const cmd of ['git reset --hard', 'git push --force', 'git clean -f']) assert.ok(denied(guard(dir, cmd)), cmd);
+  for (const cmd of ['git reset --hard', 'git push --force', 'git clean -f', 'git push origin --delete x']) assert.ok(denied(guard(dir, cmd)), cmd);
+  fs.appendFileSync(path.join(dir, 'a.ts'), 'b\n');
+  assert.ok(denied(guard(dir, 'git restore .')), 'restore también sin manifiesto');
+  h.git(dir, 'checkout', '--', 'a.ts');
   for (const cmd of ['git commit -m x', 'git add .', 'npm run lint']) assert.ok(!denied(guard(dir, cmd)), cmd);
   h.git(dir, 'checkout', '-q', '-b', 'tema');
   h.write(dir, 'b.ts', 'b\n');
