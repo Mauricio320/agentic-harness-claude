@@ -244,3 +244,49 @@ test('baseref: avisa de un settings versionado que fija worktree.baseRef en head
   assert.match(adopt(dir, ['baseref']).stdout, /ningún \.claude\/settings\.json fija worktree\.baseRef en head/);
   assert.equal(adopt(dir, ['baseref', '--write']).status, 2);
 });
+
+test('all: la pasada de init hace todo lo que puede sin preguntar, dice lo que no pudo y no pisa lo que existe', () => {
+  const root = h.tmp('adopt-all');
+  const ws = (name) => h.workspace({ name, commands: { typecheck: ['npx tsc --noEmit'], test: 'jest {specs} --runTestsByPath' }, specPattern: '{dir}/{name}.spec.ts' });
+  h.repo(path.join(root, 'api'), {
+    '.gitignore': '.env\n',
+    '.claude/harness.json': h.repoManifest('api', ws('api')),
+    '.claude/settings.json': h.manifestJson({ worktree: { baseRef: 'head' }, hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node .claude/hooks/stop.js' }] }] } }),
+    'src/a.ts': 'a\n',
+    'src/a.spec.ts': 'pass|A|debe sumar\nfail|A|debe restar\n',
+  });
+  h.write(root, 'api/.env', 'PORT=3000\n');
+  h.repo(path.join(root, 'web'), { '.claude/harness.json': h.repoManifest('web', ws('web')), 'src/b.ts': 'b\n', 'src/b.spec.ts': 'pass|B|pinta\n' });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }, { path: 'web' }], integration: { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true } }));
+  h.write(root, 'CLAUDE.md', '# carpeta\n\nLo mío.\n');
+  fs.appendFileSync(path.join(root, 'api/src/a.ts'), 'a medias\n');
+  const config = h.tmp('config-all');
+  h.write(config, 'plugins/known_marketplaces.json', JSON.stringify({ 'agentic-harness': { source: { source: 'git', url: 'https://gitlab.com/g/agentic-harness.git', ref: 'probadores' } } }));
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+  const dirs = process.env[key].split(path.delimiter).filter((d) => !['graphify', 'graphify.exe', 'graphify.cmd'].some((f) => fs.existsSync(path.join(d, f))));
+  const run = () => h.run('adopt.js', ['all', '--write'], { cwd: root, env: { [key]: `${BIN}${path.delimiter}${dirs.join(path.delimiter)}`, CLAUDE_CONFIG_DIR: config } });
+
+  let r = run();
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /== lo que le falta a cada configuración[\s\S]*== hooks del arnés anterior[\s\S]*== worktree\.baseRef[\s\S]*== permisos[\s\S]*== \.worktreeinclude[\s\S]*== CLAUDE\.md de la carpeta[\s\S]*== settings\.json de la carpeta[\s\S]*== línea base de api[\s\S]*== línea base de web[\s\S]*== grafo/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'api/.claude/settings.json'), 'utf8')), {}, 'sin el hook viejo ni baseRef');
+  assert.ok(JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.local.json'), 'utf8')).permissions.allow.includes('Bash(jest *)'));
+  assert.match(fs.readFileSync(path.join(root, 'api/.worktreeinclude'), 'utf8'), /^\.env$/m);
+  assert.ok(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8').startsWith('# carpeta\n\nLo mío.\n\n## Arnés\n'));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8')).extraKnownMarketplaces['agentic-harness'].source.ref, 'probadores');
+  assert.match(r.stdout, /^api: no tomo la línea base: .*src\/a\.ts.*\/arnes:init --baseline$/m);
+  assert.ok(!fs.existsSync(path.join(root, 'api/tests/baseline.json')), 'con código sin commitear no hay base');
+  assert.ok(fs.existsSync(path.join(root, 'web/tests/baseline.json')), 'el repo limpio sí la tiene: un paso que no avanza no frena a los demás');
+  assert.match(r.stdout, /graphify no está instalado: .*uv tool install graphify/);
+  assert.equal(h.git(path.join(root, 'api'), 'log', '--oneline').split('\n').length, 1, 'init no commitea');
+
+  h.git(path.join(root, 'api'), 'checkout', '--', 'src/a.ts');
+  const web = fs.readFileSync(path.join(root, 'web/tests/baseline.json'), 'utf8');
+  r = run();
+  assert.equal(r.status, 1, 'sigue sin graphify');
+  assert.ok(fs.existsSync(path.join(root, 'api/tests/baseline.json')));
+  assert.match(fs.readFileSync(path.join(root, 'api/tests/known-failures.txt'), 'utf8'), /\| src\/a\.spec\.ts \| A › debe restar$/m);
+  assert.match(r.stdout, /^web: ya tiene línea base en web\/tests\/baseline\.json; init no la pisa/m);
+  assert.equal(fs.readFileSync(path.join(root, 'web/tests/baseline.json'), 'utf8'), web);
+  assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8').match(/^## Arnés$/gm).length, 1);
+});

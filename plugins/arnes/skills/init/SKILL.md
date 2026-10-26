@@ -21,12 +21,22 @@ Solo el paso de la línea base, para cuando init no la pudo tomar porque el árb
 
 ## Sin argumentos
 
-init no pregunta. Todo lo que escribe son archivos sin commitear dentro de repos git, que se revisan en el diff y se revierten con git; la protección real es que init no commitea ni hace push. Lo que antes recomendaba es la decisión, y la dice al cerrar. No uses la herramienta de preguntas ni termines el turno esperando una respuesta.
+init no pregunta. Todo lo que escribe son archivos sin commitear dentro de repos git, que se revisan en el diff y se revierten con git; la protección real es que init no commitea ni hace push. Lo que antes recomendaba es la decisión, y la dice al cerrar. No uses la herramienta de preguntas ni termines el turno esperando una respuesta: hay pasos que pueden no avanzar (abajo), y ni ahí te detienes.
 
 1. `node "S/lib/timeline.js" start init`, y al cerrar `end init --result ok`: mientras init está en curso, las respuestas de la persona no se toman como pedidos de código.
 2. `node "S/init-draft.js" --write`: la configuración de cada repo que no la tiene y la composición de la carpeta, y lo que le falta al `.gitignore` de la carpeta. Lo que existe no se toca. Cada línea `propuesto`, `prohibido`, `sin riskPaths` y `otra rama` es una decisión para el cierre. Con `otra rama` no te cambies de rama: el script ya adoptó desde cero en la actual, porque la adopción tiene que salir de main.
-3. `node "S/adopt.js" all --write`, en una pasada: completa la configuración que ya existía, quita los hooks del arnés anterior y `worktree.baseRef: "head"`, escribe los permisos (en `.claude/settings.local.json`, que no se commitea), el `.worktreeinclude` de cada repo con `.env`, la sección del arnés en el `CLAUDE.md` de la carpeta (nuevo, o al final del que ya existe), el `settings.json` de la carpeta con el marketplace, la línea base de cada repo que no la tiene y después el grafo. Si dice que la configuración no valida, corrígela con Edit y córrelo otra vez.
+3. `node "S/adopt.js" all --write`, en una pasada: completa la configuración que ya existía, quita los hooks del arnés anterior y `worktree.baseRef: "head"`, escribe los permisos (en `.claude/settings.local.json`, que no se commitea), el `.worktreeinclude` de cada repo con `.env`, la sección del arnés en el `CLAUDE.md` de la carpeta (nuevo, o al final del que ya existe), el `settings.json` de la carpeta con el marketplace, la línea base de cada repo que no la tiene y después el grafo. Salir con 1 no es un error: algún paso no pudo avanzar y va al cierre. Si dice que la configuración no valida, corrígela con Edit y córrelo otra vez.
 4. El detalle (cada archivo escrito, la salida de los dos pasos) va al informe: `node "S/informe.js" path init` da la ruta; escríbelo ahí con Write.
+
+### Lo que no puede avanzar
+
+Init hace todo lo demás y deja cada uno en el cierre, con lo que lo resuelve:
+- **La línea base de un repo con cambios sin commitear** en código: los archivos que estorban, y que cuando los commitee o los guarde, `/arnes:init --baseline` corre solo ese paso.
+- **graphify sin instalar**: `uv tool install graphify`, y después `/arnes:init` otra vez, que con lo demás ya escrito solo arma el grafo.
+- **Un runner que el arnés no sabe leer** (dice que no hay adaptador de resultados, como con Karma): el repo necesita en su configuración un comando propio que entregue los resultados de cada test, `commands.testJson`; para Karma, el adaptador de la guía de probadores (`docs/PROBADORES.md` §4, punto 7). Lo escribe la persona en su repo; tú no.
+- **Una dependencia que falta** para correr los tests, como `node_modules`: el comando que la instala. init no instala.
+
+Si encuentras otra cosa que de verdad no puedes decidir solo, tampoco preguntes: hazlo todo menos eso y dilo en el cierre.
 
 ### El cierre
 

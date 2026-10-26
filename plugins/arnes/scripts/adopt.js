@@ -7,8 +7,10 @@
 //                           workspace adoptable con tests que todavía no la tiene (una que existe no se
 //                           pisa: la vuelve a tomar /arnes:init --baseline) y graph. Cada paso va bajo
 //                           "== <paso>" y relee la configuración, porque el anterior pudo completarla.
-//                           Con --write, hooks y baseref quitan lo que encuentran; sale con 1 si algún
-//                           paso quedó con algo por hacer
+//                           Con --write, hooks y baseref quitan lo que encuentran. Un paso que no
+//                           puede avanzar (la línea base con el árbol sucio, un runner sin adaptador,
+//                           graphify o el marketplace sin instalar) lo dice con lo que lo resuelve y
+//                           no frena a los demás; sale con 1 si alguno quedó así
 //   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
 //                           comprueba que test-baseline puede leer el contrato de resultados
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
@@ -55,8 +57,8 @@
 //                           Claude Code); sin ref, la rama probadores, donde se publica cada versión.
 //                           --write agrega lo que falte; un marketplace ya fijado no se cambia
 // Exit: 0 ok · 1 algo que hacer o que no se pudo: un workspace cuyo contrato de tests no se lee, una base
-//       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write ·
-//       2 uso inválido o sin manifiesto
+//       que no se captura, hooks del arnés anterior, permisos o CLAUDE.md que faltan sin --write, o un
+//       paso de all que no pudo avanzar · 2 uso inválido o sin manifiesto
 
 'use strict';
 
@@ -66,7 +68,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, posix, validate } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
-const { git, help, die } = require('./lib/exec.js');
+const { git, help, die, onPath } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { detectRepo, contractFor, cloneUrl } = require('./init-draft.js');
 const { missingFromForbidden } = require('./lib/database.js');
@@ -465,13 +467,13 @@ function all(write) {
     ['permisos', (p) => permissions(p, write)],
     ['.worktreeinclude', (p) => worktreeInclude(p, write)],
     ['CLAUDE.md de la carpeta', (p) => claudeMd(p, write)],
-    ['settings.json de la carpeta', (p) => folderSettings(p, null, null, write)],
+    ['settings.json de la carpeta', (p) => (p.kind !== 'folder' || installedMarketplace() ? folderSettings(p, null, null, write) : (console.log(`no encuentro el marketplace ${MARKETPLACE} instalado; sin él no escribo el settings.json de la carpeta`), 1))],
     ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, (p) => {
       if (!(w.commands.test || w.commands.testJson) || !w.specPattern) return console.log(`${w.name}: sin comando de test; no hay línea base que tomar`), 0;
       if (fs.existsSync(tb.baselinePath(w))) return console.log(`${w.name}: ya tiene línea base en ${posix(path.relative(p.root, tb.baselinePath(w)))}; init no la pisa (/arnes:init --baseline la vuelve a tomar)`), 0;
       return baseline(p, w.name, write);
     }]),
-    ['grafo', (p) => graph(p, write)],
+    ['grafo', (p) => graph(p, write) || (onPath('graphify') ? 0 : 1)],
   ];
   let left = 0;
   for (const [title, step] of steps) {
