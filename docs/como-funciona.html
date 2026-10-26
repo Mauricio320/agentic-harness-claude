@@ -457,7 +457,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
         <div class="card"><h4><code>ship</code> <span class="badge b-persona">solo tú</span></h4><p>Entrega lo que ya está verificado y revisado. Comprueba la bandera, la revisión sin bloqueantes y que no haya worktrees sin integrar. Usa la misma rama en todos los repos y hace un commit por workspace, el back antes que el front, con la convención del repo. Push y merge request solo con tu sí explícito. Con <code>--solo-commit</code> se detiene después del commit.</p></div>
         <div class="card"><h4><code>memory</code> <span class="badge b-claude">Claude solo</span></h4><p>Tiene tres modos. <code>decision</code> guarda una decisión en <code>docs/decisions/</code>, <code>gotcha</code> anota una trampa conocida en <code>docs/gotchas.md</code> y <code>recall</code> busca lo que ya se decidió. Escribe en markdown dentro del repo y no commitea.</p></div>
         <div class="card"><h4><code>timeline</code> <span class="badge b-claude">Claude solo</span></h4><p>Imprime la cronología del arnés con lo que duró cada etapa, tal como la anotaron las skills y los guardias. Funciona sin el mod de interfaz.</p></div>
-        <div class="card"><h4><code>init</code> <span class="badge b-persona">solo tú</span></h4><p>Detecta los repos, el stack y los comandos, y escribe el manifiesto de cada repo y la composición de la carpeta. Te pregunta lo que no puede inferir y lo valida contra el schema. Con <code>--check</code> revisa el mínimo de adopción sin tocar nada.</p></div>
+        <div class="card"><h4><code>init</code> <span class="badge b-persona">solo tú</span></h4><p>No te pregunta nada: detecta los repos, el stack, los comandos y las rutas de riesgo, escribe el manifiesto de cada repo y la composición de la carpeta, los valida contra el schema y deja lista la adopción en un turno. Al cerrar te dice lo que decidió y lo que no pudo hacer, con su comando. Con <code>--check</code> revisa el mínimo de adopción sin tocar nada.</p></div>
         <div class="card"><h4><code>worktree</code> <span class="badge b-persona">solo tú</span></h4><p>Abre, integra o cierra los worktrees de las tareas de un issue, con su registro. Integrar es un <code>git merge --no-ff</code> en la rama del issue, nunca squash, y después se verifica esa rama.</p></div>
         <div class="card"><h4><code>sync</code> <span class="badge b-persona">solo tú</span></h4><p>Trae a tu rama lo nuevo de <code>origin/main</code> (u otra rama), repo por repo. Antes crea una rama de respaldo, hace <code>fetch</code> y <code>merge</code> (sin squash ni rebase) y lista los archivos que cambiaron los dos lados, que es donde se esconden las incompatibilidades. Después verifica. No hace push, y te deja escrito cómo volver atrás.</p></div>
       </div>
@@ -1075,7 +1075,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
           <h4><code>/arnes:init</code> <span class="badge b-persona">solo tú</span></h4>
           <span class="syn">/arnes:init [--check]</span>
           <ul>
-            <li>Sin argumentos: genera los manifiestos, te pregunta lo que no puede inferir y los valida. No commitea.</li>
+            <li>Sin argumentos: genera los manifiestos y la adopción en un turno, sin preguntar, y al cerrar dice lo que decidió. No commitea ni hace push: todo queda en el diff.</li>
             <li><code>--check</code>: revisa las ocho comprobaciones del mínimo de adopción sin modificar nada.</li>
           </ul>
         </div>
@@ -1176,8 +1176,8 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
       <p>Y una regla <code>ask</code> para <code>npx eslint *--fix*</code>, que se evalúa antes y obliga a preguntar. <code>git commit</code> y <code>git push</code> quedan fuera a propósito. La lista completa está en el README.</p>
       <h3>Adoptar un repo</h3>
       <ol>
-        <li>Quitar los hooks del arnés anterior del <code>.claude/settings.json</code> del repo (y de la carpeta, si tiene). Si no, pelean con los del plugin.</li>
-        <li>Correr <code>/arnes:init</code>: detecta los repos, el stack, los comandos y el formato de los tests, y escribe un borrador de manifiesto. Te pregunta en un mensaje lo que no puede inferir (<code>riskPaths</code>, <code>contract</code>, <code>integration</code>, <code>sharedPaths</code>, <code>memory</code>). Nunca inventa comandos. Valida cada archivo contra el schema. No commitea.</li>
+        <li>Quitar los hooks del arnés anterior del <code>.claude/settings.json</code> del repo (y de la carpeta, si tiene). Si no, pelean con los del plugin. <code>/arnes:init</code> los quita solo.</li>
+        <li>Correr <code>/arnes:init</code>: detecta los repos, el stack, los comandos y el formato de los tests, y escribe el manifiesto de cada repo y la composición sin preguntar: lo que antes te consultaba (<code>riskPaths</code>, <code>contract</code>, <code>integration</code>) lo decide y te lo dice al cerrar, y una corrección se la pides en un mensaje. Nunca inventa comandos. Valida cada archivo contra el schema. No commitea ni hace push.</li>
         <li>Correr <code>/arnes:init --check</code>: el mínimo de adopción. No modifica nada.</li>
       </ol>
       <p>El mínimo de adopción son ocho comprobaciones:</p>
