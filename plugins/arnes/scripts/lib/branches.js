@@ -4,7 +4,8 @@
 // la rama o la carpeta están abiertas en worktree-ledger.js, worktree-remove.js (targetsOf) y el
 // guard miden contra la rama del issue registrada ahí; si no, contra la rama por defecto de
 // mergeTargets. Además, dónde está el manifiesto que un repo no tiene (manifestElsewhere), para
-// init-draft y adoption-check.
+// init-draft y adoption-check, y la línea con que init dice qué rama remota lo trae sin cambiarse a
+// ella (adoptionElsewhere): entre varias remotas, la que lo agregó primero, con quién y cuándo.
 
 const { spawnSync } = require('child_process');
 const { git, lines } = require('./exec.js');
@@ -54,22 +55,15 @@ function missingManifest(name, where) {
   return `${name} en ${where.branch}, sin .claude/harness.json${hint}`;
 }
 
-// La pregunta de init cuando una rama remota trae el manifiesto que la actual no: cambiarse a esa rama
-// o adoptar desde cero aquí, con recomendación. Entre varias remotas, la que lo agregó primero, que es
-// la adopción. Recomienda cambiarse: si lo escribió otra persona es la adopción del equipo, y si lo
-// escribió quien corre init, ahí ya está su configuración.
-function adoptionQuestion(dir, name, where) {
+function adoptionElsewhere(dir, name, where) {
   const added = where.remotes.map((ref) => {
-    const log = lines(git(dir, ['log', '--diff-filter=A', '--format=%ct%x09%an%x09%ae%x09%cs', ref, '--', '.claude/harness.json']).stdout);
-    const [ct, author, email, date] = (log[log.length - 1] || '').split('\t');
-    return { ref, ct: Number(ct) || Infinity, author, email, date };
+    const log = lines(git(dir, ['log', '--diff-filter=A', '--format=%ct%x09%an%x09%cs', ref, '--', '.claude/harness.json']).stdout);
+    const [ct, author, date] = (log[log.length - 1] || '').split('\t');
+    return { ref, ct: Number(ct) || Infinity, author, date };
   });
   const pick = added.sort((a, b) => a.ct - b.ct)[0];
-  const local = pick.ref.replace(/^origin\//, '');
-  const me = git(dir, ['config', 'user.email']).stdout.trim().toLowerCase();
-  const team = !pick.email || pick.email.toLowerCase() !== me;
   const who = pick.author ? ` (la escribió ${pick.author}${pick.date ? ` el ${pick.date}` : ''})` : '';
-  return `${name} está en ${where.branch}, sin la configuración del arnés; ${pick.ref} sí la trae${who}. Recomiendo cambiarte a ${local}: ${team ? 'es la adopción del equipo, y así trabajas con la misma configuración que los demás' : 'ahí ya está tu configuración'}. La alternativa es adoptar desde cero aquí, con una configuración nueva en ${where.branch}.`;
+  return `${name} está en ${where.branch}, sin la configuración del arnés; ${pick.ref} sí la trae${who}. No me cambio a esa rama: adopto desde cero aquí, en ${where.branch}, porque la adopción tiene que salir de main.`;
 }
 
-module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest, adoptionQuestion };
+module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest, adoptionElsewhere };

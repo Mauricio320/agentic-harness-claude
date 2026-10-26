@@ -12,7 +12,11 @@
 // aparecen en git ls-files), forbidden (scripts con --fix o --write, y lo que toca una base: los
 // scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre y las escrituras de
 // prisma, typeorm y knex, lib/database.js), afterBuild si hay scripts de sync (el build y los sync,
-// solo con la base local del .env, con el patrón a confirmar), remote y rama por defecto.
+// solo con la base local del .env), riskPaths, remote y rama por defecto.
+// riskPaths son las rutas trackeadas cuyo nombre dice migraciones, autenticación, permisos, roles o
+// seguridad (RISK_WORDS, por palabra, sin tildes ni mayúsculas): la carpeta más alta que lo dice
+// entra entera (src/permisos/**), y si ninguna carpeta lo dice, el archivo (scripts/migrar.js); los
+// specs y lo que vive bajo una carpeta con punto (.claude, .github) no cuentan.
 // Un repo sin typecheck ni test detectables, como uno solo con composer.json, no lleva manifiesto
 // propio: entra en la composición como no adoptable todavía.
 //
@@ -23,13 +27,13 @@
 //                <carpeta>/.claude/harness.json, deja en paz los que existen, y en una carpeta
 //                agrega al .gitignore las líneas que le falten
 //   --force <ruta>  pisa ese manifiesto existente, a propósito; uno por archivo, relativo al cwd
-//   --gitignore  solo agrega al .gitignore de la carpeta las líneas que le falten; init lo escribe
-//                sin preguntar
-// Lo que no se infiere (riskPaths, sharedPaths, memory) va a stderr. De un
-// repo sin manifiesto dice en qué rama está y qué ramas remotas sí lo traen; si alguna lo trae, la
-// persona está en la rama equivocada, y --write se niega a escribir sin --force de ese manifiesto.
+//   --gitignore  solo agrega al .gitignore de la carpeta las líneas que le falten
+// Lo que decidió por cada manifiesto nuevo va a stderr, una línea por decisión y con su porqué:
+// riskPaths y de dónde salen, lo prohibido, afterBuild, la integración y el contract. De un repo sin
+// manifiesto dice en qué rama está; si una rama remota lo trae, init no se cambia a ella: adopta
+// desde cero en la rama actual, porque la adopción sale de main, y lo dice con el nombre de la rama.
 // Exit: 0 borradores válidos (escritos con --write) · 1 algún borrador no valida y no se escribe
-//       nada · 2 uso inválido, nada que detectar, o un manifiesto en otra rama sin --force
+//       nada · 2 uso inválido o nada que detectar
 
 'use strict';
 
@@ -38,11 +42,12 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
-const { manifestElsewhere, missingManifest, adoptionQuestion } = require('./lib/branches.js');
+const { manifestElsewhere, missingManifest, adoptionElsewhere } = require('./lib/branches.js');
 const { databaseForbidden, afterBuildDraft } = require('./lib/database.js');
 const { matchAny } = require('./lib/glob.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
+const RISK_WORDS = ['auth', 'autenticacion', 'autorizacion', 'acl', 'permiso', 'permisos', 'permission', 'permissions', 'rol', 'roles', 'seguridad', 'security', 'migracion', 'migraciones', 'migration', 'migrations', 'migrar', 'migrate'];
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
 
 // Las convenciones mecánicas que se proponen a un repo de JavaScript o TypeScript (conventions.js):
@@ -194,6 +199,20 @@ function specPatterns(dir) {
   return sorted.length > 1 ? sorted : sorted[0];
 }
 
+function riskPathsFor(dir) {
+  const risky = (name) => name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).some((w) => RISK_WORDS.includes(w));
+  const dirs = new Set();
+  const files = [];
+  for (const f of lines(git(dir, ['ls-files']).stdout)) {
+    const parts = f.split('/');
+    if (parts.some((p) => p.startsWith('.')) || SPEC_RE.test(f)) continue;
+    const i = parts.slice(0, -1).findIndex(risky);
+    if (i >= 0) dirs.add(parts.slice(0, i + 1).join('/'));
+    else if (risky(parts[parts.length - 1].replace(/\.[^.]+$/, ''))) files.push(f);
+  }
+  return [...[...dirs].map((d) => `${d}/**`), ...files].sort();
+}
+
 function detectRepo(dir) {
   const pkg = readJson(path.join(dir, 'package.json'));
   const composer = fs.existsSync(path.join(dir, 'composer.json'));
@@ -219,6 +238,7 @@ function detectRepo(dir) {
     .filter(([, s]) => /(^|\s)--(fix|write)\b/.test(s))
     .map(([k]) => `${pm} run ${k}`);
   for (const f of databaseForbidden(pkg, pm)) if (!forbidden.includes(f)) forbidden.push(f);
+  const risk = riskPathsFor(dir);
   const ws = {
     name,
     path: '.',
@@ -229,6 +249,7 @@ function detectRepo(dir) {
     commands,
     specPattern: specPatterns(dir),
     conventions: CONVENTIONS,
+    riskPaths: risk.length ? risk : undefined,
     forbidden: forbidden.length ? forbidden : undefined,
     regeneratesNodeModules: deps.prisma || deps['@prisma/client'] ? ['prisma/schema.prisma'] : undefined,
     afterBuild: afterBuildDraft(pkg, pm, has('.env.example') ? fs.readFileSync(path.join(dir, '.env.example'), 'utf8') : '') || undefined,
@@ -237,21 +258,16 @@ function detectRepo(dir) {
   return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] } };
 }
 
-// → { drafts: [{ file, data }], notes: [string], elsewhere: [{ name, file } de los repos cuyo manifiesto
-//     está en otra rama],
-//     ignores: [líneas que le faltan al .gitignore de la carpeta] }
+// → { drafts: [{ file, data }], notes: [string], ignores: [líneas que le faltan al .gitignore de la carpeta] }
 function draft(root) {
   const nested = nestedRepos(root);
   const notes = [];
   const drafts = [];
-  const elsewhere = [];
   let ignores = [];
   const where = (dir, name) => {
     if (fs.existsSync(path.join(dir, MANIFEST))) return;
     const w = manifestElsewhere(dir);
-    if (!w.remotes.length) return void notes.push(`sin manifiesto ${missingManifest(name, w)}`);
-    notes.push(`pregunta      ${adoptionQuestion(dir, name, w)}`);
-    elsewhere.push({ name, file: path.join(dir, MANIFEST) });
+    notes.push(w.remotes.length ? `otra rama     ${adoptionElsewhere(dir, name, w)}` : `sin manifiesto ${missingManifest(name, w)}`);
   };
   if (!nested.length) {
     if (!isRepoRoot(root)) return { error: `nada que detectar: ${root} no es un repo ni contiene repos anidados` };
@@ -274,19 +290,23 @@ function draft(root) {
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
-    if (!fs.existsSync(path.join(root, MANIFEST))) notes.push('propuesto     carpeta: integration con feature/ y la misma rama en todos los repos, y el contract de cada repo según su stack');
+    if (!fs.existsSync(path.join(root, MANIFEST))) {
+      const sides = repos.filter((e) => e.contract).map((e) => Object.entries(e.contract).map(([k, g]) => `${e.path} ${k === 'provides' ? 'provee' : 'consume'} ${g.join(', ')}`).join('; '));
+      notes.push(`propuesto     carpeta: la misma rama del issue en todos los repos, con feature/; contract según el stack de cada repo: ${sides.length ? sides.join('; ') : 'ningún stack lo deja deducir'}`);
+    }
     ignores = missingIgnores(root, nested);
     if (ignores.length) notes.push(`gitignore     carpeta: le faltan ${ignores.join(' ')}`);
   }
   for (const d of drafts.filter((x) => !fs.existsSync(x.file))) {
     for (const ws of d.data.workspaces || []) {
-      notes.push(`pendiente     ${ws.name}: riskPaths (exigen revisión humana); opcionales: sharedPaths, codeGlobs, commands.typecheckFast, memory`);
-      if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}; confirma el patrón de la base local`);
+      notes.push(ws.riskPaths ? `propuesto     ${ws.name}: riskPaths ${ws.riskPaths.join(', ')}, por el nombre de la carpeta o del archivo (migraciones, autenticación, permisos, roles o seguridad); exigen revisión humana` : `sin riskPaths ${ws.name}: ninguna carpeta ni archivo se llama como migraciones, autenticación, permisos, roles o seguridad`);
+      if (ws.forbidden) notes.push(`prohibido     ${ws.name}: ${ws.forbidden.join(', ')}; reescriben archivos o tocan una base, y los corre la persona`);
+      if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);
     }
   }
-  return { drafts, notes, elsewhere, ignores };
+  return { drafts, notes, ignores };
 }
 
 module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines, contractFor, compositionBranch };
@@ -335,11 +355,6 @@ function main() {
   for (const n of r.notes) process.stderr.write(`${n}\n`);
   if (invalid) process.exit(1);
   if (!args.values.write) process.exit(0);
-  const blocked = r.elsewhere.filter((e) => !forced.has(e.file)).map((e) => e.name);
-  if (blocked.length) {
-    die(`no escribo los manifiestos: ${blocked.join(', ')} lo trae(n) en otra rama, y eso es una pregunta de la ronda de init: cambiarse a esa rama (adopt.js switch) o adoptar desde cero aquí (--force <ruta>)`);
-  }
-
   for (const d of r.drafts.filter((x) => !kept(x))) {
     fs.mkdirSync(path.dirname(d.file), { recursive: true });
     fs.writeFileSync(d.file, JSON.stringify(d.data, null, 2) + '\n');

@@ -106,7 +106,30 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.equal(client.specPattern, '{dir}/{name}.spec.ts');
   assert.match(r.stderr, /no adoptable\s+academicoBitbuckett: solo composer\.json/);
   assert.match(r.stderr, /sin lint\s+client/);
-  assert.match(r.stderr, /pendiente\s+api: riskPaths/);
+  assert.match(r.stderr, /^sin riskPaths api: ninguna carpeta ni archivo se llama como migraciones, autenticación, permisos, roles o seguridad$/m);
+  assert.match(r.stderr, /^prohibido +api: npm run lint, npm run format, prisma migrate dev, .*; reescriben archivos o tocan una base, y los corre la persona$/m);
+});
+
+test('riskPaths: la carpeta más alta cuyo nombre lo dice, o el archivo, sin specs ni carpetas con punto, y de dónde salen', () => {
+  const dir = h.tmp('init-riesgo');
+  h.repo(dir, {
+    'package.json': pkg({ typescript: '5', jest: '30' }),
+    'tsconfig.json': '{}',
+    'prisma/migrations/20260101_init/migration.sql': 'x',
+    'src/Autenticación/sesion.ts': 'x',
+    'src/modulos/permisos/roles/asignar.ts': 'x',
+    'src/modulos/permisos/permisos.service.ts': 'x',
+    'src/authGuard.ts': 'x',
+    'scripts/migrar-datos.js': 'x',
+    'src/control.ts': 'x',
+    'src/roles.spec.ts': 'x',
+    '.github/workflows/security.yml': 'x',
+  });
+  const r = h.run('init-draft.js', [], { cwd: dir });
+  assert.equal(r.status, 0, r.stderr);
+  const [ws] = parseDrafts(r.stdout)['.claude/harness.json'].workspaces;
+  assert.deepEqual(ws.riskPaths, ['prisma/migrations/**', 'scripts/migrar-datos.js', 'src/Autenticación/**', 'src/authGuard.ts', 'src/modulos/permisos/**']);
+  assert.match(r.stderr, /^propuesto +arnes-init-riesgo-\S+: riskPaths prisma\/migrations\/\*\*, .*, por el nombre de la carpeta o del archivo \(migraciones, autenticación, permisos, roles o seguridad\); exigen revisión humana$/m);
 });
 
 test('--write escribe los tres, deja los existentes, y el resultado resuelve como carpeta', () => {
@@ -173,17 +196,17 @@ function wrongBranch() {
   return dir;
 }
 
-test('un repo sin manifiesto dice su rama; si una rama remota lo trae, init lo pregunta con recomendación y --write espera la respuesta', () => {
+test('un repo sin manifiesto dice su rama; si una rama remota lo trae, init no se cambia: adopta desde cero aquí y nombra la rama', () => {
   const dir = wrongBranch();
   const r = h.run('init-draft.js', [], { cwd: dir });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /^pregunta +arnes-init-rama-\S+ está en feature\/talleres-view, sin la configuración del arnés; origin\/fix\/adopcion-arnes sí la trae \(la escribió t el \d{4}-\d\d-\d\d\)\. Recomiendo cambiarte a fix\/adopcion-arnes: es la adopción del equipo, y así trabajas con la misma configuración que los demás\. La alternativa es adoptar desde cero aquí, con una configuración nueva en feature\/talleres-view\.$/m);
+  assert.match(r.stderr, /^otra rama +arnes-init-rama-\S+ está en feature\/talleres-view, sin la configuración del arnés; origin\/fix\/adopcion-arnes sí la trae \(la escribió t el \d{4}-\d\d-\d\d\)\. No me cambio a esa rama: adopto desde cero aquí, en feature\/talleres-view, porque la adopción tiene que salir de main\.$/m);
   const w = h.run('init-draft.js', ['--write'], { cwd: dir });
-  assert.equal(w.status, 2);
-  assert.match(w.stderr, /no escribo los manifiestos: .* lo trae\(n\) en otra rama, y eso es una pregunta de la ronda de init/);
-  assert.ok(!fs.existsSync(path.join(dir, '.claude', 'harness.json')));
+  assert.equal(w.status, 0, w.stderr);
+  assert.match(w.stderr, /^otra rama /m);
+  assert.equal(h.git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/talleres-view', 'sigue en su rama');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'harness.json'), 'utf8')).workspaces[0].stack, 'node', 'el borrador de init, no el de la otra rama');
   assert.equal(h.run('init-draft.js', ['--write', '--force'], { cwd: dir }).status, 2, '--force va con la ruta de un manifiesto');
-  assert.equal(h.run('init-draft.js', ['--write', '--force', '.claude/harness.json'], { cwd: dir }).status, 0);
   const solo = h.tmp('init-sin-remota');
   h.repo(solo, { 'package.json': pkg({ typescript: '5' }), 'tsconfig.json': '{}' });
   assert.match(h.run('init-draft.js', [], { cwd: solo }).stderr, /en main, sin \.claude\/harness\.json\n/);
@@ -212,7 +235,7 @@ test('con los repos ya adoptados, --write escribe solo la composición y no toca
   h.write(root, 'client/.claude/harness.json', h.repoManifest('client'));
   const dry = h.run('init-draft.js', [], { cwd: root });
   assert.deepEqual(Object.keys(parseDrafts(dry.stdout)), ['.claude/harness.json'], 'solo el borrador de lo que falta');
-  assert.doesNotMatch(dry.stderr, /pendiente\s+api: riskPaths/, 'de un manifiesto existente no hay pendientes');
+  assert.doesNotMatch(dry.stderr, /^(propuesto|sin riskPaths|prohibido)\s+api:/m, 'de un manifiesto existente no hay decisiones');
   const r = h.run('init-draft.js', ['--write'], { cwd: root });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.match(/escrito/g).length, 1);
@@ -253,7 +276,9 @@ test('la composición trae integration y el contract de cada repo según su stac
   const root = h.tmp('init-comp');
   h.repo(path.join(root, 'api'), { 'package.json': pkg({ '@nestjs/core': '11', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/t/dto/crear.dto.ts': 'x', 'src/t/t.controller.ts': 'x' });
   h.repo(path.join(root, 'front'), { 'package.json': pkg({ next: '16', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/api/talleres.ts': 'x' });
-  const comp = parseDrafts(h.run('init-draft.js', [], { cwd: root }).stdout)['.claude/harness.json'];
+  const dry = h.run('init-draft.js', [], { cwd: root });
+  const comp = parseDrafts(dry.stdout)['.claude/harness.json'];
+  assert.match(dry.stderr, /^propuesto +carpeta: la misma rama del issue en todos los repos, con feature\/; contract según el stack de cada repo: api provee src\/\*\*\/dto\/\*\*, src\/\*\*\/\*\.controller\.ts; front consume src\/\*\*\/api\/\*\*$/m);
   assert.deepEqual(comp.integration, { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true });
   assert.deepEqual(comp.repos.map((r) => [r.path, r.contract]), [['api', { provides: ['src/**/dto/**', 'src/**/*.controller.ts'] }], ['front', { consumes: ['src/**/api/**'] }]]);
   const r = h.run('init-draft.js', ['--gitignore'], { cwd: root });

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
-// Lo determinista de la adopción, que /arnes:init ofrece después de escribir los manifiestos
-// (docs/PLAN.md §8). No instala dependencias ni commitea: deja los archivos, y la persona decide
-// qué commitear.
+// Lo determinista de la adopción, que /arnes:init corre después de escribir los manifiestos, sin
+// preguntar (docs/PLAN.md §8). No instala dependencias ni commitea: deja los archivos sin commitear,
+// que se revisan en el diff y se revierten con git, y la persona decide qué commitear.
+//   all [--write]           init en una sola pasada, en este orden: complete, hooks, baseref,
+//                           permissions, worktreeinclude, claude-md, folder-settings, baseline de cada
+//                           workspace adoptable con tests que todavía no la tiene (una que existe no se
+//                           pisa: la vuelve a tomar /arnes:init --baseline) y graph. Cada paso va bajo
+//                           "== <paso>" y relee la configuración, porque el anterior pudo completarla.
+//                           Con --write, hooks y baseref quitan lo que encuentran; sale con 1 si algún
+//                           paso quedó con algo por hacer
 //   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
 //                           comprueba que test-baseline puede leer el contrato de resultados
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
@@ -15,14 +22,16 @@
 //                           lectura del issue; --write agrega lo que falte a .claude/settings.local.json
 //                           de la raíz del proyecto, que no se commitea porque lleva la ruta del
 //                           plugin en esta máquina
-//   claude-md [--write]     en una carpeta multi-repo sin CLAUDE.md, el borrador de composición: los
-//                           repos, sus comandos y su contrato, y el flujo; --write lo crea, nunca pisa
+//   claude-md [--write]     en una carpeta multi-repo, la sección "## Arnés" del CLAUDE.md: los repos,
+//                           sus comandos y su contrato, lo que cruza entre ellos y el flujo. Sin
+//                           CLAUDE.md, --write lo crea con esa sección; con uno que no la tiene, se la
+//                           agrega al final sin reescribir lo demás, salvo que pase de 200 líneas
 //   complete [--only campo]... [--write]
 //                           lo que le falta a un manifiesto existente, campo por campo, contra lo que
-//                           init-draft propondría: conventions de cada workspace si no tiene, las
-//                           entradas de forbidden que faltan (scripts con --fix o --write y lo que toca
-//                           una base), afterBuild si hay scripts de sync y, en la composición, el
-//                           contract de cada repo que no lo declara,
+//                           init-draft propondría: conventions de cada workspace si no tiene, riskPaths
+//                           si no declara ninguna, las entradas de forbidden que faltan (scripts con
+//                           --fix o --write y lo que toca una base), afterBuild si hay scripts de sync
+//                           y, en la composición, el contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
 //   graph [--write]         el grafo de graphify de cada repo adoptable y, en una carpeta, el merge en
@@ -30,9 +39,6 @@
 //                           sin graphify, cómo instalarlo (uv tool install graphify). Antes, la línea
 //                           graphify-out/ en el .gitignore de cada repo que no lo ignora: el grafo nunca
 //                           es código del issue. Idempotente
-//   switch <repo> --to <rama remota> [--write]
-//                           cambia un repo sin manifiesto a la rama remota que lo trae (la adopción del
-//                           equipo), solo con su árbol sin cambios sin commitear; sin --write dice qué haría
 //   baseref [--remove]      los .claude/settings.json versionados del proyecto y de cada repo que fijan
 //                           worktree.baseRef en "head": un worktree nativo tiene que nacer de
 //                           origin/<rama por defecto>, no del HEAD de quien lo abre. --remove lo quita
@@ -65,9 +71,9 @@ const { touched } = require('./touched-files.js');
 const { detectRepo, contractFor, cloneUrl } = require('./init-draft.js');
 const { missingFromForbidden } = require('./lib/database.js');
 const tb = require('./test-baseline.js');
-const { ownScript } = require('./adoption-check.js');
+const { ownScript, MAX_CLAUDE_MD } = require('./adoption-check.js');
 
-const FIELDS = ['conventions', 'forbidden', 'afterBuild', 'contract'];
+const FIELDS = ['conventions', 'riskPaths', 'forbidden', 'afterBuild', 'contract'];
 const MARKETPLACE = 'agentic-harness';
 // La rama de nombre fijo donde se publica cada versión para los probadores: publicar es un push ahí.
 const PROBADORES = 'probadores';
@@ -132,6 +138,7 @@ function settingsFiles(project) {
 
 function hooks(project, remove) {
   let left = 0;
+  let seen = 0;
   for (const file of settingsFiles(project)) {
     const s = readJson(file);
     const found = [];
@@ -145,13 +152,14 @@ function hooks(project, remove) {
       if (remove && !s.hooks[event].length) delete s.hooks[event];
     }
     if (!found.length) continue;
+    seen += found.length;
     if (remove) {
       if (s.hooks && !Object.keys(s.hooks).length) delete s.hooks;
       writeJson(file, s);
     } else left += found.length;
     console.log(`${file}: ${remove ? 'quitados' : 'corren el arnés anterior'}: ${found.join(', ')}`);
   }
-  if (!left && !remove) console.log('ningún .claude/settings.json corre scripts de .claude/hooks/');
+  if (!seen) console.log('ningún .claude/settings.json corre scripts de .claude/hooks/');
   return left ? 1 : 0;
 }
 
@@ -198,7 +206,7 @@ function permissions(project, write) {
   return 0;
 }
 
-function compositionDraft(project) {
+function compositionSection(project) {
   const cmd = (ws, k) => [].concat(ws.commands[k] || []).map((c) => `\`${c}\``).join(', ');
   const repos = project.workspaces.map((ws) => {
     if (!ws.adoptable) return `- \`${ws.rel}\`: sin manifiesto propio todavía; el arnés lo ve, pero no lo verifica.`;
@@ -207,25 +215,29 @@ function compositionDraft(project) {
   });
   const integ = project.integration || {};
   return [
-    `# ${project.name}`,
+    '## Arnés',
     '',
-    `Carpeta con ${project.workspaces.length} repo(s). Cada repo trae su CLAUDE.md con sus reglas; este archivo dice solo lo que cruza entre ellos. Borrador de /arnes:init: complétalo y déjalo bajo 200 líneas.`,
+    `Carpeta con ${project.workspaces.length} repo(s). Cada repo trae su CLAUDE.md con sus reglas; esta sección dice solo lo que cruza entre ellos.`,
     '',
-    '## Repos',
+    '### Repos',
     '',
     ...repos,
     '',
-    '## Entre repos',
+    '### Entre repos',
     '',
     '- El back se construye y se commitea antes que el front: el contrato que provee el back es lo que consume el front, y viaja textual de un dev al otro.',
     `- Rama: ${integ.branchPrefix ? `prefijo \`${integ.branchPrefix}\`` : 'sin prefijo declarado'}${integ.sameBranchAcrossWorkspaces ? ', la misma en todos los repos tocados' : ''}.`,
     '',
-    '## Flujo',
+    '### Flujo',
     '',
     '- plan → build → verify → review → ship. El modelo carga plan, build, verify y review cuando corresponde; commit y push los pide la persona con `/arnes:ship`.',
     '- Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.',
     '',
   ].join('\n');
+}
+
+function compositionDraft(project) {
+  return `# ${project.name}\n\nBorrador de /arnes:init: complétalo y déjalo bajo ${MAX_CLAUDE_MD} líneas.\n\n${compositionSection(project)}`;
 }
 
 function claudeMd(project, write) {
@@ -234,17 +246,23 @@ function claudeMd(project, write) {
     console.log('no es una carpeta multi-repo: el CLAUDE.md es el del repo');
     return 0;
   }
-  if (fs.existsSync(file)) {
-    console.log(`${file} ya existe; init no lo pisa`);
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (before !== null && /^## Arnés\s*$|Borrador de \/arnes:init/m.test(before)) {
+    console.log(`${file} ya tiene la sección del arnés; init no la reescribe`);
     return 0;
   }
-  const draft = compositionDraft(project);
-  if (!write) {
-    console.log(`falta ${file}; el borrador:\n\n${draft}`);
+  const section = compositionSection(project);
+  const text = before === null ? compositionDraft(project) : `${before}${before.endsWith('\n') ? '' : '\n'}\n${section}`;
+  if (before !== null && text.split(/\r?\n/).length > MAX_CLAUDE_MD) {
+    console.log(`${file}: no le agrego la sección del arnés, porque pasaría de ${MAX_CLAUDE_MD} líneas; va a mano y resumida`);
     return 1;
   }
-  fs.writeFileSync(file, draft);
-  console.log(`borrador escrito en ${file}`);
+  if (!write) {
+    console.log(before === null ? `falta ${file}; el borrador:\n\n${text}` : `a ${file} le falta la sección del arnés, que va al final:\n\n${section}`);
+    return 1;
+  }
+  fs.writeFileSync(file, text);
+  console.log(before === null ? `borrador escrito en ${file}` : `sección del arnés agregada al final de ${file}; lo demás quedó como estaba`);
   return 0;
 }
 
@@ -258,6 +276,9 @@ function gaps(project) {
     const at = (data) => data.workspaces.find((w) => w.name === ws.name);
     if (!ws.conventions && want.conventions) {
       out.push({ file: ws.manifest, where: ws.name, field: 'conventions', value: want.conventions, apply: (data) => void (at(data).conventions = want.conventions) });
+    }
+    if (!at(readJson(ws.manifest)).riskPaths && want.riskPaths) {
+      out.push({ file: ws.manifest, where: ws.name, field: 'riskPaths', value: want.riskPaths, apply: (data) => void (at(data).riskPaths = want.riskPaths) });
     }
     if (!ws.afterBuild && want.afterBuild) {
       out.push({ file: ws.manifest, where: ws.name, field: 'afterBuild', value: want.afterBuild, apply: (data) => void (at(data).afterBuild = want.afterBuild) });
@@ -314,28 +335,6 @@ function graph(project, write) {
   }
   const { buildGraph } = require('./setup.js');
   return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write);
-}
-
-// Cambia un repo sin manifiesto a la rama remota que lo trae. Solo con el árbol sin cambios sin
-// commitear: git se los llevaría, o se negaría a medias.
-function switchRepo(root, repoArg, to, write) {
-  const repo = path.resolve(root, repoArg);
-  const local = to.replace(/^origin\//, '');
-  if (git(repo, ['rev-parse', '--verify', '--quiet', `origin/${local}^{commit}`]).status !== 0) die(`adopt: ${repoArg} no tiene la rama origin/${local}; haz git fetch primero`);
-  const dirty = git(repo, ['status', '--porcelain', '--untracked-files=no']).stdout.trim().split(/\r?\n/).filter(Boolean);
-  if (dirty.length) {
-    console.log(`${repoArg}: tiene ${dirty.length} archivo(s) con cambios sin commitear; commitéalos o guárdalos (git stash) antes de cambiarte a ${local}`);
-    return 1;
-  }
-  const exists = git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`]).status === 0;
-  if (!write) {
-    console.log(`${repoArg}: me cambiaría a ${local}${exists ? '' : `, creada desde origin/${local}`} (--write)`);
-    return 0;
-  }
-  const r = git(repo, exists ? ['switch', '-q', local] : ['switch', '-q', '-c', local, `origin/${local}`]);
-  if (r.status !== 0) die(`adopt: git switch ${local} falló en ${repoArg}: ${r.stderr.trim().split(/\r?\n/)[0]}`);
-  console.log(`${repoArg}: ahora en ${local}, que trae la configuración del arnés`);
-  return 0;
 }
 
 // Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
@@ -458,6 +457,30 @@ function folderSettings(project, marketplace, ref, write) {
   return 0;
 }
 
+function all(write) {
+  const steps = [
+    ['lo que le falta a cada configuración', (p) => complete(p, null, write)],
+    ['hooks del arnés anterior', (p) => hooks(p, write)],
+    ['worktree.baseRef', (p) => baseRef(p, write)],
+    ['permisos', (p) => permissions(p, write)],
+    ['.worktreeinclude', (p) => worktreeInclude(p, write)],
+    ['CLAUDE.md de la carpeta', (p) => claudeMd(p, write)],
+    ['settings.json de la carpeta', (p) => folderSettings(p, null, null, write)],
+    ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, (p) => {
+      if (!(w.commands.test || w.commands.testJson) || !w.specPattern) return console.log(`${w.name}: sin comando de test; no hay línea base que tomar`), 0;
+      if (fs.existsSync(tb.baselinePath(w))) return console.log(`${w.name}: ya tiene línea base en ${posix(path.relative(p.root, tb.baselinePath(w)))}; init no la pisa (/arnes:init --baseline la vuelve a tomar)`), 0;
+      return baseline(p, w.name, write);
+    }]),
+    ['grafo', (p) => graph(p, write)],
+  ];
+  let left = 0;
+  for (const [title, step] of steps) {
+    console.log(`\n== ${title}`);
+    if (step(requireProject())) left++;
+  }
+  return left ? 1 : 0;
+}
+
 module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs, graphIgnores };
 
 function main() {
@@ -466,7 +489,7 @@ function main() {
     args = parseArgs({
       allowPositionals: true,
       options: {
-        ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, marketplace: { type: 'string' }, ref: { type: 'string' }, to: { type: 'string' },
+        ws: { type: 'string', multiple: true }, only: { type: 'string', multiple: true }, marketplace: { type: 'string' }, ref: { type: 'string' },
         write: { type: 'boolean' }, remove: { type: 'boolean' }, help: { type: 'boolean', short: 'h' },
       },
     });
@@ -476,15 +499,14 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js probe [--ws n]... |baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write] | switch <repo> --to <rama> [--write]';
-  if (extra || !['probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings', 'switch'].includes(mode) || ['baseline', 'switch'].includes(mode) !== Boolean(arg) || (mode === 'switch') !== Boolean(o.to)) die(usage);
-  if ((o.write && !['baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings', 'switch'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js all [--write] | probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
+  if (extra || !['all', 'probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['all', 'baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
-  // switch corre antes de que haya configuración: el repo todavía no la tiene en su rama.
-  if (mode === 'switch') process.exit(switchRepo(process.cwd(), arg, o.to, o.write));
   const project = requireProject();
   const run = {
+    all: () => all(o.write),
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
     'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };

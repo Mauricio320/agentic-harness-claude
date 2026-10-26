@@ -297,6 +297,6 @@ function main() {
   finish();
 }
 
-module.exports = { ownScript, ownHooks };
+module.exports = { ownScript, ownHooks, MAX_CLAUDE_MD };
 
 if (require.main === module) main();

@@ -96,7 +96,7 @@ test('permissions: el bloque recomendado con los comandos del manifiesto, en set
   assert.match(adopt(dir, ['permissions', '--write']).stdout, /ya tiene los permisos recomendados/);
 });
 
-test('claude-md: en una carpeta multi-repo escribe el borrador de composición, y nunca pisa uno existente', () => {
+test('claude-md: en una carpeta multi-repo escribe el borrador de composición, y a uno existente le agrega su sección sin reescribir lo demás', () => {
   const root = h.tmp('adopt-folder');
   fs.renameSync(repo(), path.join(root, 'api'));
   h.repo(path.join(root, 'legacy'), { 'composer.json': '{}' });
@@ -112,15 +112,29 @@ test('claude-md: en una carpeta multi-repo escribe el borrador de composición, 
   assert.match(md, /prefijo `feature\/`/);
   assert.match(md, /Verde significa que cumple convenciones y compila\/testea; nunca que sea correcto en el negocio\./);
   assert.ok(md.split('\n').length <= 200);
-  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# mío\n');
-  assert.match(adopt(root, ['claude-md', '--write']).stdout, /ya existe; init no lo pisa/);
-  assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), '# mío\n');
+  assert.match(adopt(root, ['claude-md', '--write']).stdout, /ya tiene la sección del arnés; init no la reescribe/);
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), '# mío\n\nReglas de la carpeta.');
+  r = adopt(root, ['claude-md']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /le falta la sección del arnés, que va al final:\n\n## Arnés\n/);
+  assert.equal(adopt(root, ['claude-md', '--write']).status, 0);
+  const mine = fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+  assert.ok(mine.startsWith('# mío\n\nReglas de la carpeta.\n\n## Arnés\n'), 'lo de la persona queda como estaba y la sección va al final');
+  assert.equal(mine.match(/^## Arnés$/gm).length, 1);
+  assert.match(adopt(root, ['claude-md', '--write']).stdout, /ya tiene la sección del arnés/);
+  assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), mine, 'una segunda vez no la repite');
+  const long = `# largo\n${'- regla\n'.repeat(190)}`;
+  fs.writeFileSync(path.join(root, 'CLAUDE.md'), long);
+  r = adopt(root, ['claude-md', '--write']);
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /no le agrego la sección del arnés, porque pasaría de 200 líneas/);
+  assert.equal(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), long);
   assert.match(adopt(repo(), ['claude-md']).stdout, /no es una carpeta multi-repo/);
 });
 
 test('usos inválidos → 2', () => {
   const dir = repo();
-  for (const args of [[], ['otra'], ['baseline'], ['probe', 'x'], ['hooks', '--write'], ['probe', '--remove'], ['probe', '--write'], ['permissions', '--ws', 'api']]) {
+  for (const args of [[], ['otra'], ['baseline'], ['probe', 'x'], ['hooks', '--write'], ['probe', '--remove'], ['probe', '--write'], ['permissions', '--ws', 'api'], ['all', 'x'], ['all', '--remove'], ['switch', '.']]) {
     assert.equal(adopt(dir, args).status, 2, args.join(' '));
   }
   assert.equal(adopt(h.tmp('sin'), ['probe']).status, 2, 'sin manifiesto');
@@ -142,6 +156,7 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
     'package.json': pkg({ next: '16', react: '19' }),
     'tsconfig.json': '{}',
     'src/types/taller.ts': 'x\n',
+    'src/auth/sesion.ts': 'x\n',
     '.claude/harness.json': h.repoManifest('front', h.workspace({ name: 'front', conventions: [{ id: 'propia', pattern: 'x', message: 'm' }] })),
   });
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }, { path: 'front' }], integration: { branchPrefix: 'feature/' } }));
@@ -155,6 +170,8 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   assert.match(r.stdout, /^falta  \.claude\/harness\.json · api · contract: \{"provides":\["src\/\*\*\/dto\/\*\*","src\/\*\*\/\*\.controller\.ts"\]\}$/m);
   assert.match(r.stdout, /^falta  \.claude\/harness\.json · front · contract: \{"consumes":\["src\/\*\*\/types\/\*\*"\]\}$/m);
   assert.doesNotMatch(r.stdout, /front · conventions/, 'un workspace con conventions propias no recibe las del borrador');
+  assert.match(r.stdout, /^falta  front\/\.claude\/harness\.json · front · riskPaths: \["src\/auth\/\*\*"\]$/m);
+  assert.doesNotMatch(r.stdout, /api · riskPaths/, 'las riskPaths declaradas no se completan');
 
   r = adopt(root, ['complete', '--only', 'forbidden', '--write']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -167,6 +184,7 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const comp = JSON.parse(fs.readFileSync(path.join(root, '.claude/harness.json'), 'utf8'));
   assert.deepEqual(comp.repos[1], { path: 'front', contract: { consumes: ['src/**/types/**'] } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(front, '.claude/harness.json'), 'utf8')).workspaces[0].riskPaths, ['src/auth/**']);
   assert.deepEqual(comp.integration, { branchPrefix: 'feature/' });
   assert.match(adopt(root, ['complete']).stdout, /nada que completar/);
   assert.equal(adopt(root, ['complete', '--only', 'otro']).status, 2);

@@ -66,7 +66,7 @@ test('localDb y hostOf leen el host aunque la contraseña rompa la url, y nunca 
   assert.equal(localDb({ ...ws, afterBuild: { commands: ['x'], onlyIfLocalDb: { env: 'DATABASE_URL', pattern: '(' } } }).ok, false);
 });
 
-test('init-draft propone afterBuild cuando hay scripts de sync, con el puerto del .env.example y el patrón a confirmar', () => {
+test('init-draft propone afterBuild cuando hay scripts de sync, con el puerto del .env.example en el patrón de la base local', () => {
   const pkg = { scripts: { build: 'nest build', 'acl:sync': 'ts-node s.ts', test: 'jest' } };
   assert.deepEqual(afterBuildDraft(pkg, 'npm', 'DATABASE_URL="mysql://root:@localhost:3306/academico"\n'), {
     commands: ['npm run build', 'npm run acl:sync'],
@@ -86,6 +86,6 @@ test('init-draft propone afterBuild cuando hay scripts de sync, con el puerto de
   const [ws] = JSON.parse(r.stdout.split('\n').slice(1).join('\n')).workspaces;
   assert.deepEqual(ws.afterBuild.commands, ['npm run build', 'npm run acl:sync']);
   assert.ok(ws.forbidden.includes('npm run acl:sync'), 'sigue en forbidden: solo afterBuild lo deja pasar');
-  assert.match(r.stderr, /propuesto\s+\S+: afterBuild corre npm run build, npm run acl:sync al cerrar build, solo si DATABASE_URL cumple .*; confirma el patrón de la base local/);
+  assert.match(r.stderr, /propuesto\s+\S+: afterBuild corre npm run build, npm run acl:sync al cerrar build, solo si DATABASE_URL cumple @\(localhost\|127\\\.0\\\.0\\\.1\):3306\/$/m);
   assert.ok(path.isAbsolute(dir));
 });

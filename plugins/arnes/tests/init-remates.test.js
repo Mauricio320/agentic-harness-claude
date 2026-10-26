@@ -1,7 +1,6 @@
 'use strict';
 // Los remates de la prueba de init (docs/PLAN.md §8): el grafo nunca cuenta como código, el contrato
-// de tests se comprueba en probe, la rama remota que trae la configuración se pregunta, y la línea
-// base con el árbol sucio dice qué estorba.
+// de tests se comprueba en probe, y la línea base con el árbol sucio dice qué estorba.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -61,25 +60,4 @@ test('probe lee el contrato con jest sin necesitar --verbose y exige commands.te
   r = adopt(karma, ['probe']);
   assert.equal(r.status, 1);
   assert.match(r.stdout, /no hay adaptador de resultados para ng; declara commands\.testJson/);
-});
-
-test('cambiarse a la rama remota que trae la configuración: solo con el árbol limpio', () => {
-  const dir = h.tmp('remates-rama');
-  h.repo(dir, { 'src/a.ts': 'a\n' });
-  h.git(dir, 'switch', '-q', '-c', 'fix/adopcion-arnes');
-  h.write(dir, '.claude/harness.json', h.repoManifest('api'));
-  h.git(dir, 'update-ref', 'refs/remotes/origin/fix/adopcion-arnes', h.commitAll(dir, 'chore: adopta el arnés'));
-  h.git(dir, 'switch', '-q', 'main');
-  h.git(dir, 'branch', '-q', '-D', 'fix/adopcion-arnes');
-  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'a medias\n');
-  let r = adopt(dir, ['switch', '.', '--to', 'origin/fix/adopcion-arnes', '--write']);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /tiene 1 archivo\(s\) con cambios sin commitear; commitéalos o guárdalos \(git stash\) antes de cambiarte a fix\/adopcion-arnes/);
-  assert.equal(h.git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
-  h.git(dir, 'checkout', '--', 'src/a.ts');
-  assert.match(adopt(dir, ['switch', '.', '--to', 'origin/fix/adopcion-arnes']).stdout, /me cambiaría a fix\/adopcion-arnes, creada desde origin\/fix\/adopcion-arnes \(--write\)/);
-  r = adopt(dir, ['switch', '.', '--to', 'origin/fix/adopcion-arnes', '--write']);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /ahora en fix\/adopcion-arnes, que trae la configuración del arnés/);
-  assert.ok(fs.existsSync(path.join(dir, '.claude', 'harness.json')));
 });
