@@ -24,7 +24,9 @@
 // "cerrado" del turno, de donde sale la espera de la persona; antes, si init o setup siguen abiertos
 // en la timeline, también sin manifiesto o con uno inválido, les anota su end y lo dice en una línea:
 // una corrección que no anotó su fin dejaría la configuración escribible hasta el próximo plan o dos
-// horas. Si hay bandera vigente sin revisión
+// horas. No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
+// Code puede mandarlo a segundo plano y cerrar el turno con la línea base corriendo; lo dice, y los
+// cierra el primer Stop después de que el proceso termina. Si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea "verificado, falta review", sin bloquear. Con trabajo en
 // marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
 // registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
@@ -51,6 +53,7 @@ const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 const { whyNoPlan } = require('./plan-guard.js');
 const { missingManifest } = require('../lib/configuracion.js');
+const adopcion = require('../lib/adopcion.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
@@ -190,6 +193,8 @@ function unreviewed(project) {
 function closePrep(root) {
   const stage = prepOpen(read(root));
   if (!stage) return null;
+  const live = adopcion.running(root);
+  if (live) return `arnes: la adopción sigue corriendo${live.paso ? ` (${live.paso})` : ''}; ${stage} queda abierto hasta que termine, y lo cierro al final del primer turno después de eso.`;
   append(root, { event: 'end', stage, result: 'ok', detail: 'lo cerró el Stop: el turno terminó sin anotar su fin' });
   return `arnes: ${stage} seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida.`;
 }

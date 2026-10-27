@@ -187,7 +187,7 @@ function format(entries) {
 // (la nota "costo" que sigue a su fin) y, en plan, lo que consultó al grafo; la abierta más reciente; y
 // la espera de la persona (las notas del turno). Si la corrida ya cerró con ship antes de la sesión, va
 // como last, y la de ahora empieza en la sesión. Los tiempos van en milisegundos.
-const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree'];
+const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree', 'adopcion'];
 const msOf = (e) => Date.parse(e.at) || 0;
 
 function graphNote(queries, closing) {

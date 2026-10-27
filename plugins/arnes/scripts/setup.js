@@ -344,8 +344,9 @@ function baseline(dir, names, write) {
 
 // El grafo de cada repo (graphify update, con GRAPHIFY_BACKEND=none: solo código) y, con más de uno,
 // el merge en <raíz>/graphify-out/graph.json, con el tiempo que tardó. Sin graphify, una línea con
-// cómo instalarlo, y sigue. Lo usan el paso graph de setup y adopt.js graph. → exit
-function buildGraph(dir, targets, write) {
+// cómo instalarlo, y sigue. Lo usan el paso graph de setup y adopt.js graph, que pasa en timed cómo
+// anotar el grafo de cada repo y el merge como pasos de la adopción. → exit
+function buildGraph(dir, targets, write, timed = (paso, fn) => fn()) {
   const v = sh('graphify --version', dir);
   if (v.status !== 0) {
     console.log(`graphify no está instalado: sigue sin grafo. Para tenerlo, ${INSTALL} (guía en ${GRAPHIFY}) y vuelve a correr este paso`);
@@ -361,23 +362,23 @@ function buildGraph(dir, targets, write) {
   const env = { ...process.env, GRAPHIFY_BACKEND: 'none' };
   const graphs = [];
   for (const t of targets) {
-    const r = sh(`graphify update ${quote(t)}`, dir, env);
     const g = path.join(t, 'graphify-out', 'graph.json');
-    if (r.status !== 0 || !fs.existsSync(g)) {
-      console.log(`${rel(dir, t)}: graphify update falló: ${firstLine(r.out)}`);
-      return 1;
-    }
+    const failed = timed(`grafo de ${path.basename(t)}`, () => {
+      const r = sh(`graphify update ${quote(t)}`, dir, env);
+      if (r.status !== 0 || !fs.existsSync(g)) return console.log(`${rel(dir, t)}: graphify update falló: ${firstLine(r.out)}`), 1;
+      return console.log(`${rel(dir, t)}: grafo en ${rel(dir, g)}`), 0;
+    });
+    if (failed) return 1;
     graphs.push(g);
-    console.log(`${rel(dir, t)}: grafo en ${rel(dir, g)}`);
   }
   if (merge) {
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    const m = sh(`graphify merge-graphs ${graphs.map(quote).join(' ')} --out ${quote(out)}`, dir, env);
-    if (m.status !== 0) {
-      console.log(`graphify merge-graphs falló: ${firstLine(m.out)}`);
-      return 1;
-    }
-    console.log(`grafo de la carpeta en ${rel(dir, out)}`);
+    const failed = timed('grafo de la carpeta', () => {
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      const m = sh(`graphify merge-graphs ${graphs.map(quote).join(' ')} --out ${quote(out)}`, dir, env);
+      if (m.status !== 0) return console.log(`graphify merge-graphs falló: ${firstLine(m.out)}`), 1;
+      return console.log(`grafo de la carpeta en ${rel(dir, out)}`), 0;
+    });
+    if (failed) return 1;
   }
   console.log(`grafo listo en ${Math.max(1, Math.round((Date.now() - began) / 1000))} s`);
   return 0;

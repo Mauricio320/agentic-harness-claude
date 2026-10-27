@@ -10,7 +10,12 @@
 //                           Con --write, hooks y baseref quitan lo que encuentran. Un paso que no
 //                           puede avanzar (la línea base con el árbol sucio, un runner sin adaptador,
 //                           graphify o el marketplace sin instalar) lo dice con lo que lo resuelve y
-//                           no frena a los demás; sale con 1 si alguno quedó así
+//                           no frena a los demás; sale con 1 si alguno quedó así. Con --write deja
+//                           su PID en .tmp/harness/adopcion.json mientras vive, para que el Stop no
+//                           cierre init con la línea base corriendo, y anota cada paso en la
+//                           timeline (lib/adopcion.js): manifiestos, hooks, permisos, worktreeinclude,
+//                           la línea base de cada workspace y el grafo de cada repo, con lo que tardó;
+//                           al final, una línea "tiempos:" con cada paso
 //   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
 //                           comprueba que test-baseline puede leer el contrato de resultados
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
@@ -75,6 +80,7 @@ const { detectRepo, contractFor, cloneUrl } = require('./init-draft.js');
 const { missingFromForbidden } = require('./lib/database.js');
 const tb = require('./test-baseline.js');
 const { ownScript, MAX_CLAUDE_MD } = require('./adoption-check.js');
+const adopcion = require('./lib/adopcion.js');
 
 const FIELDS = ['conventions', 'riskPaths', 'forbidden', 'afterBuild', 'contract'];
 const MARKETPLACE = 'agentic-harness';
@@ -323,7 +329,7 @@ function graphIgnores(project) {
   return [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))].filter((repo) => git(repo, ['check-ignore', '-q', 'graphify-out/graph.json']).status === 1);
 }
 
-function graph(project, write) {
+function graph(project, write, timed) {
   for (const repo of graphIgnores(project)) {
     const file = path.join(repo, '.gitignore');
     if (write) {
@@ -333,7 +339,7 @@ function graph(project, write) {
     console.log(`${write ? 'agregado' : 'falta'}  ${posix(file)}: graphify-out/, para que el grafo nunca cuente como código del issue${write ? '; commitéalo en el repo' : ''}`);
   }
   const { buildGraph } = require('./setup.js');
-  return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write);
+  return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write, timed);
 }
 
 // Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
@@ -456,26 +462,37 @@ function folderSettings(project, marketplace, ref, write) {
 }
 
 function all(write) {
+  const root = requireProject().root;
+  if (write) adopcion.begin(root);
+  const times = [];
+  const timed = (paso, fn) => {
+    if (!write) return fn();
+    const r = adopcion.step(root, paso, fn);
+    times.push(`${paso} ${adopcion.took(r.ms)}`);
+    return r.code;
+  };
   const steps = [
-    ['lo que le falta a cada configuración', (p) => complete(p, null, write)],
-    ['hooks del arnés anterior', (p) => hooks(p, write)],
-    ['worktree.baseRef', (p) => baseRef(p, write)],
-    ['permisos', (p) => permissions(p, write)],
-    ['.worktreeinclude', (p) => worktreeInclude(p, write)],
-    ['CLAUDE.md de la carpeta', (p) => claudeMd(p, write)],
-    ['settings.json de la carpeta', (p) => (p.kind !== 'folder' || installedMarketplace() ? folderSettings(p, null, null, write) : (console.log(`no encuentro el marketplace ${MARKETPLACE} instalado; sin él no escribo el settings.json de la carpeta`), 1))],
-    ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, (p) => {
+    ['manifiestos', 'lo que le falta a cada configuración', (p) => complete(p, null, write)],
+    ['hooks', 'hooks del arnés anterior', (p) => hooks(p, write)],
+    ['worktree.baseRef', 'worktree.baseRef', (p) => baseRef(p, write)],
+    ['permisos', 'permisos', (p) => permissions(p, write)],
+    ['worktreeinclude', '.worktreeinclude', (p) => worktreeInclude(p, write)],
+    ['CLAUDE.md', 'CLAUDE.md de la carpeta', (p) => claudeMd(p, write)],
+    ['settings de la carpeta', 'settings.json de la carpeta', (p) => (p.kind !== 'folder' || installedMarketplace() ? folderSettings(p, null, null, write) : (console.log(`no encuentro el marketplace ${MARKETPLACE} instalado; sin él no escribo el settings.json de la carpeta`), 1))],
+    ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, `línea base de ${w.name}`, (p) => {
       if (!(w.commands.test || w.commands.testJson) || !w.specPattern) return console.log(`${w.name}: sin comando de test; no hay línea base que tomar`), 0;
       if (fs.existsSync(tb.baselinePath(w))) return console.log(`${w.name}: ya tiene línea base en ${posix(path.relative(p.root, tb.baselinePath(w)))}; init no la pisa (/arnes:init --baseline la vuelve a tomar)`), 0;
       return baseline(p, w.name, write);
     }]),
-    ['grafo', (p) => graph(p, write) || (onPath('graphify') ? 0 : 1)],
   ];
   let left = 0;
-  for (const [title, step] of steps) {
+  for (const [paso, title, step] of steps) {
     console.log(`\n== ${title}`);
-    if (step(requireProject())) left++;
+    if (timed(paso, () => step(requireProject()))) left++;
   }
+  console.log('\n== grafo');
+  if (graph(requireProject(), write, timed) || !onPath('graphify')) left++;
+  if (times.length) console.log(`\ntiempos: ${times.join(' · ')}`);
   return left ? 1 : 0;
 }
 
