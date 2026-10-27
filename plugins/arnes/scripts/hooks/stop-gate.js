@@ -10,7 +10,11 @@
 //       comandos, porque mira los tocados. Un workspace sin plan no se juzga además por (a): primero
 //       el plan, después la verificación, o
 //   (d) el turno cambió la configuración del arnés (un .claude/harness.json) fuera de init y setup,
-//       lo que plan-guard niega en Edit y Write.
+//       lo que plan-guard niega en Edit y Write, o
+//   (e) el plan quedó aprobado en este turno y build no empezó, sin nada más pendiente (buildPending).
+// Cuando frena por verificación, el motivo y el aviso dicen el paso que sigue (nextOf): correr la
+// verificación, corregir lo primero que falló en la última corrida del gate, o, si es de configuración,
+// proponer el cambio para que la persona lo apruebe respondiendo que sí.
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
 // turno cambió algo: para (a) y (c), un archivo de código nuevo o cambiado respecto de la foto que
 // dejó prompt-context, archivo por archivo; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
@@ -46,7 +50,7 @@ const { loadProject, posix } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, prepInTurn, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged } = require('../gate-flag.js');
+const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged, readLast } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
@@ -151,6 +155,7 @@ function detailOf(w) {
     w.noPlan.length && `sin plan: ${describe(w.noPlan)}`,
     w.code.length && `sin verificar: ${describe(w.code)}`,
     w.wts.length && `sin integrar: ${describeWt(w.wts)}`,
+    w.build.length && 'plan aprobado sin build',
   ]
     .filter(Boolean)
     .join('; ');
@@ -168,8 +173,15 @@ function plainWt(items) {
 
 const plainRules = (items) => items.map((r) => r.name).join(', ');
 
+// Lo que sigue, para la persona: el paso concreto, no solo lo que falta (docs/PLAN.md §6.2).
+function followText(project, w) {
+  const steps = [w.code.length && nextText(project, w.code), w.build.length && 'para construir el plan aprobado, responde «construye»'].filter(Boolean);
+  return steps.length ? ` Lo que sigue: ${steps.join('; ')}.` : '';
+}
+
 function pendingText(w) {
   return [
+    w.build.length && 'el plan aprobado sin construir',
     w.rules.length && `la configuración del arnés cambiada en ${plainRules(w.rules)}`,
     w.noPlan.length && `cambios sin plan aprobado en ${plain(w.noPlan)}`,
     w.code.length && `cambios sin verificar en ${plain(w.code)}`,
@@ -199,6 +211,42 @@ function configChanged(root) {
     const r = git(repo, ['status', '--porcelain', '--untracked-files=all', '--', ...CONFIG_SPEC]);
     return r.status === 0 ? lines(r.stdout).map((l) => posix(path.relative(root, path.join(repo, l.slice(3).trim()))) || '.') : [];
   });
+}
+
+// (e) El plan quedó aprobado en este turno y build no empezó: el modelo se quedó esperando un
+// «construye». Solo el turno de la aprobación (uno posterior en que la persona pidió esperar no se
+// frena), solo si el turno no dejó otra cosa pendiente, que ya juzgan (a) a (d), y nunca un plan trivial,
+// que se construye sin build.
+function buildPending(home, since) {
+  const entries = read(home.root);
+  if (!planState(entries).approved || since == null) return [];
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'note' && e.result === 'aprobado').lastIndexOf(true);
+  if (i < 0 || Date.parse(entries[i].at) < since || /trivial/.test(entries[i].detail || '')) return [];
+  if (entries.slice(i + 1).some((e) => e.stage === 'build' && e.event === 'start')) return [];
+  return [{ changed: true }];
+}
+
+const CONFIG_FAIL = /was not found by the project service|tsconfig|no eslint configuration|eslint.config|parserOptions|Cannot read file/i;
+
+// El paso concreto que sigue para un workspace sin verificar: la última corrida del gate sobre este
+// mismo contenido dice qué falló; sin ella, falta correr la verificación. → { red, config, what }
+function nextOf(project, name) {
+  const ws = project.workspaces.find((w) => w.name === name);
+  const last = ws && readLast(project, ws);
+  if (!last || !last.current || last.result !== 'fail') return { red: false };
+  const f = last.first || {};
+  const where = f.file ? ` en ${f.file}${f.line ? `:${f.line}` : ''}` : '';
+  const what = `${String(f.what || f.step || 'una falla').slice(0, 160)}${where}`;
+  return { red: true, config: CONFIG_FAIL.test(`${f.what || ''}`), what };
+}
+
+function nextText(project, code) {
+  return code.map((p) => {
+    const n = nextOf(project, p.ws);
+    if (!n.red) return `en ${p.ws}, corre la verificación`;
+    if (n.config) return `en ${p.ws}, la verificación falla por la configuración (${n.what}): Claude te propone el cambio, y lo apruebas respondiendo que sí`;
+    return `en ${p.ws}, corrige esto y verifica: ${n.what}`;
+  }).join('; ');
 }
 
 function closePrep(root) {
@@ -243,7 +291,8 @@ function stopGate(input) {
   const unseen = (ws) => Boolean(prep) && !snap[ws.name];
   const noPlan = unplanned(project, home, unseen);
   const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws), unseen), wts: pendingWorktrees(cwd, turnStart(project)) };
-  const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts];
+  w.build = w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(home, turnStart(project));
+  const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts, ...w.build];
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
   // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
   const pending = all.length > 0;
@@ -257,15 +306,15 @@ function stopGate(input) {
   if (busy.length) return withClosed(closed, { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` });
   if (pending && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(w)}` });
-    return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.` });
+    return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.${followText(project, w)}` });
   }
-  if (pending) return withClosed(closed, { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.` });
+  if (pending) return withClosed(closed, { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
   const noReview = unreviewed(project);
   return withClosed(closed, noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
 }
 
 function block(project, w) {
-  const { rules, noPlan, code, wts } = w;
+  const { rules, noPlan, code, wts, build } = w;
   // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
   append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado ${detailOf(w)}` });
   const parts = [];
@@ -284,9 +333,24 @@ function block(project, w) {
     );
   }
   if (code.length) {
+    const next = code.map((p) => [p.ws, nextOf(project, p.ws)]);
+    const red = next.filter(([, n]) => n.red);
+    const config = red.filter(([, n]) => n.config);
     parts.push(
-      `hay cambios de código sin verificar en ${plain(code)}. Verifícalos antes de cerrar el turno: la marca de ` +
-        `verificación la escribe la verificación solo si todo pasa, nunca a mano.`,
+      red.length
+        ? `la verificación quedó en rojo en ${red.map(([ws, n]) => `${ws} (${n.what})`).join(', ')}. ` +
+            (config.length
+              ? `La falla es de configuración: no la cambies tú; propónselo a la persona con ajuste.js propone, con qué cambiar y por qué, y termina el turno: lo aprueba respondiendo que sí. `
+              : `Corrige y vuelve a verificar en este mismo turno, sin pedir permiso: en rojo se corrige, no se pregunta. `) +
+            `La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano.`
+        : `hay cambios de código sin verificar en ${plain(code)}. Corre la verificación antes de cerrar el turno: la marca de ` +
+            `verificación la escribe la verificación solo si todo pasa, nunca a mano.`,
+    );
+  }
+  if (build.length) {
+    parts.push(
+      `el plan quedó aprobado en este turno y build no empezó. Sigue con la skill build en este mismo turno: la aprobación ` +
+        `ya es la orden de construir, no esperes un «construye». Si la persona pidió esperar, dile que el plan quedó listo y termina.`,
     );
   }
   if (wts.length) {

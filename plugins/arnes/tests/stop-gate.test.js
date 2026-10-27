@@ -35,7 +35,7 @@ test('código tocado sin bandera vigente: bloquea con decision block y reason, y
   const r = stop(api);
   assert.equal(r.status, 0);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. Verifícalos antes de cerrar el turno: la marca de verificación la escribe la verificación solo si todo pasa, nunca a mano/);
+  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. Corre la verificación antes de cerrar el turno: la marca de verificación la escribe la verificación solo si todo pasa, nunca a mano/);
   assert.doesNotMatch(r.out.reason, /\.js\b|\/arnes:verify|src\/a\.ts/, 'sin scripts, sin la skill que carga el modelo y sin rutas');
   assert.match(r.out.reason, /una sola vez por turno/);
   const list = tl.read(root).filter((n) => n.stage !== 'plan');
@@ -64,7 +64,7 @@ test('un turno que no cambió los tocados desde el prompt solo avisa; uno que lo
   prompt();
   const quieto = stop(api);
   assert.equal(quieto.out.decision, undefined);
-  assert.match(quieto.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\.$/);
+  assert.match(quieto.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\. Lo que sigue: en api, corre la verificación\.$/);
   assert.deepEqual(notes(root), [], 'sin bloqueo no hay nota');
 
   prompt();
@@ -84,7 +84,7 @@ test('(a) también archivo por archivo: el código sin verificar que dejó la pe
   fs.appendFileSync(path.join(api, 'README.md'), 'pedido de documentación\n');
   const r = stop(api);
   assert.equal(r.out.decision, undefined, 'avisa, no bloquea');
-  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\.$/);
+  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\. Lo que sigue: en api, corre la verificación\.$/);
   assert.deepEqual(notes(root), []);
 });
 
