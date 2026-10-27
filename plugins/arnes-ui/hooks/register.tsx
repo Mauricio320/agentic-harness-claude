@@ -168,13 +168,18 @@ async function gateStatus($: $): Promise<void> {
 }
 
 // Lo nuevo de la timeline: el start guarda lo que marca /cost, el end anota el costo y el de ship
-// cierra la corrida; el Stop bloqueado avisa.
+// cierra la corrida; el Stop bloqueado avisa. Un paso de la adopción solo cambia el estado: corre sin
+// el modelo, y la banda y la cronología ya lo pintan con su tiempo desde la corrida.
 async function follow($: $, news: Event[], r: Corrida): Promise<void> {
   for (const x of news) {
     if (x.stage === 'stop-gate' && x.result === 'bloqueado') alert($, `arnes: el Stop bloqueó el turno · ${x.detail ?? ''}`)
     const name = stageOf(x)
     if (!name || x.event === 'note') continue
     const [id, st] = [idOf(x), { name, detail: x.ws }]
+    if (x.stage === 'adopcion') {
+      $.ui.status(x.event === 'start' ? label(st) : 'listo')
+      continue
+    }
     if (x.event === 'start') {
       usdAt.set(id, await usd($))
       $.ui.toast(`arnes ▸ ${label(st)}`)

@@ -299,6 +299,21 @@ test('al entrar o salir de un worktree, el proyecto se vuelve a pedir y el vigí
   end()
 })
 
+test('un paso de la adopción se pinta en la banda con su tiempo mientras dura, sin toast ni costo', async ($, on) => {
+  const { seen, b, step, clock, end } = world(on)
+  await start($)
+  b.corrida = { since: START, stages: [{ stage: 'adopcion', ws: 'manifiestos', ms: 1000 }], open: { stage: 'adopcion', ws: 'línea base de api', startedAt: START, id: 'adopcion|línea base de api' }, wait: { ms: 0, n: 0, since: null } }
+  await step('2026-10-19T15:00:00Z', 'start', 'adopcion', { ws: 'línea base de api' })
+  await clock.advance(95_000)
+  expect(await bandOf($)).toMatch(/^arnes ▸ Adoptando \(línea base de api\) \d\d:\d\d · /)
+  expect(chron(await paneLines($))[0]).toBe('  Adoptando (manifiestos)         1s')
+  await step('2026-10-19T15:01:35Z', 'end', 'adopcion', { ws: 'línea base de api', result: 'ok', detail: '1m35s' })
+  expect(seen.toasts.filter((t) => t.startsWith('arnes ▸'))).toEqual([])
+  expect(b.notes).toEqual([])
+  expect(seen.status).toEqual(['listo', 'Adoptando (línea base de api)', 'listo'])
+  end()
+})
+
 test('lib: el base, los workspaces, la fila del gate, la corrida, la banda y el título del plan', () => {
   expect(baseCandidates('C:/repo/plugins/arnes-ui')[0]).toBe('C:/repo/plugins/arnes')
   expect(baseCandidates('C:/u/cache/agentic-harness/arnes-ui/0.7.0', ['0.6.9', '0.7.0'])).toEqual(['C:/u/cache/agentic-harness/arnes-ui/arnes', 'C:/u/cache/agentic-harness/arnes/0.7.0', 'C:/u/cache/agentic-harness/arnes/0.7.0', 'C:/u/cache/agentic-harness/arnes/0.6.9'])
