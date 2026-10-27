@@ -22,10 +22,16 @@
 // scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre y las escrituras de
 // prisma, typeorm y knex, lib/database.js), afterBuild si hay scripts de sync (el build y los sync,
 // solo con la base local del .env), riskPaths, remote y rama por defecto.
-// riskPaths son las rutas trackeadas cuyo nombre dice migraciones, autenticación, permisos, roles o
-// seguridad (RISK_WORDS, por palabra, sin tildes ni mayúsculas): la carpeta más alta que lo dice
-// entra entera (src/permisos/**), y si ninguna carpeta lo dice, el archivo (scripts/migrar.js); los
-// specs y lo que vive bajo una carpeta con punto (.claude, .github) no cuentan.
+// riskPaths son las rutas trackeadas cuyo nombre trae, como palabra completa (sin tildes ni
+// mayúsculas, camelCase partido), una de las categorías de RISK: autenticación, roles y permisos de
+// sistema, migraciones y herramientas de migración, y aprobaciones de dinero, autorización y
+// aprobador (aprobar o aprobación solo cuentan con una palabra de dinero en la ruta, MONEY). La
+// carpeta más alta que lo dice entra entera (src/permisos/**), y si ninguna carpeta lo dice, el
+// archivo (scripts/migrar.js); los specs y lo que vive bajo una carpeta con punto no cuentan. Se
+// descartan, y la nota dice cuántas y por qué (DISCARD): docs y cualquier .md; SST, HSQ y HSE; las
+// ausencias y la nómina (permiso de ausencia o de trabajo, sus estados y tipos, un permiso dentro de
+// nómina, seguridad social); y los roles de un dominio: por rol, de un miembro, o el rol del propio
+// módulo (rol-agenda dentro de agenda/).
 // Un repo sin typecheck ni test detectables, como uno solo con composer.json, no lleva manifiesto
 // propio: entra en la composición como no adoptable todavía.
 //
@@ -57,7 +63,26 @@ const { matchAny } = require('./lib/glob.js');
 const { karmaTarget } = require('./lib/karma-config.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
-const RISK_WORDS = ['auth', 'autenticacion', 'autorizacion', 'acl', 'permiso', 'permisos', 'permission', 'permissions', 'rol', 'roles', 'seguridad', 'security', 'migracion', 'migraciones', 'migration', 'migrations', 'migrar', 'migrate'];
+const RISK = [
+  ['autenticación', ['auth', 'autenticacion', 'authentication']],
+  ['roles y permisos de sistema', ['acl', 'rol', 'roles', 'permiso', 'permisos', 'permission', 'permissions', 'seguridad', 'security']],
+  ['migraciones y herramientas de migración', ['migracion', 'migraciones', 'migration', 'migrations', 'migrar', 'migrate']],
+  ['aprobaciones de dinero, autorización y aprobador', ['aprobador', 'aprobadores', 'autorizacion', 'autorizaciones', 'autorizar', 'approver', 'approvers']],
+];
+const APPROVE = ['aprobacion', 'aprobaciones', 'aprobar', 'approval', 'approvals', 'approve'];
+const MONEY = ['pago', 'pagos', 'cxp', 'cxc', 'tesoreria', 'prestamo', 'prestamos', 'anticipo', 'anticipos', 'abono', 'abonos', 'dispersion', 'desembolso', 'desembolsos', 'reembolso', 'reembolsos', 'transferencia', 'transferencias', 'egreso', 'egresos', 'caja', 'liquidacion', 'liquidaciones', 'dinero', 'payment', 'payments', 'payout', 'payouts', 'refund', 'refunds', 'money'];
+const PERMIT = ['permiso', 'permisos'];
+const TECH = new Set(['src', 'app', 'apps', 'lib', 'libs', 'modules', 'modulos', 'shared', 'common', 'core', 'constants', 'enums', 'services', 'application', 'infrastructure', 'presentation', 'domain', 'dto', 'utils', 'components', 'pages', 'interfaces', 'types', 'models']);
+const DOMAIN_ROLE = 'roles de un dominio, no del sistema (por rol, de un miembro, o el rol del propio módulo)';
+const DISCARD = [
+  ['docs y archivos .md', (parts) => parts.slice(0, -1).some((p) => ['docs', 'doc'].includes(p.toLowerCase())) || /\.mdx?$/i.test(parts[parts.length - 1])],
+  ['seguridad y salud en el trabajo (SST, HSQ, HSE)', (parts) => seq(wordsOf(parts.join(' ')), ['sst', 'hsq', 'hse', 'hseq'])],
+  ['ausencias y nómina (permiso de ausencia o de trabajo, sus estados y tipos, seguridad social)', (parts, word) => {
+    const w = wordsOf(parts.join(' '));
+    const permit = PERMIT.includes(word) && (seq(w, PERMIT, 'trabajo') || seq(w, PERMIT, 'de', 'trabajo') || seq(w, ['estado', 'estados', 'tipo', 'tipos'], PERMIT) || seq(w, ['nomina', 'nominas', 'payroll']));
+    return permit || seq(w, ['ausencia', 'ausencias']) || seq(w, 'seguridad', 'social');
+  }],
+];
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
 
 // Las convenciones mecánicas que se proponen a un repo de JavaScript o TypeScript (conventions.js):
@@ -255,18 +280,52 @@ function specPatterns(dir) {
   return sorted.length > 1 ? sorted : sorted[0];
 }
 
+const wordsOf = (name) => name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const seq = (w, ...pattern) => w.some((_, i) => pattern.every((p, j) => [].concat(p).includes(w[i + j])));
+
+function segmentRisk(parts, i) {
+  const name = i === parts.length - 1 ? parts[i].replace(/\.[^.]+$/, '') : parts[i];
+  const w = wordsOf(name);
+  const above = parts.slice(0, i).map((p) => p.toLowerCase());
+  const domainRole = (k) => w[k - 1] === 'por' || w.some((x) => ['miembro', 'miembros'].includes(x)) || (w[k + 1] && !TECH.has(w[k + 1]) && above.includes(w[k + 1]));
+  let role = false;
+  for (const [k, x] of w.entries()) {
+    const cat = APPROVE.includes(x) && seq(wordsOf(parts.join(' ')), MONEY) ? RISK[3] : RISK.find(([, list]) => list.includes(x));
+    if (!cat) continue;
+    if (['rol', 'roles'].includes(x) && domainRole(k)) role = true;
+    else return { cat: cat[0], word: x };
+  }
+  return role ? { discard: DOMAIN_ROLE } : null;
+}
+
+// → { paths, byCat: { categoría: [rutas] }, discarded: { motivo: n } }
 function riskPathsFor(dir) {
-  const risky = (name) => name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).some((w) => RISK_WORDS.includes(w));
-  const dirs = new Set();
-  const files = [];
+  const dirs = new Map();
+  const files = new Map();
+  const discarded = {};
   for (const f of lines(git(dir, ['ls-files']).stdout)) {
     const parts = f.split('/');
     if (parts.some((p) => p.startsWith('.')) || SPEC_RE.test(f)) continue;
-    const i = parts.slice(0, -1).findIndex(risky);
-    if (i >= 0) dirs.add(parts.slice(0, i + 1).join('/'));
-    else if (risky(parts[parts.length - 1].replace(/\.[^.]+$/, ''))) files.push(f);
+    let hit = null;
+    let at = -1;
+    for (let i = 0; i < parts.length && !(hit && hit.cat); i++) {
+      const r = segmentRisk(parts, i);
+      if (r && (r.cat || !hit)) [hit, at] = [r, i];
+    }
+    if (!hit) continue;
+    const why = hit.cat ? DISCARD.find(([, test]) => test(parts, hit.word))?.[0] : hit.discard;
+    if (why) {
+      discarded[why] = (discarded[why] || 0) + 1;
+      continue;
+    }
+    if (at < parts.length - 1) dirs.set(parts.slice(0, at + 1).join('/'), hit.cat);
+    else files.set(f, hit.cat);
   }
-  return [...[...dirs].map((d) => `${d}/**`), ...files].sort();
+  const top = [...dirs.keys()].filter((d) => ![...dirs.keys()].some((o) => o !== d && d.startsWith(`${o}/`)));
+  const all = [...top.map((d) => [`${d}/**`, dirs.get(d)]), ...[...files].filter(([f]) => !top.some((d) => f.startsWith(`${d}/`)))].sort((a, b) => a[0].localeCompare(b[0]));
+  const byCat = {};
+  for (const [p, cat] of all) byCat[cat] = [...(byCat[cat] || []), p];
+  return { paths: all.map(([p]) => p), byCat, discarded };
 }
 
 function detectRepo(dir) {
@@ -306,16 +365,27 @@ function detectRepo(dir) {
     commands,
     specPattern: specPatterns(dir),
     conventions: CONVENTIONS,
-    riskPaths: risk.length ? risk : undefined,
+    riskPaths: risk.paths.length ? risk.paths : undefined,
     forbidden: forbidden.length ? forbidden : undefined,
     regeneratesNodeModules: deps.prisma || deps['@prisma/client'] ? ['prisma/schema.prisma'] : undefined,
     afterBuild: afterBuildDraft(pkg, pm, has('.env.example') ? fs.readFileSync(path.join(dir, '.env.example'), 'utf8') : '') || undefined,
   };
   for (const k of Object.keys(ws)) if (ws[k] === undefined) delete ws[k];
-  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] } };
+  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] }, risk };
 }
 
-// → { drafts: [{ file, data }], notes: [string], ignores: [líneas que le faltan al .gitignore de la carpeta] }
+function riskNotes(name, risk) {
+  const out = [];
+  const cats = Object.entries(risk.byCat);
+  out.push(cats.length
+    ? `propuesto     ${name}: riskPaths por el nombre, con palabra completa; exigen revisión humana. ${cats.map(([cat, ps]) => `${cat}: ${ps.map(code).join(', ')}`).join('; ')}`
+    : `sin riskPaths ${name}: ninguna carpeta ni archivo se llama como ${RISK.map(([cat]) => cat).join(', ')}`);
+  const gone = Object.entries(risk.discarded);
+  if (gone.length) out.push(`descartadas   ${name}: ${gone.reduce((n, [, k]) => n + k, 0)} ruta(s) que nombran una palabra de riesgo sin serlo: ${gone.map(([why, k]) => `${k} de ${why}`).join(', ')}`);
+  return out;
+}
+
+// → { drafts: [{ file, data, risk? }], notes: [string], ignores: [líneas que le faltan al .gitignore de la carpeta] }
 function draft(root) {
   const nested = nestedRepos(root);
   const notes = [];
@@ -331,7 +401,7 @@ function draft(root) {
     const r = detectRepo(root);
     if (!r.adoptable) return { error: `${path.basename(root)}: ${r.reason}; no hay manifiesto que generar` };
     where(root, path.basename(root));
-    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest });
+    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest, risk: r.risk });
   } else {
     const repos = [];
     const sides = [];
@@ -346,7 +416,7 @@ function draft(root) {
       const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: compositionBranch(dir), contract };
       for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
       repos.push(entry);
-      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest });
+      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest, risk: r.risk });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
@@ -358,7 +428,7 @@ function draft(root) {
   }
   for (const d of drafts.filter((x) => !fs.existsSync(x.file))) {
     for (const ws of d.data.workspaces || []) {
-      notes.push(ws.riskPaths ? `propuesto     ${ws.name}: riskPaths ${ws.riskPaths.join(', ')}, por el nombre de la carpeta o del archivo (migraciones, autenticación, permisos, roles o seguridad); exigen revisión humana` : `sin riskPaths ${ws.name}: ninguna carpeta ni archivo se llama como migraciones, autenticación, permisos, roles o seguridad`);
+      notes.push(...riskNotes(ws.name, d.risk));
       if (ws.forbidden) notes.push(`prohibido     ${ws.name}: ${ws.forbidden.join(', ')}; reescriben archivos o tocan una base, y los corre la persona`);
       if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);

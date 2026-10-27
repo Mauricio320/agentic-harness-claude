@@ -106,7 +106,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.equal(client.specPattern, '{dir}/{name}.spec.ts');
   assert.match(r.stderr, /no adoptable\s+academicoBitbuckett: solo composer\.json/);
   assert.match(r.stderr, /sin lint\s+client/);
-  assert.match(r.stderr, /^sin riskPaths api: ninguna carpeta ni archivo se llama como migraciones, autenticación, permisos, roles o seguridad$/m);
+  assert.match(r.stderr, /^sin riskPaths api: ninguna carpeta ni archivo se llama como autenticación, roles y permisos de sistema, migraciones y herramientas de migración, aprobaciones de dinero, autorización y aprobador$/m);
   assert.match(r.stderr, /^prohibido +api: npm run lint, npm run format, prisma migrate dev, .*; reescriben archivos o tocan una base, y los corre la persona$/m);
 });
 
@@ -129,7 +129,56 @@ test('riskPaths: la carpeta más alta cuyo nombre lo dice, o el archivo, sin spe
   assert.equal(r.status, 0, r.stderr);
   const [ws] = parseDrafts(r.stdout)['.claude/harness.json'].workspaces;
   assert.deepEqual(ws.riskPaths, ['prisma/migrations/**', 'scripts/migrar-datos.js', 'src/Autenticación/**', 'src/authGuard.ts', 'src/modulos/permisos/**']);
-  assert.match(r.stderr, /^propuesto +arnes-init-riesgo-\S+: riskPaths prisma\/migrations\/\*\*, .*, por el nombre de la carpeta o del archivo \(migraciones, autenticación, permisos, roles o seguridad\); exigen revisión humana$/m);
+  assert.match(r.stderr, /^propuesto +arnes-init-riesgo-\S+: riskPaths por el nombre, con palabra completa; exigen revisión humana\. migraciones y herramientas de migración: `prisma\/migrations\/\*\*`, `scripts\/migrar-datos\.js`; autenticación: `src\/Autenticación\/\*\*`, `src\/authGuard\.ts`; roles y permisos de sistema: `src\/modulos\/permisos\/\*\*`$/m);
+});
+
+test('riskPaths con nombres en español: sin docs ni .md, sin ausencias, nómina ni SST, sin roles de un dominio; con las aprobaciones de dinero, y dice cuántas descartó', () => {
+  const dir = h.tmp('init-riesgo-es');
+  h.repo(dir, {
+    'package.json': pkg({ typescript: '5', jest: '30' }),
+    'tsconfig.json': '{}',
+    'src/seguridad/sesiones/sesion.service.ts': 'x',
+    'src/usuarios/rol-usuario.service.ts': 'x',
+    'src/compartido/constants/roles.constants.ts': 'x',
+    'src/nomina/permisos-ausencias/crear-permiso-ausencia.ts': 'x',
+    'src/nomina/permisos-ausencias/aprobar-permiso.ts': 'x',
+    'src/nomina/seguridad-social/planilla.service.ts': 'x',
+    'src/nomina/novedades/desactivar-novedades-permiso.ts': 'x',
+    'src/sst/catalogos/tipos-permiso/tipo-permiso.entity.ts': 'x',
+    'src/sst/catalogos/estados-permiso/estado-permiso.entity.ts': 'x',
+    'src/maquinaria/sincronizacion/hsq-estados-permiso.provider.ts': 'x',
+    'src/compartido/enums/estado-permiso.enum.ts': 'x',
+    'src/agenda/enums/rol-agenda.enum.ts': 'x',
+    'src/agenda/dto/cambiar-rol-miembro.dto.ts': 'x',
+    'src/avisos/notificar-por-rol.ts': 'x',
+    'src/empleados/listar-ids-por-rol.ts': 'x',
+    'docs/planes/roles-y-permisos.md': 'x',
+    'README-seguridad.md': 'x',
+    'src/tesoreria/prestamos/autorizar-prestamo.ts': 'x',
+    'src/cuentas-por-pagar/aprobar-pago.ts': 'x',
+    'src/compras/aprobadores/aprobador.entity.ts': 'x',
+    'src/vacaciones/aprobar-vacacion.ts': 'x',
+    'herramientas/correr-migraciones.ts': 'x',
+  });
+  const r = h.run('init-draft.js', [], { cwd: dir });
+  assert.equal(r.status, 0, r.stderr);
+  const [ws] = parseDrafts(r.stdout)['.claude/harness.json'].workspaces;
+  assert.deepEqual(ws.riskPaths, [
+    'herramientas/correr-migraciones.ts',
+    'src/compartido/constants/roles.constants.ts',
+    'src/compras/aprobadores/**',
+    'src/cuentas-por-pagar/aprobar-pago.ts',
+    'src/seguridad/**',
+    'src/tesoreria/prestamos/autorizar-prestamo.ts',
+    'src/usuarios/rol-usuario.service.ts',
+  ]);
+  assert.match(r.stderr, /^propuesto .*roles y permisos de sistema: `src\/compartido\/constants\/roles\.constants\.ts`, `src\/seguridad\/\*\*`, `src\/usuarios\/rol-usuario\.service\.ts`; aprobaciones de dinero, autorización y aprobador: `src\/compras\/aprobadores\/\*\*`, `src\/cuentas-por-pagar\/aprobar-pago\.ts`, `src\/tesoreria\/prestamos\/autorizar-prestamo\.ts`/m);
+  assert.match(r.stderr, /^descartadas +arnes-init-riesgo-es-\S+: 14 ruta\(s\) que nombran una palabra de riesgo sin serlo: /m);
+  assert.match(r.stderr, /5 de ausencias y nómina \(permiso de ausencia o de trabajo, sus estados y tipos, seguridad social\)/);
+  assert.match(r.stderr, /3 de seguridad y salud en el trabajo \(SST, HSQ, HSE\)/);
+  assert.match(r.stderr, /2 de docs y archivos \.md/);
+  assert.match(r.stderr, /4 de roles de un dominio, no del sistema/);
+  assert.doesNotMatch(r.stdout, /aprobar-vacacion/, 'aprobar algo que no es plata no es zona de riesgo');
 });
 
 test('--write escribe los tres, deja los existentes, y el resultado resuelve como carpeta', () => {
