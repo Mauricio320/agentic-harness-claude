@@ -2,6 +2,25 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.5] - 2026-10-27
+
+El arnés frena donde no debe (`docs/PLAN.md` §6.1, §6.2, §6.3, §6.5 y §8): seis trabas vistas en uso real. Rama `feature/menos-trabas`, desde el tag `v0.7.4`, probada con Claude Code 2.1.311 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con la corrida A y con una corrida aparte sobre un repo con lint acotado, una propuesta de configuración y una pregunta con grafo (§10). La corrida A costó US$3,38 (US$3,46 con la 0.7.4).
+
+### Agregado
+- `lintGlobs`, el alcance del lint del repo: `init-draft` lo saca del script `lint` del `package.json` o del `include` del `tsconfig.json`, y `adopt.js complete` lo agrega a un manifiesto con lint sin acotar. El gate y el hook de edición lintean solo lo que cae ahí; un tocado fuera sale en una línea, «fuera del alcance de lint del repo», y no es falla.
+- Un «sí» de la persona a un cambio de configuración vale como `/arnes:init --ajustar`: el modelo lo propone por escrito con `ajuste.js propone`, y con la respuesta de la persona desde el composer (origen y hash, sin marcas) `ajuste.js aprueba` abre la configuración solo ese turno. El Stop la cierra y anota qué cambió. Un agente, bridge, sdk o una respuesta sin propuesta no abren nada. Los motivos de negación de plan-guard y del guard dicen cómo proponerlo.
+- Las preguntas consultan el grafo: el hook del prompt, o arnes-mod en su camino de pregunta, mete los nodos que `graphify query` encuentra para el texto, con archivo y línea, con el mismo tope y presupuesto que `plan-state start` (`lib/grafo.js`).
+- El Stop frena una vez el turno que aprueba el plan y no empieza build, y su motivo dice que siga con build.
+
+### Corregido
+- El guard negaba `ajuste.js propone` porque el comando nombra la configuración; lo encontró la corrida con `claude -p`. `ajuste.js` no la escribe.
+
+### Cambiado
+- El cierre de un turno bloqueado dice el paso que sigue: «corre la verificación», o «corrige esto y verifica» con lo primero que falló en la última corrida del gate, y si la falla es de configuración, qué cambiar y que se aprueba respondiendo que sí.
+- La skill verify corrige en rojo y vuelve a verificar sin pedir permiso.
+- La coma o la comilla que falta en un `settings.json` la arregla `adopt.js`, con una copia `.bak`, y sigue con el paso; la skill ya no edita ese archivo, por el que Claude Code pide permiso también en modo interactivo.
+- La consulta al grafo de `start` tiene un tope de 12 s por consulta (antes 120 s), el mismo que el de las preguntas; el timeout de UserPromptSubmit pasa a 35 s.
+
 ## [0.7.4] - 2026-10-27
 
 Lo que init decide solo y lo que el flujo hace sin que nadie lo vigile (`docs/PLAN.md` §6.1 a §6.5b y §8), por la primera adopción real con init sin preguntas: una carpeta con un api NestJS y un client Angular 21 con Karma. Rama `feature/init-decide-solo`, desde el tag `v0.7.3`, probada con Claude Code 2.1.311 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con `/arnes:init` en `claude -p` sobre una carpeta de prueba con esos casos, y con la corrida A antes y después (§10): en un issue de una sola vuelta de build el total queda igual, US$3,49 con la 0.7.3 y US$3,46 con la 0.7.4, porque la revisión se paga una vez en las dos; la 0.7.4 la paga en ship (US$0,42 la ronda), y cada vuelta de build de más ya no paga otra. El plan de la 0.7.4 arrancó con los nodos que consultó `start`, y el dev y el test-writer corrieron en sonnet con el orquestador en opus.

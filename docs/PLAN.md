@@ -1137,6 +1137,22 @@ La prueba de init, con `claude -p "/arnes:init"` sobre una carpeta de prueba arm
 - En las dos, al final quedó la carpeta vacía del worktree de carpeta (un `.git` de 149 bytes): con `--allowedTools` el modelo no tiene permiso para borrarla a mano; git y los repos ya no lo tienen registrado. Pasa igual en las dos versiones.
 - El gasto de la ronda en pruebas con `claude -p`: US$11,3 entre las cuatro corridas A, el init y una comprobación con haiku.
 
+Ronda de menos trabas (2026-10-27, rama `feature/menos-trabas`, versión 0.7.5), desde el tag `v0.7.4`. Cada cambio está en su sección:
+- el lint de los tocados con el alcance del repo y la cuenta entera de una línea base que no compila (§6.1);
+- el «sí» de la persona que abre un cambio de configuración, el plan aprobado que no cierra sin construir y el Stop que dice el paso que sigue (§6.2);
+- verify que corrige en rojo sin pedir permiso (§6.2) y la consulta al grafo compartida entre `start` y las preguntas (§6.3 y §6.5);
+- la coma que arregla el script (§8).
+
+**Corrida A** con los plugins de esta rama, sobre una copia fresca de la carpeta contable, como la de la 0.7.4 (`.tmp/e2e-carpeta/ronda-075`): US$0,64 el plan (92 s, `start` con tres consultas al grafo y sus nodos), US$1,46 «sí a todo» (build de los dos repos, el dev y el test-writer en `claude-sonnet-5-5`, y verify; terminó en «Listo para /arnes:ship»), US$0,71 `/arnes:ship` (la revisión, ronda 1 completa en opus, US$0,40, y los commits), US$0,11 el push, US$0,11 la app y US$0,36 el borrado. **US$3,38**, contra US$3,46 de la 0.7.4: lo mismo, como se esperaba de una ronda que quita trabas y no agrega etapas. En esta corrida «sí a todo» construyó sin pedir un «construye», así que la condición (e) del Stop no tuvo que frenar (0 bloqueos); la prueban `tests/stop-siguiente.test.js`.
+
+**Corrida B**, sobre un repo de prueba (`.tmp/e2e-075-b`): `ventas`, con un tsconfig que incluye `apps` y `libs`, un lint falso que falla como el project service de eslint en lo que el tsconfig no incluye, `lintGlobs` como lo escribe init, y el grafo armado. Cuatro turnos, US$0,75:
+  1. `/arnes:plan --trivial` que agrega `scripts/limpiar-cache.ts` y una función en `apps/ventas/total.ts`: verify en verde, con «lint ok · 1 archivo(s)» y «fuera del alcance de lint del repo: scripts/limpiar-cache.ts», y el cierre lo dijo así: «el lint del repo no revisa la carpeta scripts, así que el script nuevo no se lintó».
+  2. Un pedido de cambiar la configuración (agregar `apps/ventas/pagos/**` a las riskPaths): plan-guard negó el Edit con el motivo nuevo, y el modelo corrió `ajuste.js propone`, que **el guard también negó**: la regla de «por el shell solo se lee» veía la ruta del `harness.json` en el comando. El modelo lo reportó como error del arnés y no intentó rodearlo. Se arregló en la misma ronda (§6.2): el guard deja correr `ajuste.js` del propio arnés.
+  3. «sí, cámbialo»: sin propuesta registrada, `ajuste.js aprueba` dijo que no había ninguna, y el modelo mandó a `/arnes:init --ajustar`.
+  4. «¿Dónde se calcula el total de las ventas y quién lo usa?»: arnes-mod consultó el grafo (la nota `consulta` de `pregunta` en la timeline) y el contexto llegó al modelo con `totalDeVentas() · apps/ventas/total.ts:1` (está en el transcript de la sesión). El modelo respondió con esa línea y buscó con Grep solo quién la usa, que el grafo chico no traía.
+- Los turnos 2 y 3 otra vez, con el arreglo, sobre un repo fresco (`.tmp/e2e-075-b2`, US$0,73): la propuesta quedó registrada y se mostró en un bloque. El camino no fue el esperado: arnes-mod clasificó el pedido de configuración como pedido de código, así que pasó por un plan, la aprobación con «sí, cámbialo», EnterWorktree y build, y fue el dev, al chocar con plan-guard, quien corrió `ajuste.js propone`; el hilo principal la repitió y terminó el turno mostrándola. El «sí» que la aprobaría no se puede comprobar en `claude -p`: llega con origen `sdk`, que a propósito no abre la configuración. Lo cubre `tests/ajuste.test.js` con los hooks reales y el origen del composer que deja arnes-mod.
+- Gasto de la ronda en `claude -p`: US$4,86 entre la corrida A y las dos B.
+
 ## 11. Lo que NO se hace (lista anti-sobreingeniería)
 
 - Sin clasificador formal de 8 reglas: el orquestador decide si hay plan.
