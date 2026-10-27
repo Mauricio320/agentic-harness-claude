@@ -43,6 +43,12 @@
 //   grafo    al cerrar el plan: cuántas consultas al grafo hizo (las notas "consulta" que el guard anota
 //            por cada graphify query, explain o path desde el último start de plan) y si hay grafo en el
 //            proyecto; lo deja en la timeline (nota "grafo" de plan), que arnes-ui muestra en la etapa
+//   caminos "<texto>"
+//            los lugares del código que producen un texto que hoy sale en pantalla (un mensaje, un
+//            error), en cada workspace adoptable: donde está literal (git grep, sin specs ni docs) y,
+//            si está en una constante o una clave, cada lugar que la usa, con archivo:línea. Para el
+//            plan de un pedido que reemplaza ese mensaje: cada camino es un criterio y un caso de la
+//            prueba manual. Con uno solo, lo dice, y pide mirar la condición que lo dispara
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
@@ -53,6 +59,7 @@
 //      node plan-state.js tareas [--anota]
 //      node plan-state.js referencias
 //      node plan-state.js grafo
+//      node plan-state.js caminos "<texto>"
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
 // Exit: 0 hecho, aprobado, o status con plan aprobado · 1 status sin plan aprobado, approve/trivial
 //       negados (el motivo en stderr), o la rama no quedó ubicada en algún repo (el motivo en stdout)
@@ -67,7 +74,7 @@ const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifes
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { spawn } = require('child_process');
-const { help, die, onPath, quote } = require('./lib/exec.js');
+const { git, lines, help, die, onPath, quote } = require('./lib/exec.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
@@ -303,7 +310,48 @@ function grafo(project) {
   return 0;
 }
 
-module.exports = { status, start, finishDraft, approve, trivial, tareas, referencias, grafo };
+const I18N = /(^|\/)(i18n|locales?)\//i;
+const NOT_CODE = (f) => /\.(mdx?|txt|json|ya?ml|lock|snap)$/i.test(f) && !I18N.test(f);
+const SPEC = /(^|\/)(__tests?__\/|[^/]*\.(spec|test)\.[cm]?[jt]sx?$)/;
+
+function grepIn(dir, args) {
+  const r = git(dir, ['grep', '-n', '-I', ...args, '--']);
+  return r.status === 0 ? lines(r.stdout).map((l) => l.match(/^([^:]+):(\d+):(.*)$/)).filter(Boolean).map(([, file, line, text]) => ({ file, line: Number(line), text: text.trim() })) : [];
+}
+
+// Los lugares del código que producen un texto de la pantalla (un mensaje, un error): donde está
+// literal y, si está en una constante o una clave, cada lugar que la usa. → [{ file, line, text, via? }]
+function caminos(project, texto) {
+  const out = [];
+  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+    const rel = (f) => posix(path.relative(project.root, path.join(ws.dir, f)));
+    const keep = (h) => !SPEC.test(h.file) && !/(^|\/)docs?\//.test(h.file) && !NOT_CODE(h.file);
+    const literal = grepIn(ws.dir, ['-F', '-i', '-e', texto]).filter(keep);
+    for (const h of literal) {
+      const name = (h.text.match(/['"]?([A-Za-z_$][\w$.-]*)['"]?\s*[:=]\s*['"`]/) || [])[1];
+      const named = name && name.length > 2 && (/^[A-Z][A-Z0-9_]+$/.test(name) || I18N.test(h.file));
+      const uses = named ? grepIn(ws.dir, ['-F', '-e', name]).filter((u) => keep(u) && !(u.file === h.file && u.line === h.line) && !/^\s*(import|export)\b[^;]*\bfrom\b|\brequire\(/.test(u.text)) : [];
+      if (uses.length) for (const u of uses) out.push({ file: rel(u.file), line: u.line, text: u.text, via: `${name}, definida en ${rel(h.file)}:${h.line}` });
+      else out.push({ file: rel(h.file), line: h.line, text: h.text });
+    }
+  }
+  const seen = new Set();
+  return out.filter((c) => !seen.has(`${c.file}:${c.line}`) && seen.add(`${c.file}:${c.line}`));
+}
+
+function printCaminos(project, texto) {
+  const list = caminos(project, texto);
+  if (!list.length) {
+    console.log(`caminos de «${texto}»: ningún lugar del código lo trae textual; búscalo por sus palabras con el grafo o con Grep, y di en el plan cómo lo encontraste`);
+    return 0;
+  }
+  console.log(`caminos de «${texto}»: ${list.length} lugar(es) que lo producen${list.length === 1 ? '; uno solo: dilo en el plan, y mira la condición que lo dispara (una consulta que no encuentra puede no encontrar por varios motivos: borrado, inactivo, de otra empresa), cada motivo es un camino' : ''}`);
+  for (const c of list) console.log(`- ${c.file}:${c.line} · ${c.text.slice(0, 140)}${c.via ? ` (por ${c.via})` : ''}`);
+  console.log('cada camino va a los criterios con su archivo:línea, y la prueba manual trae un caso por camino');
+  return 0;
+}
+
+module.exports = { status, start, finishDraft, approve, trivial, tareas, referencias, grafo, caminos };
 
 function main() {
   let args;
@@ -327,9 +375,9 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js start --detail t | finish-draft | approve [--detail t] [--en-checkout] [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo';
+  const usage = 'uso: plan-state.js start --detail t | finish-draft | approve [--detail t] [--en-checkout] [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo | caminos "<texto>"';
   const placing = o['en-checkout'] || o['desde-otra'] || o.quedarse;
-  if (extra || !['start', 'finish-draft', 'status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  if ((extra && mode !== 'caminos') || (mode === 'caminos' && !(extra && extra.trim())) || !['start', 'finish-draft', 'status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo', 'caminos'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
   if ((placing && mode !== 'approve') || (o['desde-otra'] && o.quedarse) || (o.detail && !['start', 'approve'].includes(mode))) die(usage);
   if (mode === 'start' && !(o.detail && o.detail.trim())) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
@@ -341,6 +389,7 @@ function main() {
   if (mode === 'tareas') process.exit(tareas(project, o.anota));
   if (mode === 'referencias') process.exit(referencias(project));
   if (mode === 'grafo') process.exit(grafo(project));
+  if (mode === 'caminos') process.exit(printCaminos(project, extra.trim()));
   if (mode === 'approve') process.exit(approve(project, o.detail, { checkout: o['en-checkout'] || o['desde-otra'] || o.quedarse, fromOther: o['desde-otra'], stay: o.quedarse }));
   process.exit(trivial(project, o.pedido, o.criterio));
 }
