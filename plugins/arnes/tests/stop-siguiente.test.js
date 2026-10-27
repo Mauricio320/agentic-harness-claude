@@ -80,7 +80,7 @@ test('si la falla es de configuración, el Stop dice qué cambiar y que se aprue
   const dir = repo();
   rojo(dir, { step: 'lint', file: 'scripts/migrar.ts', what: 'Parsing error: scripts/migrar.ts was not found by the project service' });
   const r = stop(dir);
-  assert.match(r.out.reason, /La falla es de configuración: no la cambies tú; propónselo a la persona con ajuste\.js propone, con qué cambiar y por qué, y termina el turno: lo aprueba respondiendo que sí\./);
+  assert.match(r.out.reason, /La falla es de configuración: no la cambies tú; propónselo a la persona como propuesta de configuración, con qué cambiar y por qué \(el motivo con que se niega escribirla dice cómo\), y termina el turno: lo aprueba respondiendo que sí\./);
   const fin = stop(dir, true);
   assert.match(fin.out.systemMessage, /Lo que sigue: en api, la verificación falla por la configuración \(Parsing error: scripts\/migrar\.ts was not found by the project service en scripts\/migrar\.ts\): Claude te propone el cambio, y lo apruebas respondiendo que sí\.$/);
 });

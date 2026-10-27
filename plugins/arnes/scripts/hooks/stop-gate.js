@@ -340,7 +340,7 @@ function block(project, w) {
       red.length
         ? `la verificación quedó en rojo en ${red.map(([ws, n]) => `${ws} (${n.what})`).join(', ')}. ` +
             (config.length
-              ? `La falla es de configuración: no la cambies tú; propónselo a la persona con ajuste.js propone, con qué cambiar y por qué, y termina el turno: lo aprueba respondiendo que sí. `
+              ? `La falla es de configuración: no la cambies tú; propónselo a la persona como propuesta de configuración, con qué cambiar y por qué (el motivo con que se niega escribirla dice cómo), y termina el turno: lo aprueba respondiendo que sí. `
               : `Corrige y vuelve a verificar en este mismo turno, sin pedir permiso: en rojo se corrige, no se pregunta. `) +
             `La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano.`
         : `hay cambios de código sin verificar en ${plain(code)}. Corre la verificación antes de cerrar el turno: la marca de ` +
