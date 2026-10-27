@@ -19,9 +19,12 @@
 // lanzamiento), y si no vale se niega con su motivo, que dice relanzarlo sin esos campos; vale con los
 // de su definición, con lo que la persona pidió en su mensaje y el reviewer en sonnet en una ronda
 // acotada. Falla abierto, como lo demás.
+// En su camino de pregunta (signo de interrogación al inicio o al final, de la persona), el mod le pide
+// al plugin base los nodos del grafo para ese texto (lib/grafo.js consulta) y los adjunta como context,
+// y marca el origen con grafo para que UserPromptSubmit no consulte otra vez.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { AGENTS, ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, sha256, slash, spawnArgs, withOrigin } from './lib'
+import { AGENTS, ASK, GRAPH, GRAPH_TIMEOUT_MS, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, asksGraph, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, sha256, slash, spawnArgs, withOrigin } from './lib'
 import type { Prompt, Summary } from './lib'
 
 type $ = EngineInterface
@@ -55,13 +58,20 @@ async function state($: $): Promise<Summary | null> {
   return s
 }
 
-async function markOrigin($: $, e: Prompt): Promise<void> {
+async function markOrigin($: $, e: Prompt, grafo: boolean): Promise<void> {
   const cwd = slash(await $.session.cwd())
   const s = cache?.s && cache.cwd === cwd ? cache.s : await state($)
   if (!s) return
   const turn = await $.fs.read(s.turn).then((t) => JSON.parse(String(t))).catch(() => ({}))
-  const o = { kind: e.origin.kind, hash: await sha256(e.text), at: Date.now() }
+  const o = { kind: e.origin.kind, hash: await sha256(e.text), at: Date.now(), ...(grafo ? { grafo: true as const } : {}) }
   await $.fs.write(s.turn, JSON.stringify(withOrigin(turn, o), null, 2) + '\n')
+}
+
+async function graphContext($: $, text: string): Promise<string | null> {
+  const b = await findBase($)
+  if (!b) return null
+  const r = await $.process.run(['node', join(b, GRAPH), 'consulta', '--texto', text], { cwd: slash(await $.session.cwd()), timeoutMs: GRAPH_TIMEOUT_MS })
+  return r.exitCode === 0 && r.stdout.trim() ? r.stdout.trim() : null
 }
 
 async function asksForCode($: $, text: string): Promise<boolean> {
@@ -91,7 +101,12 @@ export const register: Register = (on) => {
   }).catch(($, e, next) => next(e))
 
   on('prompt.submit', async ($, e, next) => {
-    await markOrigin($, e).catch(() => null)
+    const graph = asksGraph(e) && Boolean(await findBase($).catch(() => null))
+    await markOrigin($, e, graph).catch(() => null)
+    if (graph) {
+      const ctx = await graphContext($, e.text).catch(() => null)
+      return next(ctx ? { ...e, context: [...(e.context ?? []), ctx] } : e)
+    }
     if (!candidate(e) || isQuestion(e.text)) return next(e)
     if (!asks(await state($))) return next(e)
     if (!(await asksForCode($, e.text))) return next(e)

@@ -88,3 +88,21 @@ test('sin graphify o sin grafo, start lo dice en una línea y no consulta nada',
   assert.match(h.run('plan-state.js', ['start', '--detail', 'x'], { cwd: dir, env: noGraphify }).stdout, /^grafo: hay en \., pero el comando graphify no está/m);
   assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 0);
 });
+
+test('una pregunta suelta con grafo: el hook del prompt mete los nodos como contexto; con el origen marcado por el mod, no consulta', () => {
+  const dir = h.tmp('grafo-pregunta');
+  h.repo(dir, { '.gitignore': '.tmp/\ngraphify-out/\n', '.claude/harness.json': h.repoManifest('ventas'), 'src/cuotas/cuota.service.ts': 'x\n' });
+  h.write(dir, 'graphify-out/graph.json', '{}');
+  h.write(dir, 'graphify-out/nodos.txt', 'NODE CuotaService [src=src/cuotas/cuota.service.ts loc=L12 community=Cuota]\n');
+  const ask = (prompt) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt, cwd: dir }, { env: h.withPath(GRAPHIFY) });
+  const r = ask('¿Dónde se calcula la cuota?');
+  assert.match(r.out.hookSpecificOutput.additionalContext, /arnes · grafo: para esta pregunta, el grafo de código \(\.\) trae estos nodos, con su archivo y su línea; empieza por ahí antes de buscar con Grep:\n- CuotaService · src\/cuotas\/cuota\.service\.ts:12/);
+  assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 1);
+  assert.doesNotMatch(JSON.stringify(ask('agrega una cuota nueva al servicio de cobros').out || {}), /grafo/, 'un pedido no es pregunta');
+
+  const crypto = require('crypto');
+  const text = '¿Quién usa la cuota?';
+  h.write(dir, '.tmp/harness/turn.json', JSON.stringify({ _origen: [{ kind: 'composer', hash: crypto.createHash('sha256').update(text).digest('hex'), at: Date.now(), grafo: true }] }));
+  assert.doesNotMatch(JSON.stringify(ask(text).out || {}), /arnes · grafo/, 'el mod ya los adjuntó');
+  assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 1, 'y no se pagó otra consulta');
+});

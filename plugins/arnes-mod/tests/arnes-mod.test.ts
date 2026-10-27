@@ -11,14 +11,14 @@ const TURN = 'C:/p/academico/.tmp/harness/turn.json'
 const PEDIDO = 'Agrega el campo email al formulario de talleres y su validación'
 
 type Model = 'SI' | 'NO' | 'sin respuesta' | 'falla'
-type State = { open?: boolean; prep?: string | null; project?: boolean }
+type State = { open?: boolean; prep?: string | null; project?: boolean; graph?: string }
 
 // Lo que está debajo del mod: el plugin base, que responde timeline.js summary --json con el estado
 // que diga el test; la fecha de la timeline, que el test mueve; turn.json, con la foto del turno que
 // dejó el hook; el modelo barato y la sesión, que guarda el prompt y el context con que entró. order
 // dice qué pasó antes: la escritura de turn.json o la entrada del prompt.
 function world(on: On, model: Model, state: State = {}) {
-  const seen = { asked: [] as string[], entered: [] as { text: string; context?: readonly string[] }[], summaries: 0, mtime: 1, order: [] as string[], turn: '{ "api": { "touchedHash": "t" } }' }
+  const seen = { graphs: [] as string[][], asked: [] as string[], entered: [] as { text: string; context?: readonly string[] }[], summaries: 0, mtime: 1, order: [] as string[], turn: '{ "api": { "touchedHash": "t" } }' }
   on('session.cwd', () => ({ value: 'C:/p/academico/api-academico' }))
   on('fs.exists', ($, e) => ({ value: e.path.replace(/\\/g, '/').endsWith('scripts/lib/timeline.js') }))
   on('fs.list', () => ({ value: [] }))
@@ -26,6 +26,10 @@ function world(on: On, model: Model, state: State = {}) {
   on('fs.read', ($, e) => ({ value: slash(e.path) === TURN ? seen.turn : '' }))
   on('fs.write', ($, e) => (seen.order.push(`escribe ${slash(e.path)}`), slash(e.path) === TURN && (seen.turn = e.text), { value: undefined }))
   on('process.run', ($, e) => {
+    if (e.argv[2] === 'consulta') {
+      seen.graphs.push(e.argv.slice(2))
+      return { value: { exitCode: 0, stdout: state.graph ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     const summary = e.argv[2] === 'summary' && state.project !== false
     if (e.argv[2] === 'summary') seen.summaries++
     const stdout = summary ? JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: !!state.open }, prep: state.prep ?? null }) : ''
@@ -41,7 +45,7 @@ function world(on: On, model: Model, state: State = {}) {
   return seen
 }
 
-const origins = (turn: string) => JSON.parse(turn)[ORIGIN] as { kind: string; hash: string; at: number }[]
+const origins = (turn: string) => JSON.parse(turn)[ORIGIN] as { kind: string; hash: string; at: number; grafo?: true }[]
 
 const typed = (text: string, more: object = {}) => ({ text, wait: false, origin: { kind: 'composer' as const }, ...more })
 
@@ -210,4 +214,18 @@ test('lib: spawnArgs pregunta solo por un arnes:* con model o effort', () => {
   expect(spawnArgs({ subagent_type: 'arnes:dev' })).toBeNull()
   expect(spawnArgs({ subagent_type: 'general-purpose', model: 'opus' })).toBeNull()
   expect(spawnArgs({ subagent_type: 'arnes:test-writer', effort: 'high' })).toEqual(['lanzamiento', '--type', 'arnes:test-writer', '--effort', 'high'])
+})
+
+const NODES = ['arnes · grafo: para esta pregunta…', '- TallerService · api/src/talleres/taller.service.ts:12'].join('\n')
+
+test('una pregunta de la persona entra con los nodos del grafo que da el plugin base, y el origen queda con grafo para que el hook no consulte otra vez', async ($, on) => {
+  const seen = world(on, 'NO', { graph: `${NODES}\n` })
+  await $.prompt.submit(typed('¿Dónde se crean los talleres?'))
+  expect(seen.graphs).toEqual([['consulta', '--texto', '¿Dónde se crean los talleres?']])
+  expect(seen.asked).toEqual([])
+  expect(seen.entered[0]!.context).toEqual([NODES])
+  expect(origins(seen.turn).pop()!.grafo).toBe(true)
+  await $.prompt.submit(typed(PEDIDO))
+  expect(origins(seen.turn).pop()!.grafo).toBeUndefined()
+  expect(seen.graphs.length).toBe(1)
 })

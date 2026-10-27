@@ -73,14 +73,12 @@ const { parseArgs } = require('util');
 const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
-const { spawn } = require('child_process');
-const { git, lines, help, die, onPath, quote } = require('./lib/exec.js');
+const { git, lines, help, die } = require('./lib/exec.js');
+const { graphDirs, queryProject } = require('./lib/grafo.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
 
-const GRAPH_TIMEOUT_MS = 120000;
-const GRAPH_NODES = 12;
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
@@ -106,57 +104,15 @@ function workspaceLine(ws) {
   return `- ${where} · ${ws.stack || 'sin stack'} · riskPaths: ${(ws.riskPaths || []).join(', ') || 'ninguna declarada'} · ${contract}${docs ? ` · lee ${docs}` : ''}`;
 }
 
-const graphDirs = (project) => [project.root, ...new Set(project.workspaces.map((w) => w.repo))].filter((d, i, all) => all.indexOf(d) === i && fs.existsSync(path.join(d, 'graphify-out', 'graph.json')));
-const relOf = (project, d) => posix(path.relative(project.root, d)) || '.';
-
-function graphQuery(dir, text) {
-  return new Promise((resolve) => {
-    const began = Date.now();
-    let out = '';
-    const p = spawn(`graphify query ${quote(text)} --budget 1500`, { cwd: dir, shell: true, windowsHide: true });
-    const timer = setTimeout(() => p.kill(), GRAPH_TIMEOUT_MS);
-    p.stdout.on('data', (d) => (out += d));
-    p.stderr.on('data', (d) => (out += d));
-    p.on('error', () => resolve({ dir, out, ms: Date.now() - began }));
-    p.on('close', () => (clearTimeout(timer), resolve({ dir, out, ms: Date.now() - began })));
-  });
-}
-
-// El archivo de un nodo, relativo a la raíz del proyecto. El grafo de una carpeta trae las rutas sin el
-// repo delante: es el primer repo donde existe.
-function nodeFile(project, dir, src) {
-  const owners = dir === project.root ? [...new Set(project.workspaces.map((w) => w.repo)), project.root] : [dir];
-  const owner = owners.find((d) => fs.existsSync(path.join(d, src))) || dir;
-  return posix(path.relative(project.root, path.join(owner, src)));
-}
-
-// Las consultas que start le hace al grafo con el texto del pedido, en paralelo en la carpeta y en cada
-// repo que lo tiene, cada una anotada en la timeline como las del modelo. → líneas para la salida
+// Las consultas que start le hace al grafo con el texto del pedido (lib/grafo.js). → líneas para la salida
 async function graphStart(project, detail) {
   const dirs = graphDirs(project);
   if (!dirs.length) return ['grafo: no hay; ubica el código con Grep por los nombres del pedido y abre un módulo parecido'];
-  const where = dirs.map((d) => relOf(project, d)).join(', ');
-  if (!onPath('graphify')) return [`grafo: hay en ${where}, pero el comando graphify no está; ubica el código con Grep`];
-  const text = [...detail.replace(/[^\p{L}\p{N}\s.,:;¿?()'/_-]/gu, ' ').replace(/\s+/g, ' ').trim()].slice(0, 200).join('');
-  const began = Date.now();
-  const results = await Promise.all(dirs.map((d) => graphQuery(d, text)));
-  const seen = new Set();
-  const nodes = [];
-  for (const r of results) {
-    append(project.root, { event: 'note', stage: 'grafo', result: 'consulta', detail: `query ${text} (start, ${relOf(project, r.dir)})`.slice(0, 160) });
-    let n = 0;
-    for (const m of r.out.matchAll(/^NODE (.+?) \[src=(\S+) loc=L(\d+)/gm)) {
-      const file = nodeFile(project, r.dir, m[2]);
-      if (n >= GRAPH_NODES || /\.mdx?$/i.test(file) || /(^|\/)docs?\//.test(file) || seen.has(`${file}:${m[3]}`)) continue;
-      seen.add(`${file}:${m[3]}`);
-      nodes.push(`- ${m[1]} · ${file}:${m[3]}`);
-      n++;
-    }
-  }
-  const took = `${(Math.round((Date.now() - began) / 100) / 10).toString().replace('.', ',')} s`;
-  const head = `grafo: start lo consultó con «${text}» en ${where}, en paralelo (${took})`;
-  if (!nodes.length) return [`${head}; no encontró nodos para el pedido: ubica el código con Grep por sus nombres`];
-  return [`${head}; los nodos que encontró, con su archivo y su línea, son el punto de partida:`, ...nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
+  const q = await queryProject(project, detail, 'start');
+  if (!q) return [`grafo: hay en ${dirs.map((d) => posix(path.relative(project.root, d)) || '.').join(', ')}, pero el comando graphify no está; ubica el código con Grep`];
+  const head = `grafo: start lo consultó con «${q.text}» en ${q.dirs.join(', ')}, en paralelo (${q.took}${q.late ? ', alguno pasó del tope' : ''})`;
+  if (!q.nodes.length) return [`${head}; no encontró nodos para el pedido: ubica el código con Grep por sus nombres`];
+  return [`${head}; los nodos que encontró, con su archivo y su línea, son el punto de partida:`, ...q.nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
 }
 
 async function start(project, detail) {
