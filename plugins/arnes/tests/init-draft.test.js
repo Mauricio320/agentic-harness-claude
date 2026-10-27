@@ -92,6 +92,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
         testAll: 'npx jest',
         build: 'npm run build',
       },
+      lintGlobs: ['src/**/*.ts'],
       specPattern: ['{ancestor}/__test__/{name}.spec.ts', '{dir}/__test__/{name}.spec.ts', '{dir}/{name}.spec.ts'],
       regeneratesNodeModules: ['prisma/schema.prisma'],
       forbidden: ['npm run lint', 'npm run format', 'prisma migrate dev', 'prisma migrate deploy', 'prisma migrate reset', 'prisma migrate resolve', 'prisma db push', 'prisma db seed', 'prisma db execute'],

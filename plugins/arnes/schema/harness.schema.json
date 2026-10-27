@@ -68,6 +68,7 @@
         "riskPaths": { "$ref": "#/$defs/globs" },
         "forbidden": { "type": "array", "items": { "$ref": "#/$defs/command" } },
         "codeGlobs": { "$ref": "#/$defs/globs" },
+        "lintGlobs": { "description": "El alcance del lint del repo, globs relativos al workspace: el lint de los tocados solo corre sobre lo que cae aquí, y lo demás sale como fuera del alcance, sin ser falla. init lo saca del script lint del package.json o del include del tsconfig.json. Sin él, se lintea todo lo tocado.", "$ref": "#/$defs/globs" },
         "sharedPaths": { "$ref": "#/$defs/globs" },
         "secretPaths": { "description": "Globs, relativos al workspace, que el guard de lectura no deja abrir; se suman a la lista fija (.env, llaves, credenciales).", "$ref": "#/$defs/globs" },
         "envReveal": { "description": "Nombres de variables, o patrones con * (PORT, NODE_ENV, *_HOST), cuyo valor se muestra entero cuando el guard niega leer un .env y lo muestra enmascarado. Nada más se revela.", "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.*-]+$" } },

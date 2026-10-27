@@ -10,7 +10,8 @@
 //
 // Sale en silencio si: no hay manifiesto subiendo desde el cwd, el archivo no pertenece a ningún
 // workspace, el workspace no es adoptable, el archivo no cae en codeGlobs o ya no existe, o el
-// lint pasa sin hallazgos. Un comando lint sin {files} lintea el workspace entero: no se corre.
+// lint pasa sin hallazgos. Un comando lint sin {files} lintea el workspace entero: no se corre; un
+// archivo fuera del alcance de lint del repo (lintGlobs) tampoco.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -22,6 +23,7 @@ const { loadProject, resolveWorkspace, harnessDir } = require('../lib/manifest.j
 const { matchAny } = require('../lib/glob.js');
 const { runExpanded, tail } = require('../lib/exec.js');
 const tb = require('../typecheck-baseline.js');
+const { splitLint } = require('../lib/lint.js');
 
 const DEBOUNCE_MS = 20 * 1000;
 const RESCUE_MS = 60 * 1000;
@@ -29,7 +31,7 @@ const MAX_CHARS = 4000;
 
 function lint(ws, rel) {
   const cmd = ws.commands.lint;
-  if (!cmd || !cmd.includes('{files}')) return null;
+  if (!cmd || !cmd.includes('{files}') || !splitLint(ws, [rel]).inside.length) return null;
   const r = runExpanded(cmd, ws.dir, { files: [rel] });
   if (r.status === 0) return null;
   return `lint de ${rel} en ${ws.name} (exit ${r.status}):\n${tail(r.out, 40)}`;

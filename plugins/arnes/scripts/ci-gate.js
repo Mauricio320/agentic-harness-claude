@@ -8,7 +8,8 @@
 //      base sea el mismo.
 //   2. convenciones: las reglas conventions del manifiesto sobre lo que cambió en los tocados de
 //      código (conventions.js), antes del lint: lo mecánico no llega al reviewer
-//   3. lint sobre los tocados que caen en codeGlobs
+//   3. lint sobre los tocados que caen en codeGlobs y en el alcance de lint del repo (lintGlobs); los
+//      que quedan fuera salen en una línea, «fuera del alcance de lint del repo», y no son falla
 //   4. tests que elige test-select; suite completa con testAll si toca sharedPaths. Se juzgan con
 //      test-baseline.js leyendo el contrato estructurado de resultados ($defs.testResultContract):
 //      contra la línea base de tests commiteada, si el workspace la tiene, y con las fallas de
@@ -38,6 +39,7 @@ const { touched } = require('./touched-files.js');
 const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
 const conventions = require('./conventions.js');
+const { splitLint } = require('./lib/lint.js');
 const { writeLast } = require('./gate-flag.js');
 const issues = require('./lib/issues.js');
 
@@ -177,10 +179,13 @@ function stepConventions(ws, code, base) {
 function stepLint(ws, code) {
   const cmd = ws.commands.lint;
   if (!cmd) return { status: 'omitido', detail: 'sin commands.lint' };
-  const r = runExpanded(cmd, ws.dir, { files: code });
+  const { inside, outside } = splitLint(ws, code);
+  const out = outside.length ? `fuera del alcance de lint del repo: ${outside.join(', ')}` : '';
+  if (!inside.length) return { status: 'omitido', detail: 'ningún tocado en el alcance de lint del repo', out };
+  const r = runExpanded(cmd, ws.dir, { files: inside });
   return r.status === 0
-    ? { status: 'ok', detail: `${code.length} archivo(s)` }
-    : { status: 'falla', detail: `exit ${r.status}`, out: tail(r.out, 30), first: firstLint(r.out, ws.dir) };
+    ? { status: 'ok', detail: `${inside.length} archivo(s)`, out }
+    : { status: 'falla', detail: `exit ${r.status}`, out: [out, tail(r.out, 30)].filter(Boolean).join('\n'), first: firstLint(r.out, ws.dir) };
 }
 
 // Los specs de test-select, juzgados contra la línea base de tests y las fallas conocidas.

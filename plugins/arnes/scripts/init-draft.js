@@ -15,7 +15,8 @@
 // ellas (src/app/**/interfaces/**). La nota dice las cuentas. Sin ninguna señal no hay contract, y
 // la nota lo dice: nunca se inventa.
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
-// lint (eslint con configuración), test (jest, vitest, o Karma por el builder de test de angular.json,
+// lint (eslint con configuración, y su alcance en lintGlobs: los globs del script lint del package.json
+// o el include del tsconfig.json, lib/lint.js), test (jest, vitest, o Karma por el builder de test de angular.json,
 // con un --include por spec: npx ng test --watch=false --browsers=ChromeHeadless --include {specs}),
 // build, specPattern (formatos que
 // aparecen en git ls-files), forbidden (los scripts del package.json como se teclean con el gestor
@@ -62,6 +63,7 @@ const { manifestElsewhere, missingManifest, adoptionElsewhere } = require('./lib
 const { databaseForbidden, afterBuildDraft, typed } = require('./lib/database.js');
 const { matchAny } = require('./lib/glob.js');
 const { karmaTarget } = require('./lib/karma-config.js');
+const { lintScope } = require('./lib/lint.js');
 
 const SPEC_RE = /(?:^|\/)([^/]+)\.(spec|test)\.([cm]?[jt]sx?)$/;
 const RISK = [
@@ -342,6 +344,7 @@ function detectRepo(dir) {
     if (has('tsconfig.spec.json')) commands.typecheck.push('npx tsc -p tsconfig.spec.json --noEmit');
   } else if (deps.typescript && has('tsconfig.json')) commands.typecheck = ['npx tsc --noEmit'];
   if (deps.eslint && ESLINT_CONFIGS.some(has)) commands.lint = 'npx eslint {files} --max-warnings=0 --no-warn-ignored';
+  const scope = commands.lint ? lintScope(dir, pkg) : null;
   if (deps.jest) Object.assign(commands, { test: 'npx jest {specs} --runTestsByPath --verbose', testAll: 'npx jest' });
   else if (deps.vitest) Object.assign(commands, { test: 'npx vitest run {specs}', testAll: 'npx vitest run' });
   else if (karmaTarget(dir)) commands.test = 'npx ng test --watch=false --browsers=ChromeHeadless --include {specs}';
@@ -364,6 +367,7 @@ function detectRepo(dir) {
     defaultBranch: defaultBranch(dir),
     stack: stackOf(deps, composer),
     commands,
+    lintGlobs: scope ? scope.globs : undefined,
     specPattern: specPatterns(dir),
     conventions: CONVENTIONS,
     riskPaths: risk.paths.length ? risk.paths : undefined,
@@ -372,7 +376,7 @@ function detectRepo(dir) {
     afterBuild: afterBuildDraft(pkg, pm, has('.env.example') ? fs.readFileSync(path.join(dir, '.env.example'), 'utf8') : '') || undefined,
   };
   for (const k of Object.keys(ws)) if (ws[k] === undefined) delete ws[k];
-  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] }, risk };
+  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] }, risk, lintFrom: scope && scope.from };
 }
 
 function riskNotes(name, risk) {
@@ -402,7 +406,7 @@ function draft(root) {
     const r = detectRepo(root);
     if (!r.adoptable) return { error: `${path.basename(root)}: ${r.reason}; no hay manifiesto que generar` };
     where(root, path.basename(root));
-    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest, risk: r.risk });
+    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom });
   } else {
     const repos = [];
     const sides = [];
@@ -417,7 +421,7 @@ function draft(root) {
       const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: compositionBranch(dir), contract };
       for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
       repos.push(entry);
-      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest, risk: r.risk });
+      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
@@ -433,6 +437,7 @@ function draft(root) {
       if (ws.forbidden) notes.push(`prohibido     ${ws.name}: ${ws.forbidden.map(code).join(', ')}; reescriben archivos o tocan una base, y los corre la persona`);
       if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);
+      else if (ws.lintGlobs) notes.push(`lint          ${ws.name}: acotado a ${ws.lintGlobs.map(code).join(', ')}, de ${d.lintFrom}; un tocado fuera de ahí no se lintea, como en el repo`);
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);
     }
   }

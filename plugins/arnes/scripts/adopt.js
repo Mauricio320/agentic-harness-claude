@@ -41,7 +41,8 @@
 //                           init-draft propondría: conventions de cada workspace si no tiene, riskPaths
 //                           si no declara ninguna, las entradas de forbidden que faltan (scripts con
 //                           --fix o --write y lo que toca una base), afterBuild si hay scripts de sync
-//                           y, en la composición, el contract de cada repo que no lo declara,
+//                           lintGlobs si el workspace tiene lint sin acotar (el alcance de lint
+//                           del repo, lib/lint.js) y, en la composición, el contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
 //   graph [--write]         el grafo de graphify de cada repo adoptable y, en una carpeta, el merge en
@@ -85,7 +86,7 @@ const tb = require('./test-baseline.js');
 const { ownScript, MAX_CLAUDE_MD } = require('./adoption-check.js');
 const adopcion = require('./lib/adopcion.js');
 
-const FIELDS = ['conventions', 'riskPaths', 'forbidden', 'afterBuild', 'contract'];
+const FIELDS = ['conventions', 'riskPaths', 'forbidden', 'afterBuild', 'contract', 'lintGlobs'];
 const MARKETPLACE = 'agentic-harness';
 const MAIN = 'main';
 const PLUGINS = ['arnes', 'arnes-ui', 'arnes-mod'];
@@ -300,6 +301,9 @@ function gaps(project) {
     }
     if (!at(readJson(ws.manifest)).riskPaths && want.riskPaths) {
       out.push({ file: ws.manifest, where: ws.name, field: 'riskPaths', value: want.riskPaths, apply: (data) => void (at(data).riskPaths = want.riskPaths) });
+    }
+    if (ws.commands.lint && !ws.lintGlobs && want.lintGlobs) {
+      out.push({ file: ws.manifest, where: ws.name, field: 'lintGlobs', value: want.lintGlobs, apply: (data) => void (at(data).lintGlobs = want.lintGlobs) });
     }
     if (!ws.afterBuild && want.afterBuild) {
       out.push({ file: ws.manifest, where: ws.name, field: 'afterBuild', value: want.afterBuild, apply: (data) => void (at(data).afterBuild = want.afterBuild) });
