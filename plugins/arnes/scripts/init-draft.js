@@ -18,9 +18,10 @@
 // lint (eslint con configuración), test (jest, vitest, o Karma por el builder de test de angular.json,
 // con un --include por spec: npx ng test --watch=false --browsers=ChromeHeadless --include {specs}),
 // build, specPattern (formatos que
-// aparecen en git ls-files), forbidden (scripts con --fix o --write, y lo que toca una base: los
-// scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre y las escrituras de
-// prisma, typeorm y knex, lib/database.js), afterBuild si hay scripts de sync (el build y los sync,
+// aparecen en git ls-files), forbidden (los scripts del package.json como se teclean con el gestor
+// del repo, npm run x, pnpm x o yarn x: los que reescriben archivos con --fix o --write, y los que
+// tocan una base por su nombre, migraciones, esquema o consultas, o por su comando, y las escrituras
+// de la CLI de prisma, typeorm y knex, lib/database.js), afterBuild si hay scripts de sync (el build y los sync,
 // solo con la base local del .env), riskPaths, remote y rama por defecto.
 // riskPaths son las rutas trackeadas cuyo nombre trae, como palabra completa (sin tildes ni
 // mayúsculas, camelCase partido), una de las categorías de RISK: autenticación, roles y permisos de
@@ -58,7 +59,7 @@ const { parseArgs } = require('util');
 const { MANIFEST, validate, kebab, posix } = require('./lib/manifest.js');
 const { git, lines, help, die } = require('./lib/exec.js');
 const { manifestElsewhere, missingManifest, adoptionElsewhere } = require('./lib/branches.js');
-const { databaseForbidden, afterBuildDraft } = require('./lib/database.js');
+const { databaseForbidden, afterBuildDraft, typed } = require('./lib/database.js');
 const { matchAny } = require('./lib/glob.js');
 const { karmaTarget } = require('./lib/karma-config.js');
 
@@ -352,7 +353,7 @@ function detectRepo(dir) {
   const remote = git(dir, ['remote', 'get-url', 'origin']);
   const forbidden = Object.entries(pkg.scripts || {})
     .filter(([, s]) => /(^|\s)--(fix|write)\b/.test(s))
-    .map(([k]) => `${pm} run ${k}`);
+    .map(([k]) => typed(pm, k));
   for (const f of databaseForbidden(pkg, pm)) if (!forbidden.includes(f)) forbidden.push(f);
   const risk = riskPathsFor(dir);
   const ws = {
@@ -429,7 +430,7 @@ function draft(root) {
   for (const d of drafts.filter((x) => !fs.existsSync(x.file))) {
     for (const ws of d.data.workspaces || []) {
       notes.push(...riskNotes(ws.name, d.risk));
-      if (ws.forbidden) notes.push(`prohibido     ${ws.name}: ${ws.forbidden.join(', ')}; reescriben archivos o tocan una base, y los corre la persona`);
+      if (ws.forbidden) notes.push(`prohibido     ${ws.name}: ${ws.forbidden.map(code).join(', ')}; reescriben archivos o tocan una base, y los corre la persona`);
       if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);

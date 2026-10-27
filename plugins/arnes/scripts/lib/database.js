@@ -8,8 +8,11 @@
 const fs = require('fs');
 const path = require('path');
 
-// Un script del package.json toca una base si su nombre lo dice.
-const SCRIPT_NAME = /(sync|migrate|migrar|push|deploy|seed|reset)/i;
+// Un script del package.json toca una base si su nombre lo dice: corre migraciones (migrate,
+// migration:run, migrar), sincroniza o borra el esquema (sync, schema, drop, fresh, reset) o la
+// consulta (query); o si su comando abre un cliente de la base.
+const SCRIPT_NAME = /(sync|migrat|migrar|migrac|push|deploy|seed|reset|schema|drop|fresh|query)/i;
+const DB_CLI = /(^|[\s"'`&;|])(psql|mysql|mariadb|sqlcmd|mongosh|mongo|sqlite3|redis-cli)(?=$|\s)/;
 
 // Los subcomandos de prisma, typeorm y knex que escriben. Los que solo leen (prisma migrate status,
 // knex migrate:status) quedan fuera.
@@ -21,6 +24,9 @@ const TOOLS = {
 const WRITES = new RegExp(`(^|[\\s"'\`&;|])(${Object.values(TOOLS).flat().map((c) => c.replace(/ /g, '\\s+')).join('|')})(?=$|[\\s"'\`&;|])`);
 const RUN = /^\s*(?:npm|pnpm|yarn)\s+(?:run(?:-script)?\s+)?([^\s]+)/;
 
+// Un script como se teclea con el gestor del repo: npm run x, pnpm x, yarn x.
+const typed = (pm, name) => (pm === 'npm' ? `npm run ${name}` : `${pm} ${name}`);
+
 // El texto de un comando o de una entrada de forbidden: un script que se llama como una escritura,
 // o una herramienta que escribe.
 function touchesDatabase(cmd) {
@@ -28,13 +34,14 @@ function touchesDatabase(cmd) {
   return Boolean((run && SCRIPT_NAME.test(run[1])) || WRITES.test(cmd));
 }
 
-// Lo que va en forbidden para un repo: los scripts que tocan una base, por su nombre o porque su
-// comando corre una escritura de prisma, typeorm o knex, y esas escrituras si la herramienta está en
-// las dependencias. `pm` es el gestor con que se corren los scripts.
+// Lo que va en forbidden para un repo: los scripts que tocan una base, por su nombre, porque su
+// comando corre una escritura de prisma, typeorm o knex, o porque abre un cliente de la base, como se
+// teclean con `pm`, el gestor del repo; y las escrituras de la CLI de esas herramientas si están en
+// las dependencias, por si se invocan directo.
 function databaseForbidden(pkg, pm = 'npm') {
   const out = [];
   for (const [name, body] of Object.entries((pkg && pkg.scripts) || {})) {
-    if (SCRIPT_NAME.test(name) || WRITES.test(String(body))) out.push(`${pm} run ${name}`);
+    if (SCRIPT_NAME.test(name) || WRITES.test(String(body)) || DB_CLI.test(String(body))) out.push(typed(pm, name));
   }
   const deps = { ...(pkg && pkg.dependencies), ...(pkg && pkg.devDependencies) };
   if (deps.prisma || deps['@prisma/client']) out.push(...TOOLS.prisma);
@@ -122,4 +129,4 @@ function afterBuildDraft(pkg, pm, example) {
   };
 }
 
-module.exports = { SCRIPT_NAME, TOOLS, DB_URL, DB_VAR, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };
+module.exports = { typed, SCRIPT_NAME, TOOLS, DB_URL, DB_VAR, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };

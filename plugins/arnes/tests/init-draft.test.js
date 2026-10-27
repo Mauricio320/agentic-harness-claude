@@ -107,7 +107,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
   assert.match(r.stderr, /no adoptable\s+academicoBitbuckett: solo composer\.json/);
   assert.match(r.stderr, /sin lint\s+client/);
   assert.match(r.stderr, /^sin riskPaths api: ninguna carpeta ni archivo se llama como autenticación, roles y permisos de sistema, migraciones y herramientas de migración, aprobaciones de dinero, autorización y aprobador$/m);
-  assert.match(r.stderr, /^prohibido +api: npm run lint, npm run format, prisma migrate dev, .*; reescriben archivos o tocan una base, y los corre la persona$/m);
+  assert.match(r.stderr, /^prohibido +api: `npm run lint`, `npm run format`, `prisma migrate dev`, .*; reescriben archivos o tocan una base, y los corre la persona$/m);
 });
 
 test('riskPaths: la carpeta más alta cuyo nombre lo dice, o el archivo, sin specs ni carpetas con punto, y de dónde salen', () => {
@@ -384,4 +384,45 @@ test('la sección de contrato del CLAUDE.md del repo manda sobre las carpetas', 
   });
   const { contractOf } = require('../scripts/init-draft.js');
   assert.deepEqual(contractOf(dir, 'angular'), { contract: { consumes: ['src/app/api/modelos/**', 'src/app/api/clientes/*.ts'] }, why: 'la sección de contrato de su CLAUDE.md' });
+});
+
+test('lo prohibido sale de los scripts del package.json, como se teclean con el gestor del repo: migraciones, esquema, consultas y reescrituras', () => {
+  const scripts = {
+    build: 'nest build',
+    start: 'nest start',
+    format: 'prettier --write "src/**/*.ts"',
+    lint: 'eslint "{src,test}/**/*.ts" --fix',
+    'migration:run': 'ts-node -r tsconfig-paths/register tools/run-migrations.ts',
+    'migration:revert': 'ts-node tools/revert-migration.ts',
+    'migration:fresh': 'ts-node tools/migration-fresh.ts',
+    'schema:drop': 'ts-node tools/drop-schema.ts',
+    'db:consola': 'psql "$DATABASE_URL"',
+    'reporte:ventas': 'node scripts/reporte.js',
+  };
+  const dir = h.tmp('init-prohibido');
+  h.repo(dir, { 'package.json': JSON.stringify({ name: 'x', scripts, dependencies: { '@nestjs/core': '11', typeorm: '0.3' }, devDependencies: { typescript: '5', jest: '30' } }), 'tsconfig.json': '{}', 'src/a.ts': 'x' });
+  const r = h.run('init-draft.js', [], { cwd: dir });
+  const [ws] = parseDrafts(r.stdout)['.claude/harness.json'].workspaces;
+  assert.deepEqual(ws.forbidden, [
+    'npm run format', 'npm run lint',
+    'npm run migration:run', 'npm run migration:revert', 'npm run migration:fresh', 'npm run schema:drop', 'npm run db:consola',
+    'typeorm migration:run', 'typeorm migration:revert', 'typeorm schema:sync', 'typeorm schema:drop', 'typeorm query',
+  ]);
+  assert.match(r.stderr, /^prohibido +arnes-init-prohibido-\S+: `npm run format`, `npm run lint`, `npm run migration:run`, /m);
+
+  const pnpm = h.tmp('init-prohibido-pnpm');
+  h.repo(pnpm, { 'package.json': JSON.stringify({ name: 'x', scripts: { 'migration:run': 'ts-node tools/run.ts', format: 'prettier --write .' }, devDependencies: { typescript: '5', jest: '30' } }), 'pnpm-lock.yaml': '', 'tsconfig.json': '{}', 'src/a.ts': 'x' });
+  const [p] = parseDrafts(h.run('init-draft.js', [], { cwd: pnpm }).stdout)['.claude/harness.json'].workspaces;
+  assert.deepEqual(p.forbidden, ['pnpm format', 'pnpm migration:run']);
+});
+
+test('el guard frena npm run migration:run cuando init lo dejó en forbidden', () => {
+  const dir = h.tmp('init-prohibido-guard');
+  h.repo(dir, { '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', forbidden: ['npm run migration:run', 'pnpm migration:run'] })), 'src/a.ts': 'x' });
+  const guard = (command) => h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: dir });
+  const denied = (r) => Boolean(r.out && r.out.hookSpecificOutput && r.out.hookSpecificOutput.permissionDecision === 'deny');
+  assert.ok(denied(guard('npm run migration:run')));
+  assert.match(guard('npm run migration:run').out.hookSpecificOutput.permissionDecisionReason, /toca una base/);
+  assert.ok(denied(guard('pnpm migration:run')));
+  assert.ok(!denied(guard('npm run build')));
 });
