@@ -12,7 +12,7 @@ export type Probe = { label: string; ws?: string; col?: Col; gate?: boolean }
 const SCRIPTS = /[\\/]scripts[\\/](ci-gate|verify|typecheck-baseline|test-select)\.js/
 export const SKILLS: Record<string, string | null> = {
   plan: 'Planeando', build: 'Construyendo', verify: 'Verificando', review: 'Revisando', ship: 'Entregando',
-  memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', adopcion: 'Adoptando', timeline: null,
+  memory: 'Guardando memoria', init: 'Inicializando', setup: 'Preparando', sync: 'Sincronizando', worktree: 'Worktrees', adopcion: 'Adoptando', ajuste: 'Ajustando configuración', timeline: null,
 }
 
 export const slash = (p: string) => p.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')

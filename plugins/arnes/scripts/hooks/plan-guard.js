@@ -28,7 +28,7 @@ const { loadProject, resolveWorkspace, harnessDir } = require('../lib/manifest.j
 const { matchAny } = require('../lib/glob.js');
 const { read, planState } = require('../lib/timeline.js');
 const { projectFor } = require('../worktree-ledger.js');
-const { configRoot, configHome, prepAt, missingManifest } = require('../lib/configuracion.js');
+const { configRoot, configHome, prepAt, missingManifest, AJUSTE } = require('../lib/configuracion.js');
 
 // El reviewer escribe solo su reporte: cualquier Edit o Write suyo fuera de .tmp/harness/review del
 // proyecto se niega. El input del hook trae agent_type dentro de un subagente (arnes:reviewer) y no
@@ -43,15 +43,16 @@ function reviewerGuard(input, cwd, abs) {
 }
 const file = (p) => p.split(path.sep).join('/');
 
-// La configuración solo cambia con init o setup en curso, en la timeline del proyecto al que pertenece
-// (la de la carpeta, si el repo está en una).
+// La configuración solo cambia con init, setup o un ajuste aprobado en curso, en la timeline del
+// proyecto al que pertenece (la de la carpeta, si el repo está en una). El motivo dice cómo proponer el
+// cambio para que la persona lo apruebe en el chat (ajuste.js).
 function configGuard(abs) {
   const root = configRoot(abs);
   const home = root && configHome(root);
   if (!home || prepAt(home)) return null;
   return deny(
     `arnes guard: ${file(abs)} es configuración del proyecto (las reglas del arnés, o los permisos, hooks o reglas de Claude Code): ` +
-      `solo cambia con /arnes:init, que corre la persona, o la cambia ella. Dile qué quieres cambiar y por qué; no la escribas tú, tampoco con un plan aprobado.`,
+      `no la escribas sin que la persona lo apruebe, tampoco con un plan aprobado. ${AJUSTE}`,
   );
 }
 

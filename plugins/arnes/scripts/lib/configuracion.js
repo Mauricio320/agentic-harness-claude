@@ -2,7 +2,8 @@
 // La configuración de un proyecto del arnés (docs/PLAN.md §6.2): bajo un .claude/, el harness.json
 // (riskPaths, forbidden, codeGlobs), settings.json y settings.local.json (permisos y hooks de Claude
 // Code), rules/ (las reglas duras que cita el reviewer) y hooks/. Son las reglas que el arnés le aplica
-// al modelo: fuera de init o setup en curso, el modelo no las cambia, ni con Edit o Write
+// al modelo: fuera de init, setup o un ajuste aprobado por la persona en curso (AJUSTE dice cómo
+// proponerlo, ajuste.js), el modelo no las cambia, ni con Edit o Write
 // (plan-guard), ni por el shell ni en un commit (guard). Fuera de un proyecto del arnés no se juzga.
 
 const fs = require('fs');
@@ -14,6 +15,8 @@ const { projectFor } = require('../worktree-ledger.js');
 
 const CONFIG = /(^|[\\/])\.claude[\\/](harness\.json|settings(\.local)?\.json|rules|hooks)([\\/]|$)/i;
 // Lo mismo como pathspecs de git, relativas a la raíz del repo.
+const AJUSTE_JS = path.resolve(__dirname, '..', 'ajuste.js').split(path.sep).join('/');
+const AJUSTE = `Si el cambio hace falta, propónselo: corre node "${AJUSTE_JS}" propone --archivo <ruta> --detalle "<qué cambia y por qué>", muéstrale la propuesta y termina el turno. Si responde que sí, node "${AJUSTE_JS}" aprueba abre la configuración solo ese turno. Ella también puede escribir /arnes:init --ajustar.`;
 const CONFIG_SPEC = ['.claude/harness.json', '.claude/settings.json', '.claude/settings.local.json', '.claude/rules', '.claude/hooks'];
 
 // La carpeta que tiene el .claude/ de esa configuración, o null si la ruta no es configuración.
@@ -56,4 +59,4 @@ function missingManifest(dir) {
   return git(root, ['cat-file', '-e', `HEAD:${MANIFEST.split(path.sep).join('/')}`]).status === 0 ? root : null;
 }
 
-module.exports = { CONFIG_SPEC, configRoot, configProject, configHome, prepAt, missingManifest };
+module.exports = { AJUSTE, CONFIG_SPEC, configRoot, configProject, configHome, prepAt, missingManifest };

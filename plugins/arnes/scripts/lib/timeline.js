@@ -96,9 +96,10 @@ function planState(entries) {
 // Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end ni un
 // start de plan después, de menos de dos horas, para que una skill cortada no lo deje así para
 // siempre), el aviso de UserPromptSubmit que pide cargar arnes:plan no se inyecta y arnes-mod no
-// pregunta. init y setup anotan su end en el mismo turno; prepInTurn dice si alguna corrió en el turno
+// pregunta. ajuste es el cambio de configuración que la persona aprobó en el chat (ajuste.js): abre lo
+// mismo que init, solo ese turno. init y setup anotan su end en el mismo turno; prepInTurn dice si alguna corrió en el turno
 // que está cerrando: un start o un end después de la última nota "cerrado" del turno.
-const PREP = ['init', 'setup'];
+const PREP = ['init', 'setup', 'ajuste'];
 const PREP_MS = 2 * 60 * 60 * 1000;
 function prepOpen(entries, now = Date.now()) {
   const i = entries.map((e) => PREP.includes(e.stage) && e.event === 'start').lastIndexOf(true);
@@ -187,7 +188,7 @@ function format(entries) {
 // (la nota "costo" que sigue a su fin) y, en plan, lo que consultó al grafo; la abierta más reciente; y
 // la espera de la persona (las notas del turno). Si la corrida ya cerró con ship antes de la sesión, va
 // como last, y la de ahora empieza en la sesión. Los tiempos van en milisegundos.
-const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree', 'adopcion'];
+const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree', 'adopcion', 'ajuste'];
 const msOf = (e) => Date.parse(e.at) || 0;
 
 function graphNote(queries, closing) {
@@ -322,6 +323,7 @@ function main() {
   if (!['start', 'end', 'note'].includes(event) || !stage) die('uso: timeline.js start|end|note <etapa> [--ws n] [--result r] [--detail t] [--dir d] | timeline.js print [--dir d]');
   if (event === 'start' && args.values.result) die('timeline: --result solo va con end');
   if (stage === 'plan' && args.values.result === 'aprobado') die('timeline: la aprobación del plan la anota plan-state.js approve, que comprueba que vino de la persona');
+  if (stage === 'ajuste') die('timeline: el ajuste de configuración lo anota ajuste.js, que comprueba que lo aprobó la persona');
   if (stage === 'turno') die('timeline: las notas del turno las anotan los hooks: la respuesta, UserPromptSubmit con el mensaje de la persona; el cierre, el Stop');
   const found = PREP.includes(stage) ? loadProject(dir) : null;
   const root = found && !found.errors.length ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;

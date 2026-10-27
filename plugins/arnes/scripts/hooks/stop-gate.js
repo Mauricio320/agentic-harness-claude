@@ -24,7 +24,8 @@
 // "cerrado" del turno, de donde sale la espera de la persona; antes, si init o setup siguen abiertos
 // en la timeline, también sin manifiesto o con uno inválido, les anota su end y lo dice en una línea:
 // una corrección que no anotó su fin dejaría la configuración escribible hasta el próximo plan o dos
-// horas. No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
+// horas. Un ajuste de configuración que la persona aprobó en el chat (ajuste.js) se cierra igual, y
+// su fin anota qué configuración quedó cambiada. No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
 // Code puede mandarlo a segundo plano y cerrar el turno con la línea base corriendo; lo dice, y los
 // cierra el primer Stop después de que el proceso termina. Si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea que la revisión la hace ship, sin bloquear. Con trabajo en
@@ -41,7 +42,7 @@
 const fs = require('fs');
 const path = require('path');
 const { run } = require('../lib/hook.js');
-const { loadProject } = require('../lib/manifest.js');
+const { loadProject, posix } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, prepInTurn, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
@@ -52,7 +53,8 @@ const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 const { whyNoPlan } = require('./plan-guard.js');
-const { missingManifest } = require('../lib/configuracion.js');
+const { missingManifest, CONFIG_SPEC } = require('../lib/configuracion.js');
+const { git, lines } = require('../lib/exec.js');
 const adopcion = require('../lib/adopcion.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
@@ -190,11 +192,25 @@ function unreviewed(project) {
     .map((ws) => ws.name);
 }
 
+function configChanged(root) {
+  const project = loadProject(root);
+  const repos = [...new Set([root, ...((project && project.workspaces) || []).map((w) => w.repo)])];
+  return repos.flatMap((repo) => {
+    const r = git(repo, ['status', '--porcelain', '--untracked-files=all', '--', ...CONFIG_SPEC]);
+    return r.status === 0 ? lines(r.stdout).map((l) => posix(path.relative(root, path.join(repo, l.slice(3).trim()))) || '.') : [];
+  });
+}
+
 function closePrep(root) {
   const stage = prepOpen(read(root));
   if (!stage) return null;
   const live = adopcion.running(root);
   if (live) return `arnes: la adopción sigue corriendo${live.paso ? ` (${live.paso})` : ''}; ${stage} queda abierto hasta que termine, y lo cierro al final del primer turno después de eso.`;
+  if (stage === 'ajuste') {
+    const changed = configChanged(root);
+    append(root, { event: 'end', stage, result: 'ok', detail: changed.length ? `cambió ${changed.join(', ')}` : 'sin cambios en la configuración' });
+    return `arnes: cerré el cambio de configuración que aprobaste${changed.length ? ` (${changed.join(', ')})` : ', sin cambios'}; la configuración vuelve a quedar protegida.`;
+  }
   append(root, { event: 'end', stage, result: 'ok', detail: 'lo cerró el Stop: el turno terminó sin anotar su fin' });
   return `arnes: ${stage} seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida.`;
 }

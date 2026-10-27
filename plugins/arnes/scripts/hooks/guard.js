@@ -55,7 +55,7 @@ const { targetsOf } = require('./worktree-remove.js');
 const { secretPath, maskedFile } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
-const { CONFIG_SPEC, configRoot, configHome, prepAt } = require('../lib/configuracion.js');
+const { CONFIG_SPEC, configRoot, configHome, prepAt, AJUSTE } = require('../lib/configuracion.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item']);
@@ -342,7 +342,7 @@ const holdsConfig = (abs) =>
   !/[\\/]\.claude[\\/]worktrees[\\/]/i.test(abs) &&
   (fs.existsSync(path.join(abs, '.claude', 'harness.json')) || (path.basename(abs) === '.claude' && fs.existsSync(path.join(abs, 'harness.json'))));
 
-const CONFIG_WHY = 'es configuración del proyecto (las reglas del arnés, o los permisos, hooks o reglas de Claude Code): fuera de /arnes:init o setup, por el shell solo se lee. Si hay que cambiarla, díselo a la persona: lo hace con /arnes:init o a mano.';
+const CONFIG_WHY = `es configuración del proyecto (las reglas del arnés, o los permisos, hooks o reglas de Claude Code): fuera de /arnes:init, setup o un ajuste aprobado, por el shell solo se lee. ${AJUSTE}`;
 
 // La primera de esas rutas que es configuración de un proyecto sin init ni setup en curso, o null.
 // holder: en vez de la configuración misma, la carpeta que la tiene.
