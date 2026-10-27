@@ -55,7 +55,7 @@ const { targetsOf } = require('./worktree-remove.js');
 const { secretPath, maskedFile } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
-const { CONFIG_SPEC, configRoot, configHome, prepAt, AJUSTE } = require('../lib/configuracion.js');
+const { CONFIG_SPEC, configRoot, configHome, prepAt, AJUSTE, AJUSTE_JS } = require('../lib/configuracion.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
 const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item']);
@@ -356,10 +356,15 @@ function liveConfig(list, dir, holder = false) {
   return null;
 }
 
+// ajuste.js del propio arnés nombra la configuración para proponer un cambio, y no la escribe: la abre
+// solo con la respuesta de la persona (lib/configuracion.js AJUSTE).
+const samePath = (a, b) => path.resolve(a).replace(/\\/g, '/').toLowerCase() === path.resolve(b).replace(/\\/g, '/').toLowerCase();
+const isAjuste = (cmd, dir) => cmd.exe === 'node' && Boolean(cmd.args[0]) && samePath(toPath(dir, cmd.args[0]), AJUSTE_JS);
+
 function judgeConfig(cmd, dir) {
   const out = liveConfig(redirectTargets(cmd.args), dir);
   if (out) return `${cmd.raw} > ${out}: ${CONFIG_WHY}`;
-  const reads = cmd.exe === 'git' ? GIT_READS.has(splitGit(cmd.args, dir).sub) : READERS.has(cmd.exe);
+  const reads = cmd.exe === 'git' ? GIT_READS.has(splitGit(cmd.args, dir).sub) : READERS.has(cmd.exe) || isAjuste(cmd, dir);
   const hit = reads ? null : liveConfig(namedPaths(cmd.args), dir);
   if (hit) return `${cmd.raw} ${hit}: ${CONFIG_WHY}`;
   const holder = MOVERS.has(cmd.exe) ? liveConfig(namedPaths(cmd.args), dir, true) : null;

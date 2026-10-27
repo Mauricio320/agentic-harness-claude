@@ -59,4 +59,4 @@ function missingManifest(dir) {
   return git(root, ['cat-file', '-e', `HEAD:${MANIFEST.split(path.sep).join('/')}`]).status === 0 ? root : null;
 }
 
-module.exports = { AJUSTE, CONFIG_SPEC, configRoot, configProject, configHome, prepAt, missingManifest };
+module.exports = { AJUSTE, AJUSTE_JS, CONFIG_SPEC, configRoot, configProject, configHome, prepAt, missingManifest };

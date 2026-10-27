@@ -80,3 +80,13 @@ test('un agente, un mensaje de bridge o sdk, o una respuesta sin propuesta previ
   assert.equal(propone(dir).status, 0);
   assert.equal(ajuste(dir, ['propone', '--archivo', 'src/a.ts', '--detalle', 'x']).status, 2, 'solo configuración');
 });
+
+test('el guard deja correr ajuste.js propone aunque nombre la configuración; otro comando que la nombra sigue negado', () => {
+  const dir = repo();
+  const guard = (command) => h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: dir });
+  const js = path.join(h.SCRIPTS, 'ajuste.js').split(path.sep).join('/');
+  assert.ok(!denied(guard(`node "${js}" propone --archivo .claude/harness.json --detalle "acotar el lint"`)), 'la propuesta pasa');
+  assert.ok(!denied(guard(`node "${js}" propone --archivo "${path.join(dir, '.claude', 'harness.json').split(path.sep).join('/')}" --detalle "x"`)), 'también con la ruta absoluta');
+  assert.ok(denied(guard('node tools/otro.js .claude/harness.json')), 'otro script que la nombra, no');
+  assert.ok(denied(guard('node -e "require(\'fs\').writeFileSync(\'.claude/harness.json\', \'{}\')"')));
+});
