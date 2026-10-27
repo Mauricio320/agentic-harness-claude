@@ -2,6 +2,29 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.7.4] - 2026-10-27
+
+Lo que init decide solo y lo que el flujo hace sin que nadie lo vigile (`docs/PLAN.md` §6.1 a §6.5b y §8), por la primera adopción real con init sin preguntas: una carpeta con un api NestJS y un client Angular 21 con Karma. Rama `feature/init-decide-solo`, desde el tag `v0.7.3`, probada con Claude Code 2.1.311 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con `/arnes:init` en `claude -p` sobre una carpeta de prueba con esos casos, y con la corrida A antes y después (§10): en un issue de una sola vuelta de build el total queda igual, US$3,49 con la 0.7.3 y US$3,46 con la 0.7.4, porque la revisión se paga una vez en las dos; la 0.7.4 la paga en ship (US$0,42 la ronda), y cada vuelta de build de más ya no paga otra. El plan de la 0.7.4 arrancó con los nodos que consultó `start`, y el dev y el test-writer corrieron en sonnet con el orquestador en opus.
+
+### Agregado
+- `adopt.js all --write` deja su PID en `.tmp/harness/adopcion.json` mientras vive, y el Stop no cierra un init o setup abierto mientras ese proceso exista: lo dice, y lo cierra el primer Stop después de que termina. La skill corre la pasada en primer plano con el tope de la herramienta.
+- Cada paso de la adopción (manifiestos, hooks, permisos, worktreeinclude, la línea base de cada workspace y el grafo de cada repo) queda en la timeline mientras corre, con lo que tardó; arnes-ui lo pinta en la banda y en la cronología («Adoptando (línea base de client) 03:12»), y el cierre de init trae los tiempos por paso.
+- `plan-state.js start` consulta el grafo él mismo con el texto del pedido, en la carpeta y en cada repo que lo tiene, en paralelo, y devuelve los nodos con su archivo y su línea; esas consultas cuentan como las del modelo, y el panel deja de decir «sin consultar».
+- `plan-state.js caminos "<texto>"`: cada lugar del código que produce un mensaje de la pantalla, literal o por su constante. Un pedido que reemplaza un mensaje, un error o una pantalla se planifica por caminos: cada uno va a los criterios con su `archivo:línea` y a la prueba manual, y el plan dice si encontró uno solo.
+- arnes-mod niega el lanzamiento de un agente `arnes:*` que llega con `model` o `effort` distintos a los de su definición, con un motivo que pide relanzarlo sin esos campos, salvo que la persona lo haya pedido en su mensaje o sea el reviewer en sonnet en una ronda acotada (`lib/agentes.js`). build y verify ya no los pasan.
+- La línea base que no compila guarda la cuenta entera (`$defs.testRun.cuenta`): cuántos errores, en cuántos archivos y los archivos de más a menos, por el `tsc` del workspace sobre el tsconfig de specs; el cierre de init la dice así, con los primeros errores como muestra.
+
+### Cambiado
+- El contrato sale de contar las carpetas: un back provee las `dto` o `contracts` bajo `presentation`, un front consume las `interfaces` o `types`, gana el nombre con más carpetas y la nota dice las cuentas. Una sección de contrato del `CLAUDE.md` del repo manda. Sin señal no se escribe, y se dice.
+- riskPaths por palabra completa y en cuatro categorías que el cierre nombra (autenticación; roles y permisos de sistema; migraciones y herramientas de migración; aprobaciones de dinero, autorización y aprobador), sin docs ni `.md`, sin SST, ausencias ni nómina, sin roles de un dominio, y diciendo cuántas rutas descartó y por qué.
+- Lo prohibido sale de los scripts del `package.json`, como se teclean con el gestor del repo: los que corren migraciones (`migration:run`), sincronizan o borran el esquema, consultan la base o reescriben archivos.
+- La revisión se paga una vez, en ship: build termina en verify, ship revisa el diff completo antes de commitear, y si la repite por cambios posteriores revisa solo el diff desde la última ronda (la ronda acotada ya no escala a completa por tamaño, solo por riskPaths). La persona puede pedirla antes con `/arnes:review`.
+- El cierre de init escribe cada glob, ruta y comando entre comillas de código.
+- La skill plan lee el issue antes de `start`, para que la consulta al grafo lleve las palabras del pedido.
+
+### Corregido
+- Un `.claude/settings.json` o `settings.local.json` con JSON inválido cortaba la pasada de init con una traza. Ahora el paso que lo lee dice el archivo, la línea y la columna, los demás siguen, y da el comando que corre solo ese paso; la skill arregla sola una coma o una comilla que falta y repite solo ese paso.
+
 ## [0.7.3] - 2026-10-26
 
 Karma de serie y cuatro ajustes a init sin preguntas (`docs/PLAN.md` §6.1, §6.2 y §8). Rama `feature/init-sin-preguntas`, probada con Claude Code 2.1.310 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con Angular 21.2, `@angular-devkit/build-angular` 21.2.28, karma 6.4.4 y Chrome sin cabeza sobre el repo de prueba `tests/fixtures/angular-karma`, y con `/arnes:init` en `claude -p` sobre la carpeta de prueba contable (§10).
