@@ -167,8 +167,8 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · forbidden: \["prisma migrate dev",.*"prisma db execute"\]$/m);
   assert.doesNotMatch(r.stdout, /forbidden: .*npm run acl:sync/, 'lo que ya está no se propone');
   assert.match(r.stdout, /^falta  api\/\.claude\/harness\.json · api · afterBuild: \{"commands":\["npm run build","npm run acl:sync"\],"onlyIfLocalDb":\{"env":"DATABASE_URL",/m, 'con un script de sync, el bloque afterBuild');
-  assert.match(r.stdout, /^falta  \.claude\/harness\.json · api · contract: \{"provides":\["src\/\*\*\/dto\/\*\*","src\/\*\*\/\*\.controller\.ts"\]\}$/m);
-  assert.match(r.stdout, /^falta  \.claude\/harness\.json · front · contract: \{"consumes":\["src\/\*\*\/types\/\*\*"\]\}$/m);
+  assert.match(r.stdout, /^falta  \.claude\/harness\.json · api · contract: \{"provides":\["src\/talleres\/dto\/\*\*"\]\}$/m);
+  assert.match(r.stdout, /^falta  \.claude\/harness\.json · front · contract: \{"consumes":\["src\/types\/\*\*"\]\}$/m);
   assert.doesNotMatch(r.stdout, /front · conventions/, 'un workspace con conventions propias no recibe las del borrador');
   assert.match(r.stdout, /^falta  front\/\.claude\/harness\.json · front · riskPaths: \["src\/auth\/\*\*"\]$/m);
   assert.doesNotMatch(r.stdout, /api · riskPaths/, 'las riskPaths declaradas no se completan');
@@ -183,7 +183,7 @@ test('complete: muestra campo por campo lo que le falta a un manifiesto existent
   r = adopt(root, ['complete', '--write']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   const comp = JSON.parse(fs.readFileSync(path.join(root, '.claude/harness.json'), 'utf8'));
-  assert.deepEqual(comp.repos[1], { path: 'front', contract: { consumes: ['src/**/types/**'] } });
+  assert.deepEqual(comp.repos[1], { path: 'front', contract: { consumes: ['src/types/**'] } });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(front, '.claude/harness.json'), 'utf8')).workspaces[0].riskPaths, ['src/auth/**']);
   assert.deepEqual(comp.integration, { branchPrefix: 'feature/' });
   assert.match(adopt(root, ['complete']).stdout, /nada que completar/);

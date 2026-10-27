@@ -3,10 +3,17 @@
 //   - cwd con repos git anidados (un nivel; vale aunque el cwd sea a su vez un repo-workspace):
 //     un manifiesto por repo adoptable y la composición de la carpeta, con el remote (git remote
 //     get-url origin) de cada repo, su rama (compositionBranch: donde vive su manifiesto, o la por
-//     defecto; nunca la rama en que está la persona), el contract según su stack y la integración
-//     con feature/, y el .gitignore del repo de carpeta: las carpetas de los repos anidados, .tmp,
+//     defecto; nunca la rama en que está la persona), el contract y la integración con feature/, y
+//     el .gitignore del repo de carpeta: las carpetas de los repos anidados, .tmp,
 //     settings.local.json, graphify-out y .claude/worktrees, donde Claude Code abre los suyos
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
+// El contract (contractOf) sale de una sección de contrato del CLAUDE.md del repo con rutas entre
+// comillas de código, si la tiene, que manda; si no, de contar las carpetas trackeadas: un back
+// (nestjs) provee las que se llaman dto o contracts bajo presentation (o en cualquier parte, si
+// ninguna está bajo presentation), y un front (angular, react, next, vue) consume las que se llaman
+// interfaces o types. Gana el nombre con más carpetas, y el glob es su prefijo común con ** hasta
+// ellas (src/app/**/interfaces/**). La nota dice las cuentas. Sin ninguna señal no hay contract, y
+// la nota lo dice: nunca se inventa.
 // Por repo detecta stack, typecheck (tsconfig.json, o tsconfig.app.json + tsconfig.spec.json),
 // lint (eslint con configuración), test (jest, vitest, o Karma por el builder de test de angular.json,
 // con un --include por spec: npx ng test --watch=false --browsers=ChromeHeadless --include {specs}),
@@ -129,21 +136,65 @@ function compositionBranch(dir) {
   return pool.map((n) => [n, ahead(n)]).sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))[0][0];
 }
 
-// El contract que se propone a un repo según su stack (§5.2): provides o consumes, con los globs que
-// tienen al menos un archivo trackeado. null si no hay evidencia.
 const CONTRACT = {
-  provides: { stacks: ['nestjs', 'nestjs-prisma'], globs: ['src/**/dto/**', 'src/**/*.controller.ts'] },
-  consumes: { stacks: ['nextjs', 'react', 'angular', 'vue'], globs: ['src/**/types/**', 'src/**/api/**'] },
+  provides: { stacks: ['nestjs', 'nestjs-prisma'], names: ['dto', 'contracts'], under: 'presentation' },
+  consumes: { stacks: ['nextjs', 'react', 'angular', 'vue'], names: ['interfaces', 'types'] },
 };
-function contractFor(dir, stack) {
-  const files = lines(git(dir, ['ls-files']).stdout);
-  for (const [side, c] of Object.entries(CONTRACT)) {
-    if (!c.stacks.includes(stack)) continue;
-    const globs = c.globs.filter((g) => files.some((f) => matchAny([g], f)));
-    return globs.length ? { [side]: globs } : null;
+const sideOf = (stack) => Object.keys(CONTRACT).find((k) => CONTRACT[k].stacks.includes(stack));
+const code = (s) => `\`${s}\``;
+
+function claudeMdContract(dir, stack) {
+  const file = path.join(dir, 'CLAUDE.md');
+  if (!fs.existsSync(file)) return null;
+  const text = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+  const at = text.findIndex((l) => /^#{1,6}\s+.*\b(contrato|contract)\b/i.test(l));
+  if (at < 0) return null;
+  const level = text[at].match(/^#+/)[0].length;
+  const end = text.findIndex((l, i) => i > at && /^#+\s/.test(l) && l.match(/^#+/)[0].length <= level);
+  const out = {};
+  for (const l of text.slice(at + 1, end < 0 ? text.length : end)) {
+    const paths = [...l.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]).filter((p) => /[/*]/.test(p));
+    const side = /consum/i.test(l) ? 'consumes' : /prove|provid|expon/i.test(l) ? 'provides' : sideOf(stack);
+    if (paths.length && side) out[side] = [...new Set([...(out[side] || []), ...paths])];
   }
-  return null;
+  return Object.keys(out).length ? out : null;
 }
+
+function folderGlob(dirs, name, under) {
+  if (dirs.length === 1) return `${dirs[0]}/**`;
+  const heads = dirs.map((d) => d.split('/').slice(0, under ? d.split('/').lastIndexOf(under) : -1));
+  const prefix = [];
+  for (let i = 0; heads.every((h) => i < h.length && h[i] === heads[0][i]); i++) prefix.push(heads[0][i]);
+  const tail = under ? (dirs.every((d) => d.split('/').slice(-2)[0] === under) ? `${under}/${name}` : `${under}/**/${name}`) : name;
+  return `${prefix.length ? `${prefix.join('/')}/` : ''}**/${tail}/**`;
+}
+
+// → { contract, why }: el contract de un repo (§5.2) y de dónde salió, en una frase para el cierre.
+function contractOf(dir, stack) {
+  const own = claudeMdContract(dir, stack);
+  if (own) return { contract: own, why: 'la sección de contrato de su CLAUDE.md' };
+  const side = sideOf(stack);
+  if (!side) return { contract: null, why: `su stack (${stack || 'sin detectar'}) no dice si provee o consume` };
+  const c = CONTRACT[side];
+  const dirs = new Set();
+  for (const f of lines(git(dir, ['ls-files']).stdout)) {
+    const parts = f.split('/');
+    for (let i = 1; i < parts.length; i++) if (!parts.slice(0, i).some((p) => p.startsWith('.') || p === 'node_modules')) dirs.add(parts.slice(0, i).join('/'));
+  }
+  const named = (n) => [...dirs].filter((d) => d.split('/').pop() === n);
+  const scoped = c.under && c.names.some((n) => named(n).some((d) => d.split('/').slice(0, -1).includes(c.under)));
+  const found = c.names.map((n) => {
+    const list = named(n).filter((d) => !scoped || d.split('/').slice(0, -1).includes(c.under));
+    return { name: n, n: list.length, glob: list.length ? folderGlob(list, n, scoped ? c.under : null) : null };
+  });
+  const best = found.reduce((a, b) => (b.n > a.n ? b : a));
+  const where = scoped ? ` bajo ${c.under}` : '';
+  const counts = found.map((x) => `${x.n} carpeta(s) ${x.name}${where}`).join(', ');
+  if (!best.n) return { contract: null, why: `ninguna carpeta ${c.names.join(' ni ')}${where}` };
+  return { contract: { [side]: [best.glob] }, why: `${counts}: gana la que más tiene` };
+}
+
+const contractFor = (dir, stack) => contractOf(dir, stack).contract;
 
 // La integración que se propone a una carpeta: la misma rama del issue en todos los repos, con feature/.
 const INTEGRATION = { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true };
@@ -283,12 +334,15 @@ function draft(root) {
     drafts.push({ file: path.join(root, MANIFEST), data: r.manifest });
   } else {
     const repos = [];
+    const sides = [];
     for (const dir of nested) {
       const rel = posix(path.relative(root, dir));
       const r = detectRepo(dir);
       where(dir, rel);
       const remote = git(dir, ['remote', 'get-url', 'origin']);
-      const contract = r.adoptable ? contractFor(dir, r.manifest.workspaces[0].stack) || undefined : undefined;
+      const c = r.adoptable ? contractOf(dir, r.manifest.workspaces[0].stack) : null;
+      const contract = (c && c.contract) || undefined;
+      if (c) sides.push(contract ? `${rel} ${Object.entries(contract).map(([k, g]) => `${k === 'provides' ? 'provee' : 'consume'} ${g.map(code).join(', ')}`).join(' y ')} (${c.why})` : `${rel} sin contract (${c.why}; no se inventa)`);
       const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: compositionBranch(dir), contract };
       for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
       repos.push(entry);
@@ -297,8 +351,7 @@ function draft(root) {
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
     if (!fs.existsSync(path.join(root, MANIFEST))) {
-      const sides = repos.filter((e) => e.contract).map((e) => Object.entries(e.contract).map(([k, g]) => `${e.path} ${k === 'provides' ? 'provee' : 'consume'} ${g.join(', ')}`).join('; '));
-      notes.push(`propuesto     carpeta: la misma rama del issue en todos los repos, con feature/; contract según el stack de cada repo: ${sides.length ? sides.join('; ') : 'ningún stack lo deja deducir'}`);
+      notes.push(`propuesto     carpeta: la misma rama del issue en todos los repos, con feature/; contract por las carpetas de cada repo: ${sides.length ? sides.join('; ') : 'ningún repo adoptable'}`);
     }
     ignores = missingIgnores(root, nested);
     if (ignores.length) notes.push(`gitignore     carpeta: le faltan ${ignores.join(' ')}`);
@@ -315,7 +368,7 @@ function draft(root) {
   return { drafts, notes, ignores };
 }
 
-module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines, contractFor, compositionBranch };
+module.exports = { cleanRemote, cloneUrl, specPatterns, detectRepo, draft, gitignoreLines, contractFor, contractOf, compositionBranch };
 
 function writeIgnores(root, ignores) {
   if (!ignores.length) return;

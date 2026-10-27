@@ -280,19 +280,59 @@ test('la rama de cada repo en la composición: la por defecto desde cero, o dond
   assert.equal(compositionBranch(dir), 'main', 'con el manifiesto ya en la por defecto, la por defecto');
 });
 
-test('la composición trae integration y el contract de cada repo según su stack, y --gitignore escribe solo el .gitignore', () => {
+test('la composición trae integration y el contract de cada repo por sus carpetas, y --gitignore escribe solo el .gitignore', () => {
   const root = h.tmp('init-comp');
   h.repo(path.join(root, 'api'), { 'package.json': pkg({ '@nestjs/core': '11', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/t/dto/crear.dto.ts': 'x', 'src/t/t.controller.ts': 'x' });
-  h.repo(path.join(root, 'front'), { 'package.json': pkg({ next: '16', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/api/talleres.ts': 'x' });
+  h.repo(path.join(root, 'front'), { 'package.json': pkg({ next: '16', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/types/taller.ts': 'x' });
   const dry = h.run('init-draft.js', [], { cwd: root });
   const comp = parseDrafts(dry.stdout)['.claude/harness.json'];
-  assert.match(dry.stderr, /^propuesto +carpeta: la misma rama del issue en todos los repos, con feature\/; contract según el stack de cada repo: api provee src\/\*\*\/dto\/\*\*, src\/\*\*\/\*\.controller\.ts; front consume src\/\*\*\/api\/\*\*$/m);
+  assert.ok(dry.stderr.includes('propuesto     carpeta: la misma rama del issue en todos los repos, con feature/; contract por las carpetas de cada repo: api provee `src/t/dto/**` (1 carpeta(s) dto, 0 carpeta(s) contracts: gana la que más tiene); front consume `src/types/**` (0 carpeta(s) interfaces, 1 carpeta(s) types: gana la que más tiene)\n'), dry.stderr);
   assert.deepEqual(comp.integration, { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true });
-  assert.deepEqual(comp.repos.map((r) => [r.path, r.contract]), [['api', { provides: ['src/**/dto/**', 'src/**/*.controller.ts'] }], ['front', { consumes: ['src/**/api/**'] }]]);
+  assert.deepEqual(comp.repos.map((r) => [r.path, r.contract]), [['api', { provides: ['src/t/dto/**'] }], ['front', { consumes: ['src/types/**'] }]]);
   const r = h.run('init-draft.js', ['--gitignore'], { cwd: root });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '/api/\n/front/\n/.tmp/\n/.claude/settings.local.json\n/.claude/worktrees/\n/graphify-out/\n');
   assert.ok(!fs.existsSync(path.join(root, '.claude', 'harness.json')), '--gitignore no escribe manifiestos');
   assert.match(h.run('init-draft.js', ['--gitignore'], { cwd: root }).stdout, /ya tiene todo/);
   assert.equal(h.run('init-draft.js', ['--gitignore', '--write'], { cwd: root }).status, 2);
+});
+
+test('el contract sale de contar las carpetas: dto o contracts bajo presentation, interfaces o types; gana la que más tiene', () => {
+  const root = h.tmp('init-contrato');
+  const back = {};
+  for (const m of ['ventas/facturas', 'ventas/pedidos', 'bodega/lotes']) {
+    back[`modulos/${m}/presentation/dto/crear.dto.ts`] = 'x';
+    back[`modulos/${m}/application/crear.ts`] = 'x';
+  }
+  back['modulos/bodega/presentation/contracts/lote.contract.ts'] = 'x';
+  back['src/compartido/dto/pagina.dto.ts'] = 'x';
+  h.repo(path.join(root, 'servidor'), { 'package.json': pkg({ '@nestjs/core': '11', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', ...back });
+  const front = { 'src/app/types/global.ts': 'x' };
+  for (const m of ['ventas', 'bodega', 'cartera']) front[`src/app/modulos/${m}/interfaces/${m}.interface.ts`] = 'x';
+  h.repo(path.join(root, 'tablero'), { 'package.json': pkg({ '@angular/core': '21', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', ...front });
+  h.repo(path.join(root, 'cola'), { 'package.json': pkg({ '@nestjs/core': '11', typescript: '5', jest: '30' }), 'tsconfig.json': '{}', 'src/cola.service.ts': 'x' });
+  const r = h.run('init-draft.js', [], { cwd: root });
+  const comp = parseDrafts(r.stdout)['.claude/harness.json'];
+  assert.deepEqual(comp.repos.map((e) => [e.path, e.contract]), [
+    ['cola', undefined],
+    ['servidor', { provides: ['modulos/**/presentation/dto/**'] }],
+    ['tablero', { consumes: ['src/app/modulos/**/interfaces/**'] }],
+  ]);
+  const note = r.stderr.split(/\r?\n/).find((l) => l.startsWith('propuesto     carpeta'));
+  assert.match(note, /servidor provee `modulos\/\*\*\/presentation\/dto\/\*\*` \(3 carpeta\(s\) dto bajo presentation, 1 carpeta\(s\) contracts bajo presentation: gana la que más tiene\)/, 'la dto de src/compartido no está bajo presentation y no cuenta');
+  assert.match(note, /tablero consume `src\/app\/modulos\/\*\*\/interfaces\/\*\*` \(3 carpeta\(s\) interfaces, 1 carpeta\(s\) types: gana la que más tiene\)/);
+  assert.match(note, /cola sin contract \(ninguna carpeta dto ni contracts; no se inventa\)/);
+});
+
+test('la sección de contrato del CLAUDE.md del repo manda sobre las carpetas', () => {
+  const dir = h.tmp('init-contrato-claude');
+  h.repo(dir, {
+    'package.json': pkg({ '@angular/core': '21', typescript: '5', jest: '30' }),
+    'tsconfig.json': '{}',
+    'src/app/modulos/ventas/interfaces/venta.ts': 'x',
+    'src/app/modulos/bodega/interfaces/lote.ts': 'x',
+    'CLAUDE.md': '# tablero\n\n## Contrato con el servidor\n\nConsume los modelos de `src/app/api/modelos/**` y `src/app/api/clientes/*.ts`.\n\n## Estilo\n\nNada de `src/app/estilos/**`.\n',
+  });
+  const { contractOf } = require('../scripts/init-draft.js');
+  assert.deepEqual(contractOf(dir, 'angular'), { contract: { consumes: ['src/app/api/modelos/**', 'src/app/api/clientes/*.ts'] }, why: 'la sección de contrato de su CLAUDE.md' });
 });
