@@ -13,7 +13,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 ## Pasos
 
 1. Corre `node "S/verify.js" run`, con `--base <commit>` si lo trae `$ARGUMENTS`. Es la verificación entera en una llamada: anota el inicio, busca los workspaces con cambios, corre el mismo gate que el CI en cada uno (el typecheck contra una foto del base, las convenciones del manifiesto, el lint de los tocados y los specs de test-select contra la línea base de tests y las fallas conocidas), escribe la bandera de cada workspace que salió en verde, anota el fin y deja el informe con todo.
-   - **Sale con 3 y líneas `test-writer:`:** hay código nuevo sin spec. Por cada línea, lanza un agente `arnes:test-writer` con su carpeta y la ruta de su entrada, y nada más; si son varios workspaces, en paralelo. Cuando vuelvan, corre `node "S/verify.js" run --tras-tests` (con el mismo `--base`). Lo que siga sin spec va al informe con la razón que dio el test-writer; no bloquea.
+   - **Sale con 3 y líneas `test-writer:`:** hay código nuevo sin spec. Por cada línea, lanza un agente `arnes:test-writer` con su carpeta y la ruta de su entrada, y nada más, sin `model` ni `effort`; si son varios workspaces, en paralelo. Cuando vuelvan, corre `node "S/verify.js" run --tras-tests` (con el mismo `--base`). Lo que siga sin spec va al informe con la razón que dio el test-writer; no bloquea.
    - **Sale con 0:** todos los workspaces en verde, con su bandera escrita; o nada que verificar.
    - **Sale con 1:** algún workspace en rojo, sin bandera. El código de salida decide: nunca escribas la bandera a mano porque la salida "parece" verde.
 

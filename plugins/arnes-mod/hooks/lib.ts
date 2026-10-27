@@ -7,6 +7,15 @@ export const MIN_WORDS = 5
 export const MODEL = 'haiku'
 export const TIMEOUT_MS = 8000
 export const SUMMARY = 'scripts/lib/timeline.js'
+export const AGENTS = 'scripts/lib/agentes.js'
+
+// Los argumentos con que se le pregunta al plugin base si un lanzamiento de Agent vale (lib/agentes.js
+// lanzamiento), o null si no hay nada que preguntar: un agente que no es del arnés, o uno sin model ni
+// effort, que corre con los de su definición.
+export function spawnArgs(e: { subagent_type?: string; model?: string; effort?: string }): string[] | null {
+  if (!String(e.subagent_type ?? '').startsWith('arnes:') || (!e.model && !e.effort)) return null
+  return ['lanzamiento', '--type', e.subagent_type!, ...(e.model ? ['--model', e.model] : []), ...(e.effort ? ['--effort', e.effort] : [])]
+}
 
 // Lo que se adjunta al prompt cuando pide un cambio. Va como context porque reescribir el texto con
 // /arnes:plan delante no dispara la skill: el CLI resuelve el comando antes de prompt.submit, y el

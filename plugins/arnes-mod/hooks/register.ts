@@ -1,4 +1,5 @@
-// arnes-mod (docs/PLAN.md §6.5): comportamiento opcional del arnés, en dos piezas. La primera, de
+// arnes-mod (docs/PLAN.md §6.5): comportamiento opcional del arnés, en tres piezas. La tercera, al
+// final de este párrafo, es el modelo de los agentes. La primera, de
 // cada prompt deja en turn.json de dónde vino (composer, bridge, sdk, task-notification, peer...) con
 // el sha256 de su texto, antes de llamar a next(e), que es cuando corre el UserPromptSubmit del plugin
 // base (verificado en 2.1.309): con eso el hook sabe si es la persona sin adivinarlo por el texto, y
@@ -11,10 +12,16 @@
 // mod lo pide al arrancar y otra vez solo cuando la timeline cambió, y no reimplementa ni el
 // manifiesto ni la timeline. Falla abierto: si algo falla o el modelo no responde, el prompt sigue tal
 // cual y lo atajan las otras tres capas, que viven en el plugin base (el guard de Edit y Write, la
-// línea de UserPromptSubmit y /arnes:plan --trivial).
+// línea de UserPromptSubmit y /arnes:plan --trivial). La tercera: la herramienta Agent respeta un
+// model o un effort pasado por el orquestador por encima de los de la definición del agente, y un
+// orquestador en opus lanzaba el dev en opus. En el tool.call de Agent (agent.spawn no trae el effort),
+// un agente arnes:* que llega con model o effort se le pregunta al plugin base (lib/agentes.js
+// lanzamiento), y si no vale se niega con su motivo, que dice relanzarlo sin esos campos; vale con los
+// de su definición, con lo que la persona pidió en su mensaje y el reviewer en sonnet en una ronda
+// acotada. Falla abierto, como lo demás.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, sha256, slash, withOrigin } from './lib'
+import { AGENTS, ASK, LOAD_PLAN, MODEL, SUMMARY, TIMEOUT_MS, asks, baseCandidates, candidate, isQuestion, isYes, join, parseSummary, sha256, slash, spawnArgs, withOrigin } from './lib'
 import type { Prompt, Summary } from './lib'
 
 type $ = EngineInterface
@@ -62,7 +69,21 @@ async function asksForCode($: $, text: string): Promise<boolean> {
   return r.isAnswered && isYes(r.text)
 }
 
+async function spawnDenied($: $, e: { subagent_type?: string; model?: string; effort?: string }): Promise<string | null> {
+  const args = spawnArgs(e)
+  const b = args && (await findBase($))
+  if (!args || !b) return null
+  const r = await $.process.run(['node', join(b, AGENTS), ...args], { cwd: slash(await $.session.cwd()), timeoutMs: TIMEOUT_MS })
+  return r.exitCode === 1 && r.stdout.trim() ? r.stdout.trim() : null
+}
+
 export const register: Register = (on) => {
+  on('tool.call', async ($, e, next) => {
+    if (e.tool !== 'Agent') return next(e)
+    const why = await spawnDenied($, e).catch(() => null)
+    return why ? { deny: why } : next(e)
+  }).catch(($, e, next) => next(e))
+
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     await state($).catch(() => null)

@@ -13,7 +13,9 @@
 // no solo al principio, basta para que no sea la persona;
 // si escribió /arnes:plan --trivial, la nota lo dice, y es lo único que habilita el plan trivial;
 // si escribió /arnes:ship --revisado <nombre>, la nota lleva ese nombre: es la revisión humana de una
-// zona de riesgo que ship exige cuando la entrega va sin MR.
+// zona de riesgo que ship exige cuando la entrega va sin MR;
+// si nombró un modelo (opus, sonnet, haiku) o un effort, la nota los lleva: es lo único que deja
+// lanzar un agente del arnés con otro modelo o effort que los de su definición (lib/agentes.js).
 // Sin plan en curso y sin código tocado, agrega una línea: un pedido de código empieza por el plan.
 // No la agrega mientras init o setup están en curso (timeline prepOpen), ni al mensaje que los
 // invoca: las respuestas a sus preguntas no son pedidos de código.
@@ -44,6 +46,9 @@ const PREP = /^\s*\/arnes:(init|setup)\b|<command-name>\/arnes:(init|setup)<\/co
 // /arnes:ship --revisado <nombre> como lo escribió la persona, o como lo expande el CLI.
 const REVISADO = /^\s*\/arnes:ship\b[^\n]*?--revisado\s+([^\s<]+)|<command-name>\/arnes:ship<\/command-name>[\s\S]*?<command-args>[^<]*?--revisado\s+([^\s<]+)/;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
+const MODELS = /\b(opus|sonnet|haiku|fable)\b/gi;
+const EFFORT = /\b(?:effort|esfuerzo)\b\D{0,20}?\b(low|medium|high|xhigh|max|bajo|medio|alto|m[aá]ximo)\b/i;
+const EFFORTS = { bajo: 'low', medio: 'medium', alto: 'high', maximo: 'max', máximo: 'max' };
 
 // → { text, code }: la línea de estado del workspace, o null, y cuántos archivos de código tocó.
 function state(project, ws) {
@@ -83,6 +88,8 @@ function promptContext(input) {
     writeTurn(project, adoptable);
     // Cierra la espera que abrió la nota "cerrado" del Stop.
     const revisado = text.match(REVISADO);
+    const modelos = [...new Set([...text.matchAll(MODELS)].map((m) => m[1].toLowerCase()))];
+    const effort = (text.match(EFFORT) || [])[1];
     append(project.root, {
       event: 'note',
       stage: 'turno',
@@ -92,6 +99,8 @@ function promptContext(input) {
       marcas: marks || undefined,
       trivial: TRIVIAL.test(text) || undefined,
       revisado: revisado ? revisado[1] || revisado[2] : undefined,
+      modelos: modelos.length ? modelos : undefined,
+      effort: effort ? EFFORTS[effort.toLowerCase()] || effort.toLowerCase() : undefined,
     });
   }
   const rows = adoptable.map((ws) => state(project, ws));

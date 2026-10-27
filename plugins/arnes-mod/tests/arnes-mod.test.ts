@@ -4,7 +4,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { LOAD_PLAN, ORIGIN, asks, baseCandidates, candidate, isQuestion, isYes, parseSummary, sha256, slash, withOrigin } from '../hooks/lib'
+import { LOAD_PLAN, ORIGIN, asks, baseCandidates, candidate, isQuestion, isYes, parseSummary, sha256, slash, spawnArgs, withOrigin } from '../hooks/lib'
 
 const TIMELINE = 'C:/p/academico/.tmp/harness/timeline.jsonl'
 const TURN = 'C:/p/academico/.tmp/harness/turn.json'
@@ -170,4 +170,44 @@ test('lib: isQuestion por el signo de interrogación al inicio o al final, nunca
   const no = ['como se corre el gate en un worktree nuevo', 'Cómo hago para que el botón quede deshabilitado? hazlo', 'Implementa el CRUD de talleres', 'Agrega el campo email', 'Explica y luego refactoriza el servicio de talleres', 'Muéstrame la timeline de la corrida de ayer']
   expect(si.map(isQuestion)).toEqual(si.map(() => true))
   expect(no.map(isQuestion)).toEqual(no.map(() => false))
+})
+
+// El plugin base responde lib/agentes.js lanzamiento: niega lo que el test diga, con su motivo; la
+// herramienta Agent de abajo anota cada lanzamiento que llegó a correr.
+function spawns(on: On, deny: (argv: readonly string[]) => string | null) {
+  const seen = { asked: [] as string[][], ran: [] as string[] }
+  on('session.cwd', () => ({ value: 'C:/p/academico' }))
+  on('fs.exists', ($, e) => ({ value: slash(e.path).endsWith('scripts/lib/timeline.js') }))
+  on('fs.list', () => ({ value: [] }))
+  on('process.run', ($, e) => {
+    if (e.argv[2] !== 'lanzamiento') return { value: { exitCode: 2, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    seen.asked.push(e.argv.slice(2))
+    const why = deny(e.argv)
+    return { value: { exitCode: why ? 1 : 0, stdout: why ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.call', ($, e) => (seen.ran.push(e.tool === 'Agent' ? `${e.subagent_type} ${e.model ?? '-'}` : e.tool), { result: {} }) as never)
+  return seen
+}
+
+test('un arnes:* que llega con model distinto al de su definición se niega con el motivo del base; sin model, corre', async ($, on) => {
+  const seen = spawns(on, (argv) => (argv.includes('opus') ? 'arnes: arnes:dev se lanza con el modelo y el effort de su definición; relánzalo sin model.' : null))
+  const denied = await $.tool.call({ tool: 'Agent', description: 'dev api', prompt: 'p', subagent_type: 'arnes:dev', model: 'opus' } as never)
+  expect((denied as { deny?: string }).deny).toMatch(/relánzalo sin model/)
+  await $.tool.call({ tool: 'Agent', description: 'dev api', prompt: 'p', subagent_type: 'arnes:dev' } as never)
+  await $.tool.call({ tool: 'Agent', description: 'revisa', prompt: 'p', subagent_type: 'arnes:reviewer', model: 'sonnet' } as never)
+  await $.tool.call({ tool: 'Agent', description: 'busca', prompt: 'p', subagent_type: 'Explore', model: 'haiku' } as never)
+  expect(seen.asked).toEqual([['lanzamiento', '--type', 'arnes:dev', '--model', 'opus'], ['lanzamiento', '--type', 'arnes:reviewer', '--model', 'sonnet']])
+  expect(seen.ran).toEqual(['arnes:dev -', 'arnes:reviewer sonnet', 'Explore haiku'])
+})
+
+test('si el base no responde, el lanzamiento sigue: falla abierto', async ($, on) => {
+  const seen = spawns(on, () => { throw new Error('sin base') })
+  await $.tool.call({ tool: 'Agent', description: 'dev', prompt: 'p', subagent_type: 'arnes:dev', model: 'opus', effort: 'max' } as never)
+  expect(seen.ran).toEqual(['arnes:dev opus'])
+})
+
+test('lib: spawnArgs pregunta solo por un arnes:* con model o effort', () => {
+  expect(spawnArgs({ subagent_type: 'arnes:dev' })).toBeNull()
+  expect(spawnArgs({ subagent_type: 'general-purpose', model: 'opus' })).toBeNull()
+  expect(spawnArgs({ subagent_type: 'arnes:test-writer', effort: 'high' })).toEqual(['lanzamiento', '--type', 'arnes:test-writer', '--effort', 'high'])
 })
