@@ -119,19 +119,24 @@ else console.log('graphify 9.9');`);
   assert.match(ends.pop().ws, /^grafo de /);
 });
 
-test('un settings.json sin una coma no corta la pasada: el paso dice archivo, línea y columna, los demás siguen, y se corre solo ese paso', () => {
+test('una coma o una comilla que falta la arregla el script, con copia .bak, y el paso sigue; otro JSON roto es un estado con archivo, línea y columna', () => {
   const dir = h.tmp('adopcion-json');
   const broken = '{\n  "model": "opus"\n  "hooks": {}\n}\n';
   h.repo(dir, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), '.claude/settings.json': broken, 'src/a.ts': 'a\n' });
   h.write(dir, '.claude/settings.local.json', '{ "permissions": { "allow": ["Bash(ls *)"] ');
   const r = h.run('adopt.js', ['all', '--write'], { cwd: dir, env: noGraphify() });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.json, línea 3, columna 3: Expected ',' or '\}' after property value\. Este paso no avanzó; los demás siguen\. Arreglado, corre solo este paso: adopt\.js hooks --remove$/m);
-  assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.local\.json, línea 1, columna \d+: .*corre solo este paso: adopt\.js permissions --write$/m);
+  assert.match(r.stdout, /^JSON arreglado +\S+\.claude\/settings\.json: faltaba una coma en la línea 2; el original quedó en \S+\.claude\/settings\.json\.bak, y el paso sigue$/m);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')), { model: 'opus', hooks: {} });
+  assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json.bak'), 'utf8'), broken);
+  assert.doesNotMatch(r.stdout, /JSON inválido +\S+settings\.json,/, 'el paso de hooks siguió con el archivo arreglado');
+  assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.local\.json, línea 1, columna \d+: .*corre solo este paso: adopt\.js permissions --write$/m, 'le faltan dos llaves: no se adivina');
   assert.match(r.stdout, /== \.worktreeinclude[\s\S]*== CLAUDE\.md de la carpeta[\s\S]*== grafo/, 'los demás pasos corren');
-  assert.match(r.stdout, /^tiempos: /m);
-  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{\n  "model": "opus",\n  "hooks": {}\n}\n');
-  const again = h.run('adopt.js', ['hooks', '--remove'], { cwd: dir });
-  assert.equal(again.status, 0, again.stdout + again.stderr);
   assert.match(h.run('adopt.js', ['permissions', '--write'], { cwd: dir }).stdout, /^JSON inválido +\S+settings\.local\.json, línea 1/m, 'el paso solo también lo dice, sin traza');
+
+  const q = h.tmp('adopcion-comilla');
+  h.repo(q, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), '.claude/settings.json': '{\n  "model": "opus,\n  "hooks": {}\n}\n', 'src/a.ts': 'a\n' });
+  const c = h.run('adopt.js', ['all', '--write'], { cwd: q, env: noGraphify() });
+  assert.match(c.stdout, /^JSON arreglado +\S+settings\.json: faltaba una comilla en la línea 2/m);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(q, '.claude', 'settings.json'), 'utf8')), { model: 'opus', hooks: {} });
 });

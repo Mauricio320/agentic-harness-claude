@@ -17,7 +17,10 @@
 //                           la línea base de cada workspace y el grafo de cada repo, con lo que tardó;
 //                           al final, una línea "tiempos:" con cada paso. Un .claude/settings.json o
 //                           settings.local.json que no es JSON válido no corta la pasada: el paso que
-//                           lo lee dice "JSON inválido", el archivo, la línea y la columna, y el
+//                           lo lee, con --write, lo arregla si falta una coma o una comilla (una sola
+//                           inserción que lo deja válido, en la línea del error o la anterior), deja
+//                           el original en <archivo>.bak, dice "JSON arreglado" y sigue con el paso; si
+//                           es otra cosa, dice "JSON inválido", el archivo, la línea y la columna, y el
 //                           comando que corre solo ese paso cuando esté arreglado
 //   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
 //                           comprueba que test-baseline puede leer el contrato de resultados
@@ -107,6 +110,26 @@ function readJson(file) {
     throw err;
   }
 }
+// Una coma o una comilla que falta: la primera inserción de un solo carácter, en la línea del error o
+// en la anterior, que deja el archivo como JSON válido; la coma primero. → { text, what, line } o null
+function repairJson(file, line) {
+  const text = fs.readFileSync(file, 'utf8');
+  const rows = text.split('\n');
+  const at = (i) => rows.slice(0, i).reduce((n, r) => n + r.length + 1, 0);
+  const last = Math.min(rows.length - 1, Math.max(0, (line || 1) - 1));
+  const [from, to] = [at(Math.max(0, last - 1)), at(last) + rows[last].length];
+  for (const [ch, what] of [[',', 'una coma'], ['"', 'una comilla']]) {
+    for (let p = from; p <= to; p++) {
+      const candidate = text.slice(0, p) + ch + text.slice(p);
+      try {
+        JSON.parse(candidate);
+        return { text: candidate, what, line: text.slice(0, p).split('\n').length };
+      } catch {}
+    }
+  }
+  return null;
+}
+
 const writeJson = (file, data) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
@@ -506,12 +529,20 @@ function all(write) {
     }]),
   ];
   const guarded = (again, fn) => {
-    try {
-      return fn();
-    } catch (e) {
-      if (!e.json) throw e;
-      console.log(`JSON inválido  ${e.message}. Este paso no avanzó; los demás siguen. Arreglado, corre solo este paso: adopt.js ${again}`);
-      return 1;
+    for (let tries = 0; ; tries++) {
+      try {
+        return fn();
+      } catch (e) {
+        if (!e.json) throw e;
+        const fix = write && tries < 3 ? repairJson(e.json.file, e.json.line) : null;
+        if (!fix) {
+          console.log(`JSON inválido  ${e.message}. Este paso no avanzó; los demás siguen. Arreglado, corre solo este paso: adopt.js ${again}`);
+          return 1;
+        }
+        fs.copyFileSync(e.json.file, `${e.json.file}.bak`);
+        fs.writeFileSync(e.json.file, fix.text);
+        console.log(`JSON arreglado  ${posix(e.json.file)}: faltaba ${fix.what} en la línea ${fix.line}; el original quedó en ${posix(e.json.file)}.bak, y el paso sigue`);
+      }
     }
   };
   let left = 0;
