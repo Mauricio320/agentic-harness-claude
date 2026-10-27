@@ -27,7 +27,7 @@
 // horas. No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
 // Code puede mandarlo a segundo plano y cerrar el turno con la línea base corriendo; lo dice, y los
 // cierra el primer Stop después de que el proceso termina. Si hay bandera vigente sin revisión
-// de ese contenido, avisa en una línea "verificado, falta review", sin bloquear. Con trabajo en
+// de ese contenido, avisa en una línea que la revisión la hace ship, sin bloquear. Con trabajo en
 // marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
 // registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
 // hay nada en marcha.
@@ -245,7 +245,7 @@ function stopGate(input) {
   }
   if (pending) return withClosed(closed, { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.` });
   const noReview = unreviewed(project);
-  return withClosed(closed, noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; falta revisarlo antes de entregar.` } : null);
+  return withClosed(closed, noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
 }
 
 function block(project, w) {

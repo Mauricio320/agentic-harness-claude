@@ -26,7 +26,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 ## Al terminar en verde
 
-Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`), sigue con la skill review en el mismo turno. Hazlo aunque el turno haya empezado con la respuesta de la persona a una pregunta tuya, por ejemplo si borrabas una caché. Solo paras si ella lo pidió.
+Verify es el final de build: no cargues review. La revisión es el gasto grande (un reviewer en opus leyendo el diff), y se paga una vez, en `/arnes:ship`, sobre el diff completo antes de commitear. Cierra con `Listo para /arnes:ship`, y en una línea que si la persona quiere la revisión antes, la pide con `/arnes:review`. Si ship te cargó para verificar, sigue con lo que ship pida.
 
 ## Reporte
 

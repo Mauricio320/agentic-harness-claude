@@ -103,8 +103,8 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
 
    El informe completo quedó en .tmp/harness/informes/init-155921.md.
 
-   Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y
-   revisa solo, y al final pides /arnes:ship.
+   Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye y verifica
+   solo, y al final pides /arnes:ship, que revisa una vez y commitea.
 
    Si algo no te sirve, escribe /arnes:init --ajustar y lo que quieres cambiar, y lo corrijo en el
    archivo; no hace falta repetir init.
@@ -123,7 +123,7 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
 
 Pide el trabajo como siempre, sin comandos: "Implementa este issue: …". El modelo escribe el plan en `.tmp/harness/plan.md` y te pide aprobarlo. El plan es obligatorio: hasta que lo apruebes en un mensaje tuyo, el arnés no deja escribir código. Para un cambio mínimo, escribe tú `/arnes:plan --trivial <el pedido>`, que deja un plan de una pantalla aprobado.
 
-¿Y la rama? La rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear. Si ya estás en otra rama, el plan te pregunta si crea una nueva desde main o si construye ahí mismo, porque el pedido continúa ese trabajo. Con tu aprobación corre solo build, verify y review, sin detenerse entre etapas aunque te haga una pregunta en el camino. verify revisa primero las convenciones del manifiesto (comentarios, `as unknown as`, `console.`, TODO), y el dev las corrige antes de entregar. El commit y el push los pides tú con `/arnes:ship`.
+¿Y la rama? La rama te la crea el arnés al aprobar el plan, desde main actualizado; tú solo cuidas de no tener cosas a medias sin commitear. Si ya estás en otra rama, el plan te pregunta si crea una nueva desde main o si construye ahí mismo, porque el pedido continúa ese trabajo. Con tu aprobación corre solo build y verify, sin detenerse entre etapas aunque te haga una pregunta en el camino; la revisión la hace `/arnes:ship` una vez, sobre el diff completo, antes de commitear (si la quieres antes, `/arnes:review`). verify revisa primero las convenciones del manifiesto (comentarios, `as unknown as`, `console.`, TODO), y el dev las corrige antes de entregar. El commit y el push los pides tú con `/arnes:ship`.
 
 Los comandos que tocan una base no los corre la sesión: los scripts con sync, migrate, migrar, push, deploy, seed o reset en el nombre, y las escrituras de prisma, typeorm o knex, van en `forbidden`, y el guard los niega. Córrelos tú desde tu terminal, sabiendo contra qué base apunta tu `.env`: un proxy en `127.0.0.1` puede ser QA. La excepción es la sincronización después del build (`afterBuild`), que init deja cuando el repo tiene scripts de sync: al cerrar cada build, el arnés corre el build y la sincronización solo si tu `.env` apunta a la base local del patrón, y te lo dice; si apunta a otro lado, no corre nada y te lo deja en "pendiente tuyo" con el host y el puerto que vio.
 

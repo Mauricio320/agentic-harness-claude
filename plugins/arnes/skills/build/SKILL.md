@@ -29,7 +29,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 6. **Después del build, solo en local:** lo dice `build.js end` de cada workspace.
    - Si lista comandos, la base del `.env` es la local: cámbiate a la carpeta del workspace con un `cd` aparte y corre cada comando listado, solo y tal como aparece. Dilo en una línea.
    - Si sale con 1, no corras nada: va a "pendiente tuyo", con el host y el puerto que dijo.
-7. Cuando el último dev entrega y el reporte está escrito, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship.
+7. Cuando el último dev entrega y el reporte está escrito, no cierres el turno: carga la skill verify en el mismo turno. Los devs corren en segundo plano, así que ese momento llega cuando vuelve el último, aunque el turno se haya reabierto con su aviso. No escribas la bandera ni commitees: eso es de verify y ship. Build termina en verify: la revisión la hace ship una vez, sobre el diff completo.
 
 ## Levantar la app
 

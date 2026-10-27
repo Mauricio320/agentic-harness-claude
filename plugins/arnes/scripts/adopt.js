@@ -255,7 +255,7 @@ function compositionSection(project) {
     '',
     '### Flujo',
     '',
-    '- plan → build → verify → review → ship. El modelo carga plan, build, verify y review cuando corresponde; commit y push los pide la persona con `/arnes:ship`.',
+    '- plan → build → verify → ship. El modelo carga plan, build y verify cuando corresponde; la revisión, el commit y el push van en `/arnes:ship`, que pide la persona: revisa una vez el diff completo antes de commitear (antes, si la persona quiere, con `/arnes:review`).',
     '- Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.',
     '',
   ].join('\n');

@@ -91,12 +91,18 @@ test('una llamada por transición: plan, build, verify, review y ship usan sus f
   for (const [s, list] of Object.entries(avoids)) for (const re of list) assert.doesNotMatch(skill(s), re, `${s} todavía corre ${re} por separado`);
 });
 
-test('verify y review siguen a la etapa siguiente dentro de un issue en curso, aunque el turno empiece con una respuesta', () => {
-  for (const s of ['verify', 'review']) {
-    const text = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
-    assert.match(text, /Dentro de un issue en curso \(`\.tmp\/harness\/plan\.md` con `Aprobado:`\)/, s);
-    assert.match(text, /aunque el turno haya empezado con la respuesta de la persona/, s);
-  }
+test('review sigue a la etapa siguiente dentro de un issue en curso, aunque el turno empiece con una respuesta', () => {
+  const text = fs.readFileSync(path.join(PLUGIN, 'skills', 'review', 'SKILL.md'), 'utf8');
+  assert.match(text, /Dentro de un issue en curso \(`\.tmp\/harness\/plan\.md` con `Aprobado:`\)/);
+  assert.match(text, /aunque el turno haya empezado con la respuesta de la persona/);
+});
+
+test('la revisión se paga una vez, en ship: build termina en verify, y verify no carga review', () => {
+  const read = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+  assert.match(read('verify'), /Verify es el final de build: no cargues review/);
+  assert.doesNotMatch(read('verify'), /sigue con la skill review/);
+  assert.match(read('build'), /Build termina en verify: la revisión la hace ship una vez/);
+  assert.match(read('ship'), /`revisar`: carga la skill review/);
 });
 
 test('cada script que nombra una skill existe', () => {

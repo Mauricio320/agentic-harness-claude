@@ -45,7 +45,7 @@ Anota otra vez `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup
 
 `node "S" close --dir "<carpeta>"` corre init --check y arma la lista "pendiente tuyo". El detalle de cada paso va al informe: `node "${CLAUDE_PLUGIN_ROOT}/scripts/informe.js" path setup --dir "<carpeta>"` da la ruta; escríbelo ahí con Write. En el chat, una línea con lo que quedó listo y la ruta del informe, y la lista "pendiente tuyo" en pocas líneas: los valores de `.env`, los comandos contra la base, un repo en otra rama, los permisos de la app que pida el issue y lo que la persona dijo que no. Anota `end setup --dir "<carpeta>" --result ok`.
 
-Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye, verifica y revisa solo, y al final pides /arnes:ship." Si informe.js dijo `frase: dila`, cierra con "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
+Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés planifica, construye y verifica solo, y al final pides /arnes:ship, que revisa una vez y commitea." Si informe.js dijo `frase: dila`, cierra con "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio."
 
 ## Con --check
 

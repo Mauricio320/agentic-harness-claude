@@ -1,13 +1,13 @@
 ---
 name: review
-description: Revisar el cambio antes de entregarlo o de abrir un MR. Lanza el reviewer del arnés una vez por ronda, la primera sobre el árbol final con los tocados y el plan si existe, y las siguientes solo sobre el diff desde la ronda anterior; marca REVISIÓN HUMANA OBLIGATORIA si toca riskPaths y resume los hallazgos por archivo, bloqueantes primero.
+description: Revisar el cambio antes de commitearlo. La carga /arnes:ship una vez, sobre el diff completo, o la persona con /arnes:review; build termina en verify y no la carga. Lanza el reviewer del arnés una vez por ronda, la primera sobre el árbol final con los tocados y el plan si existe, y las siguientes solo sobre el diff desde la ronda anterior; marca REVISIÓN HUMANA OBLIGATORIA si toca riskPaths y resume los hallazgos por archivo, bloqueantes primero.
 ---
 
 # arnes:review
 
 Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando un script imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
-La revisión va después de verify, sobre el árbol que se va a entregar. Si cambias algo después, la revisión deja de valer y ship lo rechaza.
+La revisión va después de verify, sobre el árbol que se va a entregar, y se paga una vez: la carga ship antes de commitear, o la persona con `/arnes:review`. Build termina en verify y no la carga. Si cambias algo después, la revisión deja de valer, y ship la repite solo sobre lo que cambió.
 
 ## Pasos
 
@@ -34,13 +34,13 @@ La revisión va después de verify, sobre el árbol que se va a entregar. Si cam
 
 Con bloqueantes, se corrigen (los de specs con test-writer, los de código con dev), se corre verify entero, porque la bandera exige el contenido actual, y se vuelve a esta skill. Lo mismo si se aplican las sugerencias de una revisión sin bloqueantes. `review.js round` decide la ronda:
 - **Ronda 1, completa:** el árbol entero, con el reviewer en opus.
-- **Rondas 2 y 3, acotadas:** todo el diff desde lo revisado en la ronda anterior, con los archivos nuevos (como los specs que escribió test-writer), su reporte como entrada, y el reviewer en sonnet. Si el cambio toca riskPaths, o su diff es más grande que el que se revisó, la ronda es completa y va en opus.
+- **Rondas 2 y 3, acotadas:** todo el diff desde lo revisado en la ronda anterior, con los archivos nuevos (como los specs que escribió test-writer), su reporte como entrada, y el reviewer en sonnet. Si el cambio toca riskPaths, la ronda es completa y va en opus. Lo mismo cuando ship la repite tras una revisión sin bloqueantes: solo el diff desde la última ronda, no todo otra vez.
 - **Tope: dos rondas de corrección.** Si la marca dice `tope`, no corrijas más: reporta a la persona los bloqueantes que siguen y espera su decisión. `review.js round --completa` vuelve a la ronda 1; córrelo solo si la persona lo pide.
 
 ## Al terminar
 
 Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`) no te detengas entre etapas, aunque el turno haya empezado con la respuesta de la persona a una pregunta tuya. Solo paras si ella lo pidió o si hace falta una decisión suya.
-- **Sin bloqueantes:** la etapa siguiente es ship, que corre la persona. Cierra con `Listo para /arnes:ship`.
+- **Sin bloqueantes:** si te cargó ship, vuelve a ship. Si te cargó la persona, cierra con `Listo para /arnes:ship`.
 - **Con bloqueantes:** sigue con la corrección, verify y esta skill en el mismo turno, hasta el tope.
 
 ## Reporte

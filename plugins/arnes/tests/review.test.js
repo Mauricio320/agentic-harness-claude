@@ -208,7 +208,7 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
   assert.match(review(dir, ['input', '--completa']).stdout, /ronda 1 de 3 · completa\n/);
 });
 
-test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda acotada; un cambio más grande que lo revisado vuelve a la 1', () => {
+test('tras una revisión sin bloqueantes, lo que cambió después es una ronda acotada, también si es más grande que lo revisado: ship repite solo ese diff', () => {
   const dir = changed();
   review(dir, ['input']);
   report(dir, 0, '- sugerencia [línea 1] · usa una constante\n');
@@ -229,10 +229,11 @@ test('tras una revisión sin bloqueantes, aplicar sus sugerencias es una ronda a
 
   h.write(dir, 'src/nuevo.ts', Array.from({ length: 30 }, (_, i) => `const n${i} = ${i};`).join('\n') + '\n');
   r = review(dir, ['input']);
-  assert.match(r.stdout, /ronda 1 de 3 · completa: el cambio desde la ronda 2 cambió 30 línea\(s\), más que las \d+ del diff que se revisó/);
+  assert.match(r.stdout, /ronda 3 de 3 · acotada: el diff desde la ronda 2, que terminó sin bloqueantes/, 'más grande que lo revisado, y aun así solo ese diff');
+  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), /### Diff desde lo revisado en la ronda 2\n````diff\ndiff --git a\/src\/nuevo\.ts/);
 });
 
-test('la ronda de corrección acotada cubre los archivos nuevos; escala a completa solo por riskPaths o por tamaño; con otro HEAD vuelve a la 1', () => {
+test('la ronda de corrección acotada cubre los archivos nuevos; escala a completa solo por riskPaths; con otro HEAD vuelve a la 1', () => {
   const dir = changed();
   review(dir, ['input']);
   report(dir, 1);

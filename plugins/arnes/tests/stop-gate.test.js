@@ -110,7 +110,7 @@ test('con bandera vigente, sin cambios de código o sin manifiesto: no bloquea',
   h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: root });
   const vigente = stop(api).out;
   assert.equal(vigente.decision, undefined, 'bandera vigente: no bloquea');
-  assert.equal(vigente.systemMessage, 'arnes: api quedó verificado; falta revisarlo antes de entregar.');
+  assert.equal(vigente.systemMessage, 'arnes: api quedó verificado; la revisión la hace /arnes:ship antes de commitear.');
   const sin = h.tmp('stop-sin');
   h.repo(sin, { 'a.ts': 'a\n' });
   fs.appendFileSync(path.join(sin, 'a.ts'), 'b\n');
