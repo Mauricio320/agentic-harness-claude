@@ -15,7 +15,10 @@
 //                           cierre init con la línea base corriendo, y anota cada paso en la
 //                           timeline (lib/adopcion.js): manifiestos, hooks, permisos, worktreeinclude,
 //                           la línea base de cada workspace y el grafo de cada repo, con lo que tardó;
-//                           al final, una línea "tiempos:" con cada paso
+//                           al final, una línea "tiempos:" con cada paso. Un .claude/settings.json o
+//                           settings.local.json que no es JSON válido no corta la pasada: el paso que
+//                           lo lee dice "JSON inválido", el archivo, la línea y la columna, y el
+//                           comando que corre solo ese paso cuando esté arreglado
 //   probe [--ws n]...       corre el comando de test sobre un spec trackeado de cada workspace y
 //                           comprueba que test-baseline puede leer el contrato de resultados
 //   baseline <ws> [--write] con el árbol sin código tocado, captura la línea base y agrega a
@@ -89,7 +92,20 @@ const PLUGINS = ['arnes', 'arnes-ui', 'arnes-mod'];
 const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'merge-base'].map((c) => `Bash(git ${c} *)`);
 const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
 
-const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+function readJson(file) {
+  const text = fs.readFileSync(file, 'utf8');
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const at = String(e.message).match(/line (\d+) column (\d+)/);
+    const pos = String(e.message).match(/position (\d+)/);
+    const before = pos ? text.slice(0, Number(pos[1])).split('\n') : null;
+    const [line, col] = at ? [Number(at[1]), Number(at[2])] : before ? [before.length, before[before.length - 1].length + 1] : [];
+    const err = new Error(`${posix(file)}${line ? `, línea ${line}, columna ${col}` : ''}: ${String(e.message).replace(/\s*in JSON at position.*$/, '')}`);
+    err.json = { file, line, col };
+    throw err;
+  }
+}
 const writeJson = (file, data) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
@@ -472,23 +488,32 @@ function all(write) {
     return r.code;
   };
   const steps = [
-    ['manifiestos', 'lo que le falta a cada configuración', (p) => complete(p, null, write)],
-    ['hooks', 'hooks del arnés anterior', (p) => hooks(p, write)],
-    ['worktree.baseRef', 'worktree.baseRef', (p) => baseRef(p, write)],
-    ['permisos', 'permisos', (p) => permissions(p, write)],
-    ['worktreeinclude', '.worktreeinclude', (p) => worktreeInclude(p, write)],
-    ['CLAUDE.md', 'CLAUDE.md de la carpeta', (p) => claudeMd(p, write)],
-    ['settings de la carpeta', 'settings.json de la carpeta', (p) => (p.kind !== 'folder' || installedMarketplace() ? folderSettings(p, null, null, write) : (console.log(`no encuentro el marketplace ${MARKETPLACE} instalado; sin él no escribo el settings.json de la carpeta`), 1))],
-    ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, `línea base de ${w.name}`, (p) => {
+    ['manifiestos', 'lo que le falta a cada configuración', 'complete --write', (p) => complete(p, null, write)],
+    ['hooks', 'hooks del arnés anterior', 'hooks --remove', (p) => hooks(p, write)],
+    ['worktree.baseRef', 'worktree.baseRef', 'baseref --remove', (p) => baseRef(p, write)],
+    ['permisos', 'permisos', 'permissions --write', (p) => permissions(p, write)],
+    ['worktreeinclude', '.worktreeinclude', 'worktreeinclude --write', (p) => worktreeInclude(p, write)],
+    ['CLAUDE.md', 'CLAUDE.md de la carpeta', 'claude-md --write', (p) => claudeMd(p, write)],
+    ['settings de la carpeta', 'settings.json de la carpeta', 'folder-settings --write', (p) => (p.kind !== 'folder' || installedMarketplace() ? folderSettings(p, null, null, write) : (console.log(`no encuentro el marketplace ${MARKETPLACE} instalado; sin él no escribo el settings.json de la carpeta`), 1))],
+    ...requireProject().workspaces.filter((w) => w.adoptable).map((w) => [`línea base de ${w.name}`, `línea base de ${w.name}`, `baseline ${w.name} --write`, (p) => {
       if (!(w.commands.test || w.commands.testJson) || !w.specPattern) return console.log(`${w.name}: sin comando de test; no hay línea base que tomar`), 0;
       if (fs.existsSync(tb.baselinePath(w))) return console.log(`${w.name}: ya tiene línea base en ${posix(path.relative(p.root, tb.baselinePath(w)))}; init no la pisa (/arnes:init --baseline la vuelve a tomar)`), 0;
       return baseline(p, w.name, write);
     }]),
   ];
+  const guarded = (again, fn) => {
+    try {
+      return fn();
+    } catch (e) {
+      if (!e.json) throw e;
+      console.log(`JSON inválido  ${e.message}. Este paso no avanzó; los demás siguen. Arreglado, corre solo este paso: adopt.js ${again}`);
+      return 1;
+    }
+  };
   let left = 0;
-  for (const [paso, title, step] of steps) {
+  for (const [paso, title, again, step] of steps) {
     console.log(`\n== ${title}`);
-    if (timed(paso, () => step(requireProject()))) left++;
+    if (timed(paso, () => guarded(again, () => step(requireProject())))) left++;
   }
   console.log('\n== grafo');
   if (graph(requireProject(), write, timed) || !onPath('graphify')) left++;
@@ -525,7 +550,13 @@ function main() {
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
     'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
-  process.exit(run[mode]());
+  try {
+    process.exit(run[mode]());
+  } catch (e) {
+    if (!e.json) throw e;
+    console.log(`JSON inválido  ${e.message}`);
+    process.exit(1);
+  }
 }
 
 if (require.main === module) main();

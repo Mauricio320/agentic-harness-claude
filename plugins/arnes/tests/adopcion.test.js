@@ -24,6 +24,11 @@ function until(fn, ms = 30000) {
   throw new Error('no llegó a tiempo');
 }
 
+function noGraphify() {
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+  return { [key]: process.env[key].split(path.delimiter).filter((d) => !['graphify', 'graphify.exe', 'graphify.cmd'].some((f) => fs.existsSync(path.join(d, f)))).join(path.delimiter) };
+}
+
 const read = (root) => {
   try {
     return JSON.parse(fs.readFileSync(file(root), 'utf8'));
@@ -112,4 +117,21 @@ else console.log('graphify 9.9');`);
   assert.ok(!fs.existsSync(file(dir)), 'al salir el archivo se borra');
   const ends = tl.read(dir).filter((e) => e.stage === 'adopcion' && e.event === 'end');
   assert.match(ends.pop().ws, /^grafo de /);
+});
+
+test('un settings.json sin una coma no corta la pasada: el paso dice archivo, línea y columna, los demás siguen, y se corre solo ese paso', () => {
+  const dir = h.tmp('adopcion-json');
+  const broken = '{\n  "model": "opus"\n  "hooks": {}\n}\n';
+  h.repo(dir, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), '.claude/settings.json': broken, 'src/a.ts': 'a\n' });
+  h.write(dir, '.claude/settings.local.json', '{ "permissions": { "allow": ["Bash(ls *)"] ');
+  const r = h.run('adopt.js', ['all', '--write'], { cwd: dir, env: noGraphify() });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.json, línea 3, columna 3: Expected ',' or '\}' after property value\. Este paso no avanzó; los demás siguen\. Arreglado, corre solo este paso: adopt\.js hooks --remove$/m);
+  assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.local\.json, línea 1, columna \d+: .*corre solo este paso: adopt\.js permissions --write$/m);
+  assert.match(r.stdout, /== \.worktreeinclude[\s\S]*== CLAUDE\.md de la carpeta[\s\S]*== grafo/, 'los demás pasos corren');
+  assert.match(r.stdout, /^tiempos: /m);
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{\n  "model": "opus",\n  "hooks": {}\n}\n');
+  const again = h.run('adopt.js', ['hooks', '--remove'], { cwd: dir });
+  assert.equal(again.status, 0, again.stdout + again.stderr);
+  assert.match(h.run('adopt.js', ['permissions', '--write'], { cwd: dir }).stdout, /^JSON inválido +\S+settings\.local\.json, línea 1/m, 'el paso solo también lo dice, sin traza');
 });
