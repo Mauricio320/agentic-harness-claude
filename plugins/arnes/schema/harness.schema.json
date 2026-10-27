@@ -209,7 +209,7 @@
       }
     },
     "testRun": {
-      "description": "Cómo terminó una corrida de tests que lo informa (Karma, docs/PLAN.md §6.1): completa; abortada, con cuántos tests corrieron de los que declaró el runner y el último; o no-compila, con los primeros errores. ambiguos son los tests cuyo archivo no se supo: su describe de más arriba está en más de un spec, o en ninguno, de los candidatos.",
+      "description": "Cómo terminó una corrida de tests que lo informa (Karma, docs/PLAN.md §6.1): completa; abortada, con cuántos tests corrieron de los que declaró el runner y el último; o no-compila, con los primeros errores y la cuenta entera. ambiguos son los tests cuyo archivo no se supo: su describe de más arriba está en más de un spec, o en ninguno, de los candidatos.",
       "type": "object",
       "required": ["estado", "corrieron", "total"],
       "additionalProperties": false,
@@ -219,6 +219,25 @@
         "total": { "type": "integer", "minimum": 0 },
         "ultimo": { "type": "string" },
         "errores": { "type": "array", "items": { "type": "string" } },
+        "cuenta": {
+          "description": "En no-compila, la cuenta entera: cuántos errores y en cuántos archivos, y los archivos de más a menos errores (hasta 30). errores trae los primeros como muestra.",
+          "type": "object",
+          "required": ["errores", "archivos", "porArchivo"],
+          "additionalProperties": false,
+          "properties": {
+            "errores": { "type": "integer", "minimum": 0 },
+            "archivos": { "type": "integer", "minimum": 0 },
+            "porArchivo": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["archivo", "errores"],
+                "additionalProperties": false,
+                "properties": { "archivo": { "type": "string", "minLength": 1 }, "errores": { "type": "integer", "minimum": 1 } }
+              }
+            }
+          }
+        },
         "ambiguos": {
           "type": "array",
           "items": {

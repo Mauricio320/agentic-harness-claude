@@ -39,14 +39,14 @@ Init hace todo lo demás y deja cada uno en el cierre, con lo que lo resuelve:
 - **La línea base de un repo con cambios sin commitear** en código: los archivos que estorban, y que cuando los commitee o los guarde, `/arnes:init --baseline` corre solo ese paso.
 - **graphify sin instalar**: `uv tool install graphify`, y después `/arnes:init` otra vez, que con lo demás ya escrito solo arma el grafo.
 - **Un runner que el arnés no sabe leer** (dice que no hay adaptador de resultados; jest, vitest, `node --test` y Karma de Angular vienen de serie): el repo necesita en su configuración un comando propio que entregue los resultados de cada test, `commands.testJson` (`docs/PROBADORES.md` §4, punto 7). Lo escribe la persona en su repo; tú no.
-- **Una suite que se corta o no compila**: la línea base se toma igual, con lo que alcanzó a correr y su estado. Dilo en el cierre: hasta dónde llegó y por qué, o los primeros errores de compilación, que arregla la persona en su repo. No frena nada más.
+- **Una suite que se corta o no compila**: la línea base se toma igual, con lo que alcanzó a correr y su estado. Dilo en el cierre: hasta dónde llegó y por qué, o, si no compila, cuántos errores hay y en cuántos archivos, los archivos que más tienen y uno o dos errores de muestra, tal como lo dijo el estado: la muestra no es todo el trabajo. Lo arregla la persona en su repo. No frena nada más.
 - **Una dependencia que falta** para correr los tests, como `node_modules`: el comando que la instala. init no instala.
 
 Si encuentras otra cosa que de verdad no puedes decidir solo, tampoco preguntes: hazlo todo menos eso y dilo en el cierre.
 
 ### El cierre
 
-Un solo mensaje, corto:
+Un solo mensaje, corto. Cada glob, ruta y comando va entre comillas de código (`src/**/types/**`): en el chat, los asteriscos sueltos se leen como formato y se comen el texto.
 1. Una línea con lo que quedó escrito y dónde, y otra con lo que tardó cada paso, de la línea `tiempos:`.
 2. Lo que decidiste sin preguntar, una línea cada cosa con su porqué en una frase: las rutas que exigen revisión humana por categoría, y cuántas descartó y por qué, de las líneas `propuesto` y `descartadas` (o que no hubo ninguna en un repo), lo que se le prohíbe al modelo, el contract con las cuentas de carpetas que dio la nota (o que no hubo señal y no se escribió) y la misma rama del issue en todos los repos, la sincronización después del build si la hay, los hooks que quitaste, la línea base con sus rojos conocidos (anotados con la fecha de hoy), el grafo y cuánto tardó, y la rama remota que trae configuración, con su nombre, si la hubo.
 3. Lo que le toca a la persona: primero lo que no pudo avanzar, con su comando exacto; después commitear la configuración de cada repo en ese repo y la línea base con `gates:` al inicio del asunto; si la carpeta no es un repo, `git init` y subirla, y con eso otra persona la prepara con `/arnes:setup <url>`.

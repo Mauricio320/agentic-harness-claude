@@ -314,7 +314,7 @@ test('una suite que no compila: la línea base se toma con su estado y sus error
   assert.match(base(dir).run.errores[0], /error TS2322/);
   const r = run(dir, ['check', 'front', 'src/app/roto.spec.ts']);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /no compila: Error: src\/app\/roto\.spec\.ts:1:7 - error TS2322/);
+  assert.match(r.stdout, /no compila: 1 error\(es\) en 1 archivo\(s\); los que más: src\/app\/roto\.spec\.ts \(1\); por ejemplo: src\/app\/roto\.spec\.ts:1 - error TS2322/);
   const p = h.run('adopt.js', ['probe'], { cwd: front(SPECS), env: h.withPath(NG) });
   assert.doesNotMatch(p.stdout, /no hay adaptador/);
   assert.match(p.stdout, /^front: ok · src\/app\/cuelga\.spec\.ts: 0 test\(s\) leídos con su detalle; la corrida se cortó/m);
@@ -334,4 +334,28 @@ test('un spec roto que nadie tocó: la base completa no compila, y el gate de lo
   const ts = JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'karma', 'front.tsconfig.json'), 'utf8'));
   assert.deepEqual(ts.files.map((f) => path.basename(f)), ['verde.spec.ts', 'rojo.spec.ts']);
   assert.match(fs.readFileSync(path.join(dir, 'ng-args.txt'), 'utf8'), /^test --watch=false --browsers=ChromeHeadless --karma-config \S+front\.conf\.js$/m, 'la línea base, sin --ts-config');
+});
+
+test('no compila con la cuenta entera: el builder muestra un error, y tsc del workspace cuenta todos, por archivo de más a menos', () => {
+  const diags = [
+    ...Array.from({ length: 5 }, (_, i) => `src/app/pedidos.spec.ts(${i + 1},3): error TS2339: Property 'total' does not exist on type 'Pedido'.`),
+    ...Array.from({ length: 3 }, (_, i) => `src/app/clientes.spec.ts(${i + 1},9): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.`),
+    "src/app/roto.spec.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+  ];
+  const tsc = `process.stdout.write(${JSON.stringify(diags.join('\n') + '\n')}); process.exit(2);\n`;
+  const dir = front({ ...SPECS, 'src/app/roto.spec.ts': "describe('Roto', () => {});\n@no-compila\n", 'node_modules/typescript/bin/tsc': tsc });
+  const cap = run(dir, ['capture', 'front']);
+  assert.equal(cap.status, 0, cap.stdout + cap.stderr);
+  const r = base(dir).run;
+  assert.deepEqual(r.cuenta, { errores: 9, archivos: 3, porArchivo: [{ archivo: 'src/app/pedidos.spec.ts', errores: 5 }, { archivo: 'src/app/clientes.spec.ts', errores: 3 }, { archivo: 'src/app/roto.spec.ts', errores: 1 }] });
+  assert.equal(r.errores.length, 5);
+  assert.match(r.errores[0], /^src\/app\/pedidos\.spec\.ts:1 - error TS2339/);
+  assert.match(cap.stdout, /estado de la corrida: no compila: 9 error\(es\) en 3 archivo\(s\); los que más: src\/app\/pedidos\.spec\.ts \(5\), src\/app\/clientes\.spec\.ts \(3\), src\/app\/roto\.spec\.ts \(1\); por ejemplo: /);
+});
+
+test('no compila sin typescript en el workspace: la cuenta sale de lo que trae la salida del builder', () => {
+  const dir = front({ ...SPECS, 'src/app/roto.spec.ts': "describe('Roto', () => {});\n@no-compila\n" });
+  assert.equal(run(dir, ['capture', 'front']).status, 0);
+  assert.deepEqual(base(dir).run.cuenta, { errores: 1, archivos: 1, porArchivo: [{ archivo: 'src/app/roto.spec.ts', errores: 1 }] });
+  assert.deepEqual(tb.fromKarma('', { dir: ANGULAR, name: 'x' }, [], fixture('karma-base-no-compila.txt'), 1).run.estado, 'no-compila');
 });

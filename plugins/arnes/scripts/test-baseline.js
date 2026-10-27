@@ -31,7 +31,9 @@
 // spec incluido si hay uno solo; si no, el que tiene el describe de más arriba entre los incluidos o, en
 // la suite completa, entre los specs trackeados. Si ninguno o más de uno lo tiene, el test no entra en
 // tests: va a run.ambiguos con sus candidatos. run dice además cómo terminó la corrida: completa,
-// abortada (cuántos tests corrieron de cuántos y el último) o no-compila (los primeros errores). Una
+// abortada (cuántos tests corrieron de cuántos y el último) o no-compila (los primeros errores, y en
+// cuenta cuántos hay y en cuántos archivos, de más a menos, por tsc del workspace sobre el tsConfig del
+// target de test, o por la salida del builder sin typescript, compileCount). Una
 // línea base se toma igual con una corrida abortada o que no compila, con lo que alcanzó a correr y con
 // su estado. En el gate, una corrida que no termina completa es rojo, salvo la suite completa abortada
 // que llega al menos tan lejos como la base, abortada también; un test que falla y no tiene archivo
@@ -195,7 +197,44 @@ function joinRuns(runs) {
   return run;
 }
 
+const COMPILE_RE = /^(?:Error:\s*)?(\S+?\.[cm]?[jt]sx?)(?:\((\d+),\d+\)|:(\d+):\d+)\s*(?:-|:)\s*error\s+(TS\d+):\s*(.*)$/;
+
+function compileDiags(text) {
+  const seen = new Map();
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const m = raw.replace(/\x1b\[[0-9;]*m/g, '').trim().match(COMPILE_RE);
+    if (!m) continue;
+    const d = { file: posix(m[1]), line: m[2] || m[3], code: m[4], msg: m[5] };
+    seen.set(`${d.file}:${d.line}:${d.code}:${d.msg}`, d);
+  }
+  return [...seen.values()];
+}
+
+// La cuenta entera de una corrida que no compila: el builder de Angular muestra unos pocos errores, y
+// arreglar esos no es el trabajo. Con el typescript del workspace y el tsConfig del target de test,
+// tsc los cuenta todos; sin ellos, los que trae la salida. → { errores, cuenta } o {}
+function compileCount(ws, out) {
+  const target = karmaTarget(ws.dir);
+  const tsc = path.join(ws.dir, 'node_modules', 'typescript', 'bin', 'tsc');
+  let diags = [];
+  if (target && target.tsConfig && fs.existsSync(tsc)) {
+    const r = require('child_process').spawnSync(process.execPath, [tsc, '-p', target.tsConfig, '--noEmit', '--pretty', 'false'], { cwd: ws.dir, encoding: 'utf8', timeout: 15 * 60 * 1000, maxBuffer: MAX_LINE * 1000 });
+    diags = compileDiags(`${r.stdout || ''}\n${r.stderr || ''}`);
+  }
+  if (!diags.length) diags = compileDiags(out);
+  if (!diags.length) return {};
+  const per = new Map();
+  for (const d of diags) per.set(d.file, (per.get(d.file) || 0) + 1);
+  const porArchivo = [...per].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([archivo, errores]) => ({ archivo, errores }));
+  return {
+    errores: diags.slice(0, 5).map((d) => `${d.file}:${d.line} - error ${d.code}: ${d.msg}`),
+    cuenta: { errores: diags.length, archivos: per.size, porArchivo: porArchivo.slice(0, 30) },
+  };
+}
+
 function runText(run) {
+  const c = run.cuenta;
+  if (run.estado === 'no-compila' && c) return `no compila: ${c.errores} error(es) en ${c.archivos} archivo(s); los que más: ${c.porArchivo.slice(0, 3).map((x) => `${x.archivo} (${x.errores})`).join(', ')}; por ejemplo: ${(run.errores || []).slice(0, 2).join(' | ')}`;
   if (run.estado === 'no-compila') return `no compila: ${(run.errores || ['sin errores en la salida']).slice(0, 3).join(' | ')}`;
   return `la corrida se cortó: corrieron ${run.corrieron} de ${run.total || '?'} test(s)${run.ultimo ? `; el último, ${run.ultimo}` : ''}${run.errores ? ` (${run.errores[0]})` : ''}`;
 }
@@ -290,7 +329,9 @@ function runKarma(ws, cmd, specs, all, env) {
     out += r.out;
     if (r.status !== 0 && status === 0) status = r.status;
   }
-  return { runner: 'karma', run: { status, out }, res: merge('karma', parts) };
+  const res = merge('karma', parts);
+  if (res.run && res.run.estado === 'no-compila') Object.assign(res.run, compileCount(ws, out));
+  return { runner: 'karma', run: { status, out }, res };
 }
 
 function runTests(ws, cmd, specs, all = false) {
