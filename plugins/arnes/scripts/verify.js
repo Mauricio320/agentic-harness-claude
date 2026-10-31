@@ -28,7 +28,7 @@ const { parseArgs } = require('util');
 const { requireProject, harnessDir, posix, MANIFEST } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
 const { checkFlag, flagPath } = require('./gate-flag.js');
-const { append, read, tasks } = require('./lib/timeline.js');
+const { append, read, tasks, redStreak, RED_CAP } = require('./lib/timeline.js');
 const { touched } = require('./touched-files.js');
 const { missingSpecs } = require('./test-select.js');
 const { informe } = require('./informe.js');
@@ -126,7 +126,9 @@ function run(project, base, afterTests) {
     results.push({ ws, ok: gate.status === 0, section: moved ? `${section}\n${moved}` : section, flag, left: afterTests ? missingSpecs(ws, adoptable.find((x) => x.ws === ws).files) : [] });
   }
   const ok = results.every((r) => r.ok);
-  append(project.root, { event: 'end', stage: 'verify', result: ok ? 'ok' : 'fail', detail: results.map((r) => `${r.ws.name}: ${r.ok ? 'ok' : 'fail'}`).join(', ') });
+  const rojos = results.filter((r) => !r.ok).map((r) => r.ws.name);
+  append(project.root, { event: 'end', stage: 'verify', result: ok ? 'ok' : 'fail', detail: results.map((r) => `${r.ws.name}: ${r.ok ? 'ok' : 'fail'}`).join(', '), rojos: rojos.length ? rojos : undefined });
+  const capped = rojos.filter((n) => redStreak(read(project.root), n) >= RED_CAP);
   const rep = informe(project.root, 'verify');
   const body = ['# Verificación', '', `Base: ${base}`, ''];
   for (const r of results) {
@@ -138,6 +140,7 @@ function run(project, base, afterTests) {
   issues.record(project, { files: [rep.file] });
   for (const r of results) say(r.section);
   for (const r of results) say(`${r.ws.name}: ${r.kept ? 'VERDE · bandera vigente, no se corrió de nuevo' : r.ok ? 'VERDE · bandera escrita' : `ROJO · ${firstRed(r.section)}`}${r.left.length ? ` · sin spec: ${r.left.join(', ')}` : ''}`);
+  for (const n of capped) say(`tope: ${n} lleva ${RED_CAP} verificaciones en rojo desde el último mensaje de la persona; para, dile qué sigue fallando y qué propones, y espera su respuesta`);
   say(`informe: ${posix(rep.file)}`);
   say(rep.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
   listTasks();

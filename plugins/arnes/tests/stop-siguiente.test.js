@@ -76,6 +76,18 @@ test('verify en rojo y sin corregir: el Stop frena pidiendo corregir y volver a 
   assert.match(fin.out.systemMessage, /queda como pendiente\. Lo que sigue: en api, corrige esto y verifica: falla nueva: Suma › resta en src\/a\.spec\.ts:5\.$/);
 });
 
+test('con tres verificaciones en rojo desde el último mensaje de la persona, el Stop no pide otra vuelta: decide ella', () => {
+  const dir = repo();
+  rojo(dir, { step: 'tests', file: 'src/a.spec.ts', line: 5, what: 'falla nueva: Suma › resta' });
+  for (let i = 0; i < 3; i++) tl.append(dir, { event: 'end', stage: 'verify', result: 'fail', rojos: ['api'] });
+  const r = stop(dir);
+  assert.equal(r.out.decision, undefined, 'no bloquea: ' + JSON.stringify(r.out));
+  assert.match(r.out.systemMessage, /Lo que sigue: en api, la verificación quedó en rojo 3 veces seguidas: dile a Claude cómo seguir\.$/);
+  say(dir, 'prueba otra cosa');
+  fs.appendFileSync(path.join(dir, 'src', 'a.ts'), 'otro intento\n');
+  assert.equal(stop(dir).out.decision, 'block', 'tras el mensaje de la persona, la cuenta vuelve a cero');
+});
+
 test('si la falla es de configuración, el Stop dice qué cambiar y que se aprueba respondiendo que sí', () => {
   const dir = repo();
   rojo(dir, { step: 'lint', file: 'scripts/migrar.ts', what: 'Parsing error: scripts/migrar.ts was not found by the project service' });

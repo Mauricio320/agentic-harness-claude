@@ -122,6 +122,16 @@ function stageOpen(entries, now = Date.now()) {
   return null;
 }
 
+// Las verificaciones en rojo de un workspace desde el último mensaje de la persona: las notas end de
+// verify que lo nombran en rojos. A la RED_CAP-ésima, verify para y dice qué falla, y el Stop deja de
+// pedir otra vuelta: un lazo de corrección sin tope llegó a una hora de verify en academico.
+const RED_CAP = 3;
+
+function redStreak(entries, ws) {
+  const i = entries.map((e) => e.stage === 'turno' && e.result === 'respuesta').lastIndexOf(true);
+  return entries.slice(i + 1).filter((e) => e.stage === 'verify' && e.event === 'end' && (e.rojos || []).includes(ws)).length;
+}
+
 function prepInTurn(entries) {
   const i = entries.map((e) => e.stage === 'turno' && e.result === 'cerrado').lastIndexOf(true);
   return entries.slice(i + 1).some((e) => PREP.includes(e.stage) && (e.event === 'start' || e.event === 'end'));
@@ -291,7 +301,7 @@ function bringBack(fromRoot, toRoot) {
   return back.length;
 }
 
-module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, stageOpen, prepInTurn, tasks, corrida, summary, bringBack };
+module.exports = { FILE, PREP, STAGES, RED_CAP, append, read, format, planState, prepOpen, stageOpen, redStreak, prepInTurn, tasks, corrida, summary, bringBack };
 
 function main() {
   let args;

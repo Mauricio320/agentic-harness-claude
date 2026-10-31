@@ -202,6 +202,11 @@ test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests c
   assert.match(r.stdout, /^api: ROJO · tests: /m);
   assert.notEqual(run(dir, 'gate-flag.js', ['check', 'api']).status, 0, 'en rojo no hay bandera');
   assert.equal(events(dir).pop(), 'end verify fail');
+  assert.deepEqual(tl.read(dir).pop().rojos, ['api']);
+  assert.doesNotMatch(r.stdout, /^tope:/m, 'el primer rojo no llega al tope');
+  run(dir, 'verify.js', ['run', '--tras-tests']);
+  r = run(dir, 'verify.js', ['run', '--tras-tests']);
+  assert.match(r.stdout, /^tope: api lleva 3 verificaciones en rojo desde el último mensaje de la persona; para, dile qué sigue fallando/m);
 });
 
 test('verify.js run con un spec renombrado: verde, la base pasa al nombre nuevo y la bandera la cubre', () => {

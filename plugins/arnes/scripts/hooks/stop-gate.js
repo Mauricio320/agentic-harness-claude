@@ -51,7 +51,7 @@ const crypto = require('crypto');
 const { run } = require('../lib/hook.js');
 const { loadProject, posix, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { append, read, planState, prepOpen, prepInTurn, PREP } = require('../lib/timeline.js');
+const { append, read, planState, prepOpen, prepInTurn, redStreak, RED_CAP, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged, readLast } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
@@ -74,8 +74,10 @@ function unverified(project, skip = [], unseen = () => false) {
     const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
     if (!code.length) continue;
     const flag = checkFlag(project, ws);
-    // Como (c), archivo por archivo: el código que la persona dejó antes del turno no lo bloquea.
-    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, changed: !unseen(ws) && codeChangedSince(project, ws, code).length > 0 });
+    // Como (c), archivo por archivo: el código que la persona dejó antes del turno no lo bloquea. Un
+    // workspace que llegó al tope de verificaciones en rojo tampoco: ahí decide la persona.
+    const capped = redStreak(read(project.root), ws.name) >= RED_CAP;
+    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, capped, changed: !capped && !unseen(ws) && codeChangedSince(project, ws, code).length > 0 });
   }
   return out;
 }
@@ -245,6 +247,7 @@ function nextOf(project, name) {
 
 function nextText(project, code) {
   return code.map((p) => {
+    if (p.capped) return `en ${p.ws}, la verificación quedó en rojo ${RED_CAP} veces seguidas: dile a Claude cómo seguir`;
     const n = nextOf(project, p.ws);
     if (!n.red) return `en ${p.ws}, corre la verificación`;
     if (n.config) return `en ${p.ws}, la verificación falla por la configuración (${n.what}): Claude te propone el cambio, y lo apruebas respondiendo que sí`;
