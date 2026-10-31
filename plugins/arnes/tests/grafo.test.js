@@ -100,9 +100,19 @@ test('una pregunta suelta con grafo: el hook del prompt mete los nodos como cont
   assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 1);
   assert.doesNotMatch(JSON.stringify(ask('agrega una cuota nueva al servicio de cobros').out || {}), /grafo/, 'un pedido no es pregunta');
 
+  for (const meta of ['prod quedó ok, ¿sí?', '¿ya terminaste lo que te pedí?', 'bien, ¿cuál es el comando para borrar los archivos?', '¿y eso?', '¿lo subiste al MR?']) {
+    assert.doesNotMatch(JSON.stringify(ask(meta).out || {}), /arnes · grafo/, `no es sobre el código: ${meta}`);
+  }
+  assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 1, 'ninguna de esas pagó consulta');
+  assert.match(ask('¿quién usa calcularCuota?').out.hookSpecificOutput.additionalContext, /arnes · grafo/, 'un identificador basta, aunque sean pocas palabras');
+  tl.append(dir, { event: 'start', stage: 'verify' });
+  assert.doesNotMatch(JSON.stringify(ask('¿Dónde se calcula la cuota?').out || {}), /arnes · grafo/, 'con una etapa abierta, la pregunta es sobre la corrida');
+  tl.append(dir, { event: 'end', stage: 'verify', result: 'ok' });
+  const antes = tl.read(dir).filter((e) => e.stage === 'grafo').length;
+
   const crypto = require('crypto');
   const text = '¿Quién usa la cuota?';
   h.write(dir, '.tmp/harness/turn.json', JSON.stringify({ _origen: [{ kind: 'composer', hash: crypto.createHash('sha256').update(text).digest('hex'), at: Date.now(), grafo: true }] }));
   assert.doesNotMatch(JSON.stringify(ask(text).out || {}), /arnes · grafo/, 'el mod ya los adjuntó');
-  assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 1, 'y no se pagó otra consulta');
+  assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, antes, 'y no se pagó otra consulta');
 });

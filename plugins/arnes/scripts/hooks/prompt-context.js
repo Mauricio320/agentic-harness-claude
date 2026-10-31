@@ -37,7 +37,7 @@ const { touched } = require('../touched-files.js');
 const { checkFlag, writeTurn, takeOrigin } = require('../gate-flag.js');
 const { append, read, planState, prepOpen } = require('../lib/timeline.js');
 const { spawnSync } = require('child_process');
-const { isQuestion, GRAPH_TIMEOUT_MS } = require('../lib/grafo.js');
+const { worthGraph, GRAPH_TIMEOUT_MS } = require('../lib/grafo.js');
 
 const GRAFO = path.join(__dirname, '..', 'lib', 'grafo.js');
 
@@ -115,7 +115,7 @@ function promptContext(input) {
   const out = rows.map((r) => r.text).filter(Boolean);
   const entries = read(project.root);
   if (person && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) out.unshift(PLAN_FIRST);
-  if (person && !graphed && isQuestion(text)) out.push(...askGraph(project, text));
+  if (person && !graphed && worthGraph(project, text)) out.push(...askGraph(project, text));
   return out.length ? out.join('\n') : null;
 }
 

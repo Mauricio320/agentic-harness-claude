@@ -109,6 +109,19 @@ function prepOpen(entries, now = Date.now()) {
   return now - new Date(at).getTime() < PREP_MS ? stage : null;
 }
 
+// Una etapa de trabajo (build, verify, review o ship) abierta: su último start sin un end después, de
+// menos de dos horas, con el tope de prepOpen. Una pregunta mientras corre es sobre la corrida.
+const WORK = ['build', 'verify', 'review', 'ship'];
+
+function stageOpen(entries, now = Date.now()) {
+  for (const stage of WORK) {
+    const i = entries.map((e) => e.stage === stage && e.event === 'start').lastIndexOf(true);
+    if (i < 0 || entries.slice(i + 1).some((e) => e.stage === stage && e.event === 'end')) continue;
+    if (now - new Date(entries[i].at).getTime() < PREP_MS) return stage;
+  }
+  return null;
+}
+
 function prepInTurn(entries) {
   const i = entries.map((e) => e.stage === 'turno' && e.result === 'cerrado').lastIndexOf(true);
   return entries.slice(i + 1).some((e) => PREP.includes(e.stage) && (e.event === 'start' || e.event === 'end'));
@@ -278,7 +291,7 @@ function bringBack(fromRoot, toRoot) {
   return back.length;
 }
 
-module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, prepInTurn, tasks, corrida, summary, bringBack };
+module.exports = { FILE, PREP, STAGES, append, read, format, planState, prepOpen, stageOpen, prepInTurn, tasks, corrida, summary, bringBack };
 
 function main() {
   let args;

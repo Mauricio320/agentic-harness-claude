@@ -10,16 +10,19 @@
 //                                      doce nodos por grafo como mucho, sin repetir, sin docs ni .md,
 //                                      relativos a la raíz; null si no hay grafo o graphify
 //   isQuestion(texto)                  una pregunta: signo de interrogación al inicio o al final
+//   worthGraph(project, texto)         una pregunta sobre el código, la única que paga la consulta:
+//                                      cuatro palabras o un identificador, sin coletilla («¿sí?»), sin
+//                                      hablar del arnés o de la sesión, y sin una etapa de trabajo abierta
 // Uso: node grafo.js consulta --texto <t>
-//        las líneas de contexto de una pregunta (nada si no hay grafo, si no encuentra nodos o si pasa
-//        del tope), para el hook del prompt y para arnes-mod. Siempre exit 0, salvo uso inválido (2)
+//        las líneas de contexto de una pregunta (nada si no vale la consulta, si no hay grafo, si no
+//        encuentra nodos o si pasa del tope), para el hook del prompt y para arnes-mod. Siempre exit 0, salvo uso inválido (2)
 
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { parseArgs } = require('util');
 const { loadProject, posix } = require('./manifest.js');
-const { append } = require('./timeline.js');
+const { append, read, stageOpen } = require('./timeline.js');
 const { onPath, quote } = require('./exec.js');
 
 const GRAPH_TIMEOUT_MS = 12000;
@@ -27,6 +30,22 @@ const GRAPH_BUDGET = 1500;
 const GRAPH_NODES = 12;
 const QUESTION = /^[\s"'«(*_]*[¿?]|\?[\s"'»)*_.!]*$/u;
 const isQuestion = (text) => QUESTION.test(String(text || ''));
+
+// En renova365 se pagaron 111 consultas en cuatro días, muchas por «prod quedó ok, ¿sí?» o «¿cuál es el
+// comando para borrar los archivos?». Vale la consulta una pregunta sobre el código: cuatro palabras o
+// más, o un identificador (camelCase, snake_case, un archivo, una ruta); sin coletilla al final; sin
+// palabras del arnés o de la sesión; y sin build, verify, review o ship abiertos, porque entonces la
+// pregunta es sobre la corrida.
+const TAG = /(^|[\s¿,])(s[ií]|no|ok|verdad|cierto|correcto|vale)\s*\?[\s"'»)*_.!]*$/iu;
+const META = /(^|[^\p{L}])(ship|verify|review|commit\w*|push|mr|pr|merge|bandera|arn[eé]s|rama|worktree|terminaste|hiciste|qued[oó]|comando)(?!\p{L})/iu;
+const IDENT = /[a-z][a-z0-9]*[A-Z]\w*|[A-Za-z]+_\w+|\w\.(tsx?|jsx?|java|php|sql|py)\b|\w\/\w/u;
+
+function worthGraph(project, text) {
+  const t = String(text || '');
+  if (!isQuestion(t) || TAG.test(t) || META.test(t)) return false;
+  if ((t.match(/[\p{L}\p{N}_]+/gu) || []).length < 4 && !IDENT.test(t)) return false;
+  return !stageOpen(read(project.root));
+}
 
 const graphDirs = (project) => [project.root, ...new Set(project.workspaces.map((w) => w.repo))].filter((d, i, all) => all.indexOf(d) === i && fs.existsSync(path.join(d, 'graphify-out', 'graph.json')));
 const relOf = (project, d) => posix(path.relative(project.root, d)) || '.';
@@ -79,7 +98,7 @@ async function questionContext(project, texto) {
   return [`arnes · grafo: para esta pregunta, el grafo de código (${q.dirs.join(', ')}) trae estos nodos, con su archivo y su línea; empieza por ahí antes de buscar con Grep:`, ...q.nodes];
 }
 
-module.exports = { GRAPH_TIMEOUT_MS, GRAPH_BUDGET, graphDirs, queryProject, questionContext, isQuestion };
+module.exports = { GRAPH_TIMEOUT_MS, GRAPH_BUDGET, graphDirs, queryProject, questionContext, isQuestion, worthGraph };
 
 if (require.main === module) {
   let args;
@@ -93,7 +112,7 @@ if (require.main === module) {
     process.exit(2);
   }
   const project = loadProject(process.cwd());
-  if (!project || project.errors.length) process.exit(0);
+  if (!project || project.errors.length || !worthGraph(project, args.values.texto)) process.exit(0);
   questionContext(project, args.values.texto).then((lines) => {
     if (lines.length) console.log(lines.join('\n'));
     process.exit(0);
