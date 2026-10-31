@@ -306,6 +306,25 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.equal(events(dir).pop(), 'end ship ok');
 });
 
+test('las desviaciones del dev sin confirmar llegan al reviewer, a la pregunta del push y al cuerpo del MR', () => {
+  const { dir } = shippable();
+  const plan = path.join(dir, '.tmp/harness/plan.md');
+  fs.appendFileSync(plan, '\n## Decisiones\n- La plataforma viaja en ?plataforma= porque el Draft no trae platformId (del dev, sin confirmar)\n- Vigencia de la prueba: lo elegió la persona\n');
+  assert.equal(run(dir, 'review.js', ['input', '--completa']).status, 0);
+  const inp = fs.readFileSync(path.join(dir, '.tmp/harness/review/input.md'), 'utf8');
+  assert.match(inp, /Desviaciones que declaró el dev y la persona todavía no confirmó: júzgalas como decisiones del plan[\s\S]*\n- La plataforma viaja en \?plataforma= porque el Draft no trae platformId \(del dev, sin confirmar\)/);
+  assert.doesNotMatch(inp, /- Vigencia de la prueba/, 'solo las del dev sin confirmar');
+  h.write(dir, '.tmp/harness/review/report.md', 'BLOQUEANTES: 0\n');
+  assert.equal(run(dir, 'review.js', ['mark', '--clean']).status, 0);
+  assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
+  const r = run(dir, 'ship.js', ['deliver', '--commit']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^aviso: el dev decidió algo que el plan no decía y nadie confirmó: La plataforma viaja en \?plataforma= porque el Draft no trae platformId$/m);
+  const informe = fs.readFileSync(/^informe: (\S+)$/m.exec(run(dir, 'ship.js', ['deliver', '--sin-push']).stdout)?.[1] || '', 'utf8');
+  assert.match(informe, /## Decisiones del dev, por confirmar\n- La plataforma viaja en \?plataforma=/);
+});
+
 test('ship.js deliver: lo que falta lo dice y para; un archivo cambiado después del stage no se commitea', () => {
   const { dir } = approved();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');

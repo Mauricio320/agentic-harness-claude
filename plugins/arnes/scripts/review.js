@@ -62,6 +62,7 @@ const { stateOf, movedElsewhere } = require('./lib/huella.js');
 const { append, read: readTimeline, tasks } = require('./lib/timeline.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
+const { unconfirmed } = require('./lib/plan.js');
 
 const MAX_DIFF_LINES = 400;
 const MAX_ROUNDS = 3;
@@ -73,6 +74,14 @@ const RISK = 'REVISIÓN HUMANA OBLIGATORIA';
 const reviewDir = (project) => path.join(harnessDir(project), 'review');
 const reviewFile = (project) => path.join(harnessDir(project), 'review.json');
 const planFile = (project) => path.join(harnessDir(project), 'plan.md');
+
+// Las desviaciones del dev que nadie confirmó (lib/plan.js unconfirmed), para que el reviewer las
+// juzgue como decisiones y no las marque como criterios sin implementar.
+function devDecisions(file) {
+  const list = fs.existsSync(file) ? unconfirmed(fs.readFileSync(file, 'utf8')) : [];
+  if (!list.length) return [];
+  return ['Desviaciones que declaró el dev y la persona todavía no confirmó: júzgalas como decisiones del plan, no como criterios sin implementar; si una contradice un criterio o una decisión aprobada, es el bloqueante 4.', ...list.map((l) => `- ${l}`)];
+}
 const reportFile = (project) => path.join(reviewDir(project), 'report.md');
 const roundReport = (project, n) => path.join(reviewDir(project), `ronda-${n}.md`);
 
@@ -389,6 +398,7 @@ function input(project, full) {
       ? `Ronda ${r.round} de ${MAX_ROUNDS}, acotada: revisa solo el diff desde lo revisado en la ronda ${r.from}, ${r.blockers ? `contra sus ${r.blockers} bloqueante(s)` : 'que terminó sin bloqueantes'}. Su reporte va abajo.`
       : `Ronda ${r.round} de ${MAX_ROUNDS}, completa${r.reason ? ` porque ${r.reason}` : ''}.`,
     fs.existsSync(plan) ? `Plan: ${plan}` : 'Plan: no hay (.tmp/harness/plan.md no existe); el reporte va sin la sección de criterios.',
+    ...devDecisions(plan),
     'Devuelve tu reporte entero como respuesta: la skill review lo guarda tal como llega.',
     `Lee el árbol final con Read: cada ruta de abajo es relativa a la carpeta de su workspace. ${bounded ? 'El diff es el del cambio desde esa ronda.' : 'El diff es contra el HEAD de base.'}`,
     'Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final; las borradas van sin número. Cita esos números.',

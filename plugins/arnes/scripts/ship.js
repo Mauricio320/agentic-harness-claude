@@ -93,7 +93,7 @@ const { suspicious } = require('./hooks/guard.js');
 const { configRoot } = require('./lib/configuracion.js');
 const ledger = require('./worktree-ledger.js');
 const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
-const { readPlan, section, slugOf } = require('./lib/plan.js');
+const { readPlan, section, slugOf, unconfirmed, DEV } = require('./lib/plan.js');
 
 // La configuración del proyecto (lib/configuracion.js) no entra al commit de un issue: la commitea la
 // persona, que decide si queda. ship corre git en su propio proceso y el guard no lo ve.
@@ -655,6 +655,7 @@ function deliverCommit(project, say) {
   const bodies = mrBodies(project, d, msgs, {});
   for (const [name, b] of Object.entries(bodies)) addToReport(d.informe, `MR de ${name}: ${b.title}`, b.body);
   say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
+  for (const l of unconfirmed(readPlan(project))) say(`aviso: el dev decidió algo que el plan no decía y nadie confirmó: ${l.replace(DEV, '').trim()}`);
   say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba); con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
   return 0;
 }
@@ -663,6 +664,7 @@ function mrBodies(project, d, msgs, links) {
   const plan = readPlan(project) || '';
   const criteria = section(plan, /^criterios/i).split('\n').filter((l) => /^\s*(?:[-*]|\d+[.)]|C\d+)/.test(l));
   const manual = section(plan, /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
+  const devs = unconfirmed(plan).map((l) => `- ${l.replace(DEV, '').trim()}`);
   const rv = readJsonFile(path.join(harnessDir(project), 'review.json')) || {};
   const out = {};
   for (const name of d.order) {
@@ -677,6 +679,7 @@ function mrBodies(project, d, msgs, links) {
         String(mr.descripcion || m.cuerpo || m.asunto || '').trim(),
         ...(criteria.length ? ['', '## Criterios', ...criteria] : []),
         ...(manual.length ? ['', '## Prueba manual', ...manual] : []),
+        ...(devs.length ? ['', '## Decisiones del dev, por confirmar', ...devs] : []),
         '',
         '## Verificación',
         'Verificado por el arnés: typecheck, convenciones, lint y tests de lo tocado contra la línea base. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.',

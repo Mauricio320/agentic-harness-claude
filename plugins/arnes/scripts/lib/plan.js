@@ -55,4 +55,16 @@ function planWorkspaces(workspaces, plan) {
   return list.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot));
 }
 
-module.exports = { planPath, readPlan, slugOf, section, planWorkspaces, mentions, mentionAt };
+// Las desviaciones que el dev declaró y build copió a "## Decisiones" con la marca DEV: decisiones que
+// nadie aprobó (un parámetro que viaja por la URL porque el contrato no lo trae, un plazo que eligió
+// el dev). El reviewer las juzga como decisiones, no como criterios sin implementar, y ship las pone
+// en la pregunta del push. → [líneas, sin la viñeta]
+const DEV = '(del dev, sin confirmar)';
+function unconfirmed(plan) {
+  return section(plan || '', /^decisiones/i)
+    .split('\n')
+    .filter((l) => l.includes(DEV))
+    .map((l) => l.replace(/^\s*[-*]\s*/, '').trim());
+}
+
+module.exports = { DEV, planPath, readPlan, slugOf, section, planWorkspaces, mentions, mentionAt, unconfirmed };
