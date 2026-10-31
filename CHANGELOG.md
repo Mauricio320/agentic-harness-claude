@@ -15,6 +15,8 @@ Flujo liviano (`docs/PLAN.md` §6.2, ronda de flujo liviano): menos paradas, con
 - Las desviaciones del dev van a `## Decisiones` del plan con la marca `(del dev, sin confirmar)`; el reviewer las juzga como decisiones y ship las pone en la pregunta del push y en el MR.
 - De la revisión al chequeo: el reviewer propone la `CONVENCIÓN` de cada bloqueante de patrón, `review.js` la prueba sobre todo el repo (`conventions.js probar`) y ship la ofrece con el mismo «corrígelo» («corrígelo sin reglas» la deja fuera).
 - `verify.js run --integracion`: la entrada del test-writer para las pruebas de integración que pide el plan.
+- `plugins/arnes/compat.json`, la versión de Claude Code con que se probó el arnés, en una sola fuente: la instala el CI, `tests/compat.test.js` exige que la última fila de la matriz del README y `docs/PROBADORES.md` digan la misma y que los tres `plugin.json` lleven la misma `version` con su entrada aquí, y SessionStart avisa en una línea si la sesión corre una versión más nueva (`lib/compat.js`: la lee de `AI_AGENT` o del `package.json` junto a `CLAUDE_CODE_EXECPATH`, sin lanzar ningún proceso).
+- La lista de las piezas que compensan al modelo, en el README, cada una con lo que se observa en el piloto para retirarla; y en `docs/PROBADORES.md` §10, qué medir por issue (respuestas, espera, costo, carril y cada freno) para decidirlo. Es el principio 1 con un procedimiento.
 
 ### Cambiado
 - El aviso del Stop que no bloquea se dice una vez por estado y por sesión.
@@ -23,12 +25,14 @@ Flujo liviano (`docs/PLAN.md` §6.2, ronda de flujo liviano): menos paradas, con
 - El test-writer recibe el comando de convenciones y corre el typecheck y las convenciones sobre sus specs antes de entregar.
 - El `.env` enmascarado muestra el host, el puerto, la base y el ambiente, nunca usuarios, claves, llaves ni tokens.
 - La entrada del reviewer lleva primero las cabeceras de todos los workspaces y después los diffs, cada uno con su parte del tope.
+- El estado del README en diez líneas, con la historia en este changelog; `docs/PROBADORES.md` al día con la 0.8.0.
 
 ### Corregido
 - Ship metía en la entrega un repo con solo configuración o archivos del arnés sin commitear, y el stage fallaba.
 - El commit de un workspace vencía la bandera y la revisión de otro del mismo repo.
 - La salida generada sin trackear (`dist`, `.astro`, `coverage`…) contaba como código tocado.
 - Un base sin el workspace hacía fallar el typecheck por `git archive`.
+- El CI fijaba Claude Code 2.1.310 mientras el README decía 2.1.316: ahora los dos leen `compat.json`.
 
 ## [0.7.5] - 2026-10-27
 

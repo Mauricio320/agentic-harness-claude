@@ -4,7 +4,9 @@
 // sesión activa en el mismo proyecto, cada workspace con su rama y su árbol sucio (en una
 // composición, uno por repo), los worktrees sin integrar del registro (con aviso a los de más de 7
 // días sin commits nuevos), las últimas cinco decisiones de docs/decisions de los repos si existen,
-// y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada.
+// y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada. Antes de todo, si la
+// sesión corre una versión de Claude Code más nueva que la probada (lib/compat.js), lo dice en una
+// línea, con o sin manifiesto: es donde el modelo tiene que atribuir una falla rara a la versión.
 // En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
 // (worktree-carpeta.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
 // los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa. En el de una
@@ -36,6 +38,7 @@ const { append, read, planState, tasks } = require('../lib/timeline.js');
 const { planPath } = require('../lib/plan.js');
 const branchFlow = require('../issue-branch.js');
 const { LOCK_MAX_MS, claudePid, alive, planOwner } = require('../lib/sesiones.js');
+const compat = require('../lib/compat.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -262,8 +265,10 @@ function concurrentLines(others) {
 function sessionStart(input, now = new Date()) {
   const cwd = path.resolve(input.cwd || process.cwd());
   let project = loadProject(cwd);
+  const newer = compat.line();
   if (!project) {
     return [
+      ...(newer ? [`arnes: ${newer}.`] : []),
       'arnes: este proyecto todavía no tiene la configuración del arnés. Aquí no verifica ni bloquea nada, salvo git destructivo y la lectura de secretos.',
       'Para adoptarlo, la persona escribe /arnes:init, que prepara la configuración de cada repo y, en una carpeta multi-repo, la de la carpeta.',
     ].join('\n');
@@ -280,7 +285,7 @@ function sessionStart(input, now = new Date()) {
   // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
   if (native.length) project = loadProject(cwd);
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`, ...whereLines(w).map((l) => `- ${l}`)] : [];
-  const head = [`arnes · ${project.name} · ${kind}`, ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
+  const head = [`arnes · ${project.name} · ${kind}`, ...(newer ? [`- ${newer}`] : []), ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
   const notes = decisions(project);
   const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...rescueLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;

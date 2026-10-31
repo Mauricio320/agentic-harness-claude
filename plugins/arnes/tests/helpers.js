@@ -94,7 +94,9 @@ function run(script, args = [], opts = {}) {
     cwd: opts.cwd,
     encoding: 'utf8',
     input: opts.input,
-    env: { ...process.env, ...(opts.env || {}) },
+    // La versión de Claude Code que ve el hook (lib/compat.js) no es la de quien corre los tests: sin
+    // estas dos, SessionStart no suma su aviso, y un test que las quiera las pasa en opts.env.
+    env: { ...process.env, AI_AGENT: '', CLAUDE_CODE_EXECPATH: '', ...(opts.env || {}) },
   });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }

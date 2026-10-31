@@ -1,17 +1,20 @@
-# Valida el marketplace y los tres plugins contra la versión fijada del CLI.
-# Al subir CLAUDE_CODE_VERSION, actualizar también la matriz del README.
-variables:
-  CLAUDE_CODE_VERSION: "2.1.310"
-
+# Valida el marketplace y los tres plugins contra la versión probada del CLI, que vive en
+# plugins/arnes/compat.json: una sola fuente. La lee este CI, tests/compat.test.js exige que la matriz
+# del README y docs/PROBADORES.md digan la misma, y SessionStart compara con ella la versión que corre
+# la sesión. Para subirla se cambia ahí, y el test dice qué documento quedó atrás.
 stages:
   - validate
 
-validate:
-  stage: validate
+.cli:
   image: node:24
   before_script:
+    - CLAUDE_CODE_VERSION=$(node -p "require('./plugins/arnes/compat.json').claudeCode")
     - npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
     - claude --version
+
+validate:
+  extends: .cli
+  stage: validate
   script:
     - claude plugin validate --strict .
     - claude plugin validate --strict plugins/arnes
@@ -27,11 +30,8 @@ test:
 
 # Tests de los mods con el motor de prueba del CLI fijado.
 plugin-test:
+  extends: .cli
   stage: validate
-  image: node:24
-  before_script:
-    - npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-    - claude --version
   script:
     - claude plugin test plugins/arnes-ui
     - claude plugin test plugins/arnes-mod

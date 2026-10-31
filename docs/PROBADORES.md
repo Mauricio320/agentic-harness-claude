@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.7.3, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.310 y Node 24 en Windows; la 0.5.2 corrió también en Mac. El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.8.0, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -17,7 +17,7 @@ claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.7.3`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.0`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -145,7 +145,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **Los carga el modelo cuando corresponde:** `/arnes:plan <issue>`, `/arnes:build`, `/arnes:verify`, `/arnes:review`, `/arnes:memory decision | gotcha | recall` y `/arnes:timeline`. No hace falta invocarlos: escribe tu pedido en lenguaje normal.
 - **Del mod:** `/arnes-panel` abre o cierra el panel.
 
-## 7. Limitaciones conocidas de 0.6.6
+## 7. Limitaciones conocidas
 
 - **REVISIÓN HUMANA OBLIGATORIA.** Si el cambio toca `riskPaths`, el arnés lo marca en el plan, en el reporte del reviewer, en ship y en el cuerpo del MR. No aprueba por nadie: esa aprobación la da una persona en GitLab.
 - **Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.** El reviewer tampoco lo certifica: busca lo que está en su lista cerrada.
@@ -187,7 +187,17 @@ Abre un issue en https://gitlab.com/preupdv/apps/agentic-harness/-/issues con:
 - **Qué pasó:** qué pediste, qué esperabas y el texto exacto que viste, más la salida de `claude --version` y de `claude plugin list`.
 - **La timeline:** la salida de `/arnes:timeline`, o el archivo `.tmp/harness/timeline.jsonl`.
 - **El lock de sesión:** los archivos de `.tmp/harness/sessions/`.
-- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/0.6.6/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
+- **La salida del gate:** el bloque de ci-gate del reporte de verify, o la salida de correrlo tú desde la raíz del proyecto: `node "C:/Users/<usuario>/.claude/plugins/cache/agentic-harness/arnes/<versión>/scripts/ci-gate.js" --ws <workspace> --base HEAD`. Suma la bandera `.tmp/harness/gate/<workspace>.json` si existe.
 - **Si el problema es de plan o de review:** `.tmp/harness/plan.md` y la carpeta `.tmp/harness/review/`.
 
 `.tmp/harness/` está en la raíz del proyecto: el repo, o la carpeta en un proyecto multi-repo. Revisa lo que adjuntas: la timeline y el plan llevan texto del issue. Nunca adjuntes `.env` ni credenciales.
+
+## 10. Qué medir en el piloto
+
+El arnés existe para que un issue cueste menos mensajes tuyos, menos espera y menos dinero que sin él, sin perder el verde. Por cada issue que hagas, anota estos datos, que salen de `/arnes:timeline` al terminar (o del archivo `.tmp/harness/timeline.jsonl`):
+- cuántas respuestas tuyas pidió y cuánto esperó por ti: la línea «espera de la persona: … en N respuesta(s)»;
+- el costo por etapa, si tienes `arnes-ui`, y el total;
+- si fue por el carril corto (la nota «aprobado» dice «carril corto») o por el plan completo, y si ship avisó antes del push que el cambio salió del carril;
+- cada vez que el arnés te frenó: un turno bloqueado por el Stop (la nota «bloqueado» dice por qué: sin plan, sin verificar, plan aprobado sin build, configuración cambiada), un comando o una escritura negados, una pregunta del plan. De cada freno, una palabra: hacía falta, o no.
+
+Con eso se decide qué pieza se queda y cuál se retira: la lista está en el README, «Lo que existe porque el modelo no lo hace solo». Si puedes, haz uno de los issues chicos con `arnes-mod` desinstalado (`claude plugin uninstall arnes-mod@agentic-harness`): dice si el modelo carga el plan solo.
