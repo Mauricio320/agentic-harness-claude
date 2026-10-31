@@ -77,8 +77,8 @@ function maskedFile(abs, project) {
   const { lines, env } = maskEnv(text, reveal);
   if (!env) return 'No tiene forma de .env, así que no muestro nada de su contenido.';
   if (!lines.length) return 'Está vacío.';
-  const whole = reveal.length ? `; enteras solo ${reveal.join(', ')}, que declara envReveal` : '; no se muestra ninguna entera';
-  return [`Su contenido, enmascarado (los nombres completos; de cada valor, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host y el puerto${whole}):`, ...lines].join('\n');
+  const whole = reveal.length ? `; enteras además ${reveal.join(', ')}, que declara envReveal` : '';
+  return [`Su contenido, enmascarado (los nombres completos; enteros, el host, el puerto, la base y el ambiente, que dicen a qué base apunta; de los demás valores, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host, el puerto y, si es de una base, su nombre${whole}):`, ...lines].join('\n');
 }
 
 function secretGlob(glob) {

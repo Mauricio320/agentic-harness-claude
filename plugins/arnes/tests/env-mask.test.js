@@ -26,17 +26,26 @@ test('las comillas se conservan y su contenido se enmascara; un comentario al fi
 });
 
 test('una URL tapa usuario y clave y deja esquema, host y puerto; sin credenciales, igual', () => {
-  assert.deepEqual(mask('DATABASE_URL=mysql://root:s3cr3t@127.0.0.1:3312/contable_qa?ssl=true'), ['DATABASE_URL=mysql://***:***@127.0.0.1:3312/********_**?***=****']);
+  assert.deepEqual(mask('DATABASE_URL=mysql://root:s3cr3t@127.0.0.1:3312/contable_qa?ssl=true'), ['DATABASE_URL=mysql://***:***@127.0.0.1:3312/contable_qa?***=****'], 'la base de una URL de base se ve: dice si es QA o producción');
+  assert.deepEqual(mask('JDBC_URL=jdbc:mysql://10.0.0.5:3306/informes?user=root&password=x'), ['JDBC_URL=jdbc:mysql://10.0.0.5:3306/informes?****=****&********=*']);
+  assert.deepEqual(mask('SQL=jdbc:sqlserver://srv:1433;databaseName=x;password=y'), ['SQL=jdbc:sqlserver://srv:1433;************=*;********=*']);
   assert.deepEqual(mask('REDIS_URL=redis://solo-usuario@cache.qa.local:6379'), ['REDIS_URL=redis://***@cache.qa.local:6379']);
   assert.deepEqual(mask('API_URL=http://localhost:3013/api'), ['API_URL=http://localhost:3013/***']);
-  assert.deepEqual(mask('PG="postgres://u:p@[::1]:5432/db"'), ['PG="postgres://***:***@[::1]:5432/**"']);
+  assert.deepEqual(mask('PG="postgres://u:p@[::1]:5432/db"'), ['PG="postgres://***:***@[::1]:5432/db"']);
 });
 
 test('un comentario se tapa entero, salvo una variable comentada, que se enmascara como las demás', () => {
   assert.deepEqual(mask('# clave vieja: abc123\n#DB_PASSWORD=supersecreta\n\n[default]\naws_secret_access_key = wJalrXUtnFEMI'), ['# …', '#DB_PASSWORD=sup*********', '[default]', 'aws_secret_access_key=wJa**********']);
 });
 
-test('enteros, solo los nombres o patrones de envReveal', () => {
+test('enteros, sin declararlos, los datos de conexión que no son secretos; nunca un usuario, una clave ni una llave', () => {
+  assert.deepEqual(
+    mask('DB_HOST=10.0.4.12\nDB_PORT=5432\nDB_NAME=renova_prod\nDB_USER=admin\nDB_PASSWORD=supersecreta\nPORT=3001\nNODE_ENV=production\nAPI_KEY_HOST=clave.oculta\nSPRING_PROFILES_ACTIVE=qa'),
+    ['DB_HOST=10.0.4.12', 'DB_PORT=5432', 'DB_NAME=renova_prod', 'DB_USER=a****', 'DB_PASSWORD=sup*********', 'PORT=3001', 'NODE_ENV=production', 'API_KEY_HOST=cla**.******', 'SPRING_PROFILES_ACTIVE=qa'],
+  );
+});
+
+test('enteros, además, los nombres o patrones de envReveal', () => {
   assert.deepEqual(mask('PORT=3003\nNODE_ENV=local\nDB_HOST=db.qa.local\nDB_PASSWORD=supersecreta', ['PORT', 'node_env', '*_HOST']), ['PORT=3003', 'NODE_ENV=local', 'DB_HOST=db.qa.local', 'DB_PASSWORD=sup*********']);
   assert.ok(!revealed('DB_PASSWORD', ['*_HOST', 'PORT']));
   assert.ok(revealed('API_HOST', ['*_HOST']));
@@ -54,7 +63,7 @@ test('read-guard y el guard niegan leer el .env con su contenido enmascarado, y 
   const reason = (out) => out.hookSpecificOutput.permissionDecisionReason;
   const read = (tool, ti) => reason(h.hook('read-guard', { hook_event_name: 'PreToolUse', tool_name: tool, tool_input: ti, cwd: dir }).out);
   for (const r of [read('Read', { file_path: path.join(dir, '.env') }), read('Grep', { pattern: 'X', path: '.env' })]) {
-    assert.match(r, /denegado: es un archivo \.env\. Los secretos no entran al transcript\.\nSu contenido, enmascarado .*; enteras solo PORT, \*_HOST, que declara envReveal\):\nPORT=3003\nDB_HOST=127\.0\.0\.1\nDATABASE_URL=mysql:\/\/\*\*\*:\*\*\*@127\.0\.0\.1:3312\/\*\*\*\*\*\*\*\*\nJWT_SECRET=muy\*\*\*\*\*\*\*\*\*\*\*\nSi hace falta un valor completo/);
+    assert.match(r, /denegado: es un archivo \.env\. Los secretos no entran al transcript\.\nSu contenido, enmascarado .*; enteras además PORT, \*_HOST, que declara envReveal\):\nPORT=3003\nDB_HOST=127\.0\.0\.1\nDATABASE_URL=mysql:\/\/\*\*\*:\*\*\*@127\.0\.0\.1:3312\/contable\nJWT_SECRET=muy\*\*\*\*\*\*\*\*\*\*\*\nSi hace falta un valor completo/);
     assert.doesNotMatch(r, /s3cr3t|secretoeste|root/, 'ni la clave, ni el usuario, ni el resto del secreto');
   }
   const cat = reason(h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat .env' }, cwd: dir }).out);

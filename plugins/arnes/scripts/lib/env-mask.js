@@ -6,15 +6,21 @@
 //   - el valor con sus tres primeros caracteres visibles (menos si es corto: uno corto se vería
 //     entero) y el resto en asteriscos, conservando los separadores (- : @ / . _ , ; = & ? y el
 //     espacio) para que se vea su forma: us-east-1 → us-****-*;
-//   - en una URL, se tapan usuario y clave y quedan el esquema, el host y el puerto: lo que hace
-//     falta para saber si apunta a local o a QA; la ruta y la consulta van enmascaradas enteras;
-//   - enteros, solo los nombres de envReveal del workspace (nombres o patrones con *, como PORT o
-//     *_HOST); nada más se revela;
+//   - en una URL (también jdbc:), se tapan usuario y clave y quedan el esquema, el host y el puerto:
+//     lo que hace falta para saber si apunta a local o a QA; en la de una base, también su nombre
+//     (el primer tramo de la ruta); el resto de la ruta y la consulta van enmascarados enteros;
+//   - enteros, los datos de conexión que no son secretos (DEFAULT_REVEAL: el host, el puerto, el
+//     nombre de la base, el esquema y el ambiente), para saber si la base es la de QA o la de
+//     producción, salvo un nombre que hable de usuario, clave, llave, token o credencial; y los
+//     nombres de envReveal del workspace (nombres o patrones con *); nada más se revela;
 //   - un comentario se tapa entero, salvo que sea una variable comentada, que se enmascara igual.
 // Un archivo que no tiene forma de .env (una llave, un certificado) no se muestra.
 
 const SEPARATORS = new Set(['-', ':', '@', '/', '.', '_', ',', ';', '=', '&', '?', ' ']);
-const URL_RE = /^([a-z][a-z0-9+.-]*):\/\/(?:([^@/?#\s]*)@)?(\[[^\]]+\]|[^/?#:\s]+)(:\d+)?(.*)$/i;
+const URL_RE = /^((?:jdbc:)?[a-z][a-z0-9+.-]*):\/\/(?:([^@/?#\s]*)@)?(\[[^\]]+\]|[^/?#:;\s]+)(:\d+)?(.*)$/i;
+const DB_SCHEME = /^(jdbc:)?(postgres(ql)?|mysql|mariadb|mongodb(\+srv)?|mssql|sqlserver|redis|oracle)/i;
+const DEFAULT_REVEAL = ['HOST', '*_HOST', 'PORT', '*_PORT', 'DATABASE', '*_DATABASE', 'DB_NAME', '*_DB_NAME', '*_DBNAME', '*_SCHEMA', 'NODE_ENV', 'APP_ENV', 'ENVIRONMENT', 'SPRING_PROFILES_ACTIVE'];
+const SENSITIVE = /USER|PASS|PWD|SECRET|KEY|TOKEN|CRED|AUTH|PRIVATE|SALT/i;
 const LINE_RE = /^(\s*)(export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)(\s*=\s*)(.*)$/;
 const MAX_LINES = 60;
 
@@ -35,7 +41,8 @@ function maskValue(v) {
   if (u) {
     const [, scheme, auth, host, port = '', rest] = u;
     const who = auth === undefined ? '' : `${auth.includes(':') ? '***:***' : '***'}@`;
-    return `${scheme}://${who}${host}${port}${cover(rest)}`;
+    const db = DB_SCHEME.test(scheme) ? (/^\/[^/?#;]*/.exec(rest) || [''])[0] : '';
+    return `${scheme}://${who}${host}${port}${db}${cover(rest.slice(db.length))}`;
   }
   return cover(v, visible([...v].length));
 }
@@ -59,7 +66,7 @@ function maskAssignment(m, reveal) {
       tail = ' # …';
     }
   }
-  const shown = !value ? '' : revealed(name, reveal) ? value : maskValue(value);
+  const shown = !value ? '' : revealed(name, reveal) || (!SENSITIVE.test(name) && revealed(name, DEFAULT_REVEAL)) ? value : maskValue(value);
   return `${lead}${exp}${name}${eq.trim()}${quote}${shown}${quote}${tail}`;
 }
 
@@ -90,4 +97,4 @@ function maskEnv(text, reveal = []) {
   return { lines: out.length > MAX_LINES ? [...out.slice(0, MAX_LINES), `… y ${out.length - MAX_LINES} línea(s) más`] : out, env: true };
 }
 
-module.exports = { maskEnv, maskValue, revealed, visible };
+module.exports = { DEFAULT_REVEAL, maskEnv, maskValue, revealed, visible };
