@@ -2,6 +2,34 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.0] - 2026-10-31
+
+Flujo liviano (`docs/PLAN.md` §6.2, ronda de flujo liviano): menos paradas, con la misma calidad. Por los datos de uso real del 26 al 31 de octubre: en renova365, unos diez mensajes de la persona por issue y más espera de la persona que trabajo del agente; en academico, una revisión que se llevaba un tercio del costo con bloqueantes casi todos de patrón. Rama `feature/flujo-liviano`, desde la 0.7.5, probada con Claude Code 2.1.316 y Node 24 con `claude plugin validate --strict`, `node --test` (512 tests) y `claude plugin test` de los dos mods.
+
+### Agregado
+- El carril corto: un pedido de un workspace, cinco archivos o menos, sin riskPaths, sin contrato, sin migración y sin preguntas lleva un plan corto que `plan-state.js corto` aprueba por reglas, sin esperar a la persona, y que build construye en el hilo principal, sin el agente dev. Ship avisa en la pregunta del push si el cambio real salió del carril.
+- El plan es de la sesión que lo empezó (`lib/sesiones.js`): con el plan de otra sesión viva, `start` no lo pisa y manda a planificar en un worktree propio; EnterWorktree solo se lleva el plan propio, y el prompt de la otra sesión trae el aviso.
+- `worktree-carpeta.js equipar`: los `.env` que le faltan a cualquier worktree, nativo o no, copiados del checkout principal sin mostrar sus valores, con `node_modules` y puertos. «Levanta la app» lo corre si falta el `.env`, y SessionStart copia los que `.worktreeinclude` no trajo.
+- Un spec renombrado no es uno borrado (`lib/renombres.js`): se compara con los números del viejo, y verify pasa la base al nombre nuevo antes de la bandera (`test-baseline.js renombra`). Las convenciones no marcan lo que un archivo renombrado ya traía.
+- Los posibles defectos de lógica del reviewer van en su propia sección, y ship los muestra en la pregunta del push y en el MR, sin bloquear.
+- Las desviaciones del dev van a `## Decisiones` del plan con la marca `(del dev, sin confirmar)`; el reviewer las juzga como decisiones y ship las pone en la pregunta del push y en el MR.
+- De la revisión al chequeo: el reviewer propone la `CONVENCIÓN` de cada bloqueante de patrón, `review.js` la prueba sobre todo el repo (`conventions.js probar`) y ship la ofrece con el mismo «corrígelo» («corrígelo sin reglas» la deja fuera).
+- `verify.js run --integracion`: la entrada del test-writer para las pruebas de integración que pide el plan.
+
+### Cambiado
+- El aviso del Stop que no bloquea se dice una vez por estado y por sesión.
+- El grafo solo se consulta con una pregunta sobre el código: no con «¿sí?», ni con palabras del arnés o de la sesión, ni con una etapa abierta.
+- verify no repite un workspace verde con el mismo contenido, y para a la tercera vuelta en rojo desde el último mensaje de la persona (`tope:`); el Stop deja de pedir otra.
+- El test-writer recibe el comando de convenciones y corre el typecheck y las convenciones sobre sus specs antes de entregar.
+- El `.env` enmascarado muestra el host, el puerto, la base y el ambiente, nunca usuarios, claves, llaves ni tokens.
+- La entrada del reviewer lleva primero las cabeceras de todos los workspaces y después los diffs, cada uno con su parte del tope.
+
+### Corregido
+- Ship metía en la entrega un repo con solo configuración o archivos del arnés sin commitear, y el stage fallaba.
+- El commit de un workspace vencía la bandera y la revisión de otro del mismo repo.
+- La salida generada sin trackear (`dist`, `.astro`, `coverage`…) contaba como código tocado.
+- Un base sin el workspace hacía fallar el typecheck por `git archive`.
+
 ## [0.7.5] - 2026-10-27
 
 El arnés frena donde no debe (`docs/PLAN.md` §6.1, §6.2, §6.3, §6.5 y §8): seis trabas vistas en uso real. Rama `feature/menos-trabas`, desde el tag `v0.7.4`, probada con Claude Code 2.1.311 y Node 24 con `claude plugin validate --strict`, `node --test`, `claude plugin test` y `tsc` de los mods, con la corrida A y con una corrida aparte sobre un repo con lint acotado, una propuesta de configuración y una pregunta con grafo (§10). La corrida A costó US$3,38 (US$3,46 con la 0.7.4).
