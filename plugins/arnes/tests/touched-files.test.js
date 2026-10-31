@@ -34,6 +34,25 @@ test('touched-files = modificados sin borrados + sin trackear, con el prefijo de
   assert.deepEqual(h.lines(r.stdout), ['api/notas.txt', 'api/src/a.ts', 'api/src/ñandú.ts', 'client/src/d.tsx']);
 });
 
+test('la salida generada sin trackear no es tocado; la versionada sí, y build solo cuenta como generado en la raíz', () => {
+  const { root, api } = folder();
+  h.write(api, 'dist/_astro/app.js', 'x\n');
+  h.write(api, 'docs/portal/.astro/data.ts', 'x\n');
+  h.write(api, 'coverage/lcov.js', 'x\n');
+  h.write(api, '.codex/hooks/x.js', 'x\n');
+  h.write(api, 'build/main.js', 'x\n');
+  h.write(api, 'src/build/paso.ts', 'código de verdad\n');
+  h.write(api, 'out/a.js', 'x\n');
+  h.write(api, 'dist-old/keep.ts', 'x\n');
+  const r = h.run('touched-files.js', ['--ws', 'api', '--relative'], { cwd: root });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.lines(r.stdout), ['dist-old/keep.ts', 'notas.txt', 'src/a.ts', 'src/build/paso.ts', 'src/ñandú.ts']);
+  h.write(api, 'lib/dist/x.ts', 'v\n');
+  h.commitAll(api, 'versiona un dist');
+  fs.appendFileSync(path.join(api, 'lib/dist/x.ts'), 'cambio\n');
+  assert.ok(h.lines(h.run('touched-files.js', ['--ws', 'api', '--relative'], { cwd: root }).stdout).includes('lib/dist/x.ts'), 'lo versionado cuenta');
+});
+
 test('touched-files coincide con git directo en el repo del workspace', () => {
   const { root, api } = folder();
   const esperado = new Set(

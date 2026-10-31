@@ -27,18 +27,26 @@ const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 // checkout que lo lanzó, y sin ignorar git lo lista como una carpeta sin trackear.
 const NEVER = /(^|\/)(graphify-out|\.tmp|node_modules|\.claude\/worktrees)(\/|$)/;
 
+// La salida generada que el repo no ignora (un build de Astro, la cobertura, la caché de Angular): sin
+// trackear nunca es código del issue, y contarla hacía que el Stop pidiera verificar miles de archivos
+// y que ship la llevara al commit. Solo entre los sin trackear: lo que el repo versiona sigue contando.
+// build, out y target solo en la raíz del workspace, donde los dejan las herramientas; más adentro
+// pueden ser carpetas de código.
+const GENERATED = /(^|\/)(dist|coverage|\.astro|\.next|\.nuxt|\.svelte-kit|\.turbo|\.angular|\.output|\.codex)(\/|$)|^(build|out|target)\//;
+
 // Rutas relativas al workspace. `--relative` en el diff y ls-files corrido desde la carpeta del
 // workspace limitan ambos a su subárbol, que es lo que necesita un monorepo con varios paquetes.
 // Con el proyecto, se excluye su .tmp/harness/: en un proyecto de un solo repo cae dentro del
 // workspace y, si no está ignorado, la propia bandera contaría como archivo tocado. Y siempre lo de
-// NEVER.
+// NEVER, y entre los sin trackear, lo de GENERATED.
 function touched(ws, base = 'HEAD', project = null) {
   const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=d', '--relative', base, '--']);
   if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
   const untracked = git(ws.dir, ['ls-files', '--others', '--exclude-standard']);
   if (untracked.status !== 0) return { error: `git ls-files falló en ${ws.name}: ${firstLine(untracked.stderr)}` };
   const own = project ? `${posix(path.relative(ws.dir, harnessDir(project)))}/` : null;
-  const files = [...new Set([...lines(diff.stdout), ...lines(untracked.stdout)])].filter((f) => (!own || !f.startsWith(own)) && !NEVER.test(f));
+  const fresh = lines(untracked.stdout).filter((f) => !GENERATED.test(f));
+  const files = [...new Set([...lines(diff.stdout), ...fresh])].filter((f) => (!own || !f.startsWith(own)) && !NEVER.test(f));
   return { files: files.sort() };
 }
 
@@ -66,7 +74,7 @@ function withExt(ws, files, exts) {
   return files.filter((f) => exts.includes(path.extname(f).toLowerCase()) && fs.existsSync(path.join(ws.dir, f)));
 }
 
-module.exports = { NEVER, touched, added, deleted, withExt };
+module.exports = { NEVER, GENERATED, touched, added, deleted, withExt };
 
 function main() {
   let args;
