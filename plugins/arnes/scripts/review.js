@@ -58,7 +58,7 @@ const { requireProject, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched, added, deleted } = require('./touched-files.js');
-const { stateOf } = require('./lib/huella.js');
+const { stateOf, movedElsewhere } = require('./lib/huella.js');
 const { append, read: readTimeline, tasks } = require('./lib/timeline.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
@@ -391,6 +391,12 @@ function same(a, b) {
   return a && b && a.head === b.head && a.touchedHash === b.touchedHash && a.contentHash === b.contentHash;
 }
 
+// El mismo contenido con el HEAD movido solo por el commit de otro workspace del repo: la revisión
+// sigue siendo de este árbol, y ship no paga otra (lib/huella.js movedElsewhere).
+function sameElsewhere(project, ws, a, b) {
+  return a && b && a.touchedHash === b.touchedHash && a.contentHash === b.contentHash && movedElsewhere(project, ws, b.head, a.head);
+}
+
 // El reporte mínimo de una revisión sin hallazgos, para cuando el reviewer no escribió el suyo.
 function cleanReport(inp) {
   const risk = Object.values(inp.workspaces || {}).flatMap((m) => m.risk || []);
@@ -488,7 +494,7 @@ function checkReview(project) {
     const m = rev && rev.workspaces && rev.workspaces[ws.name];
     const st = stateOf(project, ws);
     if (!m) out.push({ ws: ws.name, ok: false, reason: 'sin revisión', risk });
-    else if (st.error || !same(st, m)) out.push({ ws: ws.name, ok: false, reason: 'la revisión no es del árbol actual', risk });
+    else if (st.error || !(same(st, m) || sameElsewhere(project, ws, st, m))) out.push({ ws: ws.name, ok: false, reason: 'la revisión no es del árbol actual', risk });
     else if (rev.blockers > 0) out.push({ ws: ws.name, ok: false, reason: `la revisión encontró ${rev.blockers} bloqueante(s)`, risk });
     else out.push({ ws: ws.name, ok: true, reason: 'revisión hecha, sin bloqueantes', risk });
   }

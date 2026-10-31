@@ -13,7 +13,8 @@
 //                ya commiteado (integrate de un worktree, sync), que verify pasa con --base para
 //                verificar lo que entró con el merge
 // Vigente = existe, result "pass", mismo HEAD y mismos touchedHash y contentHash, sin vencer por
-// tiempo: vale mientras el HEAD y el contenido coincidan. La huella cubre solo los tocados, no el
+// tiempo: vale mientras el HEAD y el contenido coincidan, o mientras el HEAD solo se haya movido por
+// otro workspace del mismo repo (lib/huella.js movedElsewhere: el commit del back en un monorepo). La huella cubre solo los tocados, no el
 // árbol entero: el CI garantiza la honestidad, no la bandera (docs/PLAN.md §6.1, §11).
 // Además, ci-gate deja por workspace el resultado de su última corrida en .tmp/harness/gate/
 // <ws>-ultimo.json, con la misma huella, el resultado y el primer error con su archivo y su línea
@@ -41,7 +42,7 @@ const { requireProject, selectWorkspaces, harnessDir, posix, MANIFEST } = requir
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { matchAny } = require('./lib/glob.js');
-const { stateOf, fileHash } = require('./lib/huella.js');
+const { stateOf, fileHash, movedElsewhere } = require('./lib/huella.js');
 const { checkReview } = require('./review.js');
 const ledger = require('./worktree-ledger.js');
 const issues = require('./lib/issues.js');
@@ -99,7 +100,7 @@ function checkFlag(project, ws, now = new Date()) {
   if (flag.result !== 'pass') return { ok: false, reason: `la última verificación de ${ws.name} terminó en "${flag.result}"` };
   const s = stateOf(project, ws, flag.base || 'HEAD');
   if (s.error) return s;
-  if (s.head !== flag.head) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
+  if (s.head !== flag.head && !movedElsewhere(project, ws, flag.head, s.head)) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
   if (s.touchedHash !== flag.touchedHash) return { ok: false, reason: 'la lista de archivos tocados cambió desde la verificación' };
   if (s.contentHash !== flag.contentHash) return { ok: false, reason: 'el contenido de un archivo tocado cambió desde la verificación' };
   return { ok: true };
@@ -235,7 +236,7 @@ function readLast(project, ws) {
     return null;
   }
   const s = stateOf(project, ws, last.base || 'HEAD');
-  return { ...last, current: !s.error && s.head === last.head && s.touchedHash === last.touchedHash && s.contentHash === last.contentHash };
+  return { ...last, current: !s.error && (s.head === last.head || movedElsewhere(project, ws, last.head, s.head)) && s.touchedHash === last.touchedHash && s.contentHash === last.contentHash };
 }
 
 function readFlag(project, ws) {

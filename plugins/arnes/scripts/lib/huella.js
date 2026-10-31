@@ -30,4 +30,22 @@ function fileHash(ws, f) {
   return fs.existsSync(p) ? sha(fs.readFileSync(p)) : '-';
 }
 
-module.exports = { stateOf, fileHash };
+// Un HEAD que se movió solo por otro workspace del mismo repo no cambia lo que se verificó o se revisó
+// de este: en un monorepo, ship commitea el back y el HEAD del front se mueve. Vale si el HEAD nuevo
+// desciende del viejo y cada archivo que cambió entre los dos cae dentro de otro workspace adoptable
+// del mismo repo y fuera de este; un archivo de la raíz (un lockfile, un tsconfig compartido) no.
+// Las huellas de los tocados se siguen comparando aparte.
+function movedElsewhere(project, ws, from, to) {
+  if (!from || !to || from === to) return false;
+  if (git(ws.gitRoot, ['merge-base', '--is-ancestor', from, to]).status !== 0) return false;
+  const diff = git(ws.gitRoot, ['diff', '--name-only', from, to, '--']);
+  if (diff.status !== 0) return false;
+  const changed = diff.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  const relOf = (w) => path.relative(ws.gitRoot, w.dir).split(path.sep).join('/');
+  const inside = (f, rel) => rel !== '' && (f === rel || f.startsWith(`${rel}/`));
+  const mine = relOf(ws);
+  const others = project.workspaces.filter((w) => w.adoptable && w.name !== ws.name && path.resolve(w.gitRoot) === path.resolve(ws.gitRoot)).map(relOf);
+  return changed.length > 0 && mine !== '' && changed.every((f) => !inside(f, mine) && others.some((rel) => inside(f, rel)));
+}
+
+module.exports = { stateOf, fileHash, movedElsewhere };

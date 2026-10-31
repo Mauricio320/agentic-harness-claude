@@ -77,6 +77,31 @@ test('HEAD distinto → 1', () => {
   assert.match(gate(dir, ['check', 'api']).stderr, /HEAD cambió/);
 });
 
+test('monorepo: el commit de otro workspace del repo no vence la bandera; uno que toca este o la raíz, sí', () => {
+  const dir = h.tmp('gate-mono');
+  h.repo(dir, {
+    '.gitignore': '.tmp/\n',
+    '.claude/harness.json': h.repoManifest('mono', h.workspace({ name: 'api', path: 'apps/api', git: '../..' }), h.workspace({ name: 'web', path: 'apps/web', git: '../..' })),
+    'apps/api/src/a.ts': 'a\n',
+    'apps/web/src/w.ts': 'w\n',
+    'package-lock.json': '{}\n',
+  });
+  fs.appendFileSync(path.join(dir, 'apps/api/src/a.ts'), 'back\n');
+  fs.appendFileSync(path.join(dir, 'apps/web/src/w.ts'), 'front\n');
+  for (const ws of ['api', 'web']) assert.equal(gate(dir, ['write', ws, '--result', 'pass']).status, 0);
+  assert.equal(h.run('review.js', ['input'], { cwd: dir }).status, 0);
+  assert.equal(h.run('review.js', ['mark', '--clean'], { cwd: dir }).status, 0);
+  h.git(dir, 'add', 'apps/api/src/a.ts');
+  h.git(dir, 'commit', '-q', '-m', 'feat(api): el back');
+  assert.equal(gate(dir, ['check', 'web']).status, 0, 'el HEAD se movió solo por api');
+  assert.match(h.run('review.js', ['check'], { cwd: dir }).stdout, /^web: ok · revisión hecha, sin bloqueantes$/m, 'la revisión de web sigue siendo de este árbol: ship no paga otra');
+  assert.match(gate(dir, ['check', 'api']).stderr, /HEAD cambió/, 'el commit tocó api: su bandera no es de este árbol');
+  h.write(dir, 'package-lock.json', '{ "v": 2 }\n');
+  h.git(dir, 'add', 'package-lock.json');
+  h.git(dir, 'commit', '-q', '-m', 'chore: lockfile');
+  assert.match(gate(dir, ['check', 'web']).stderr, /HEAD cambió/, 'un archivo de la raíz sí la vence');
+});
+
 test('result fail → 1; la bandera no vence por tiempo: vale mientras HEAD y contenido coincidan', () => {
   const { dir, flag } = repo();
   gate(dir, ['write', 'api', '--result', 'fail']);
