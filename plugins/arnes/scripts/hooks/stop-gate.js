@@ -35,7 +35,9 @@
 // de ese contenido, avisa en una línea que la revisión la hace ship, sin bloquear. Con trabajo en
 // marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
 // registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
-// hay nada en marcha.
+// hay nada en marcha. Esos tres avisos, que no bloquean, se dicen una vez por estado: el mismo texto
+// en la misma sesión calla hasta que cambie (avisos.json), para que una pregunta suelta no repita en
+// cada turno lo que la persona ya leyó.
 // En el worktree de una carpeta, antes de juzgar, guarda el rescate de lo que quedó sin commitear en
 // cada repo de adentro y pone o quita el marcador (worktree-carpeta.js protect): Claude Code puede
 // borrar ese worktree al cerrar la sesión, sin pasar por el arnés.
@@ -45,8 +47,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { run } = require('../lib/hook.js');
-const { loadProject, posix } = require('../lib/manifest.js');
+const { loadProject, posix, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, prepInTurn, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
@@ -263,6 +266,33 @@ function closePrep(root) {
   return `arnes: ${stage} seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida.`;
 }
 
+// El aviso que no bloquea, una vez por estado y por sesión: si el texto es el mismo que esta sesión ya
+// dijo, calla; sin nada que decir, olvida el último, para que el mismo pendiente vuelva a decirse si
+// reaparece. Se guarda su sha256 en .tmp/harness/avisos.json, que los tocados no cuentan.
+const AVISOS_MAX = 20;
+
+function once(project, session, r) {
+  const file = path.join(harnessDir(project), 'avisos.json');
+  let seen = {};
+  try {
+    seen = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
+  } catch {
+    /* sin avisos anteriores */
+  }
+  const key = session || 'sin-sesion';
+  const hash = r && r.systemMessage ? crypto.createHash('sha256').update(r.systemMessage).digest('hex') : null;
+  const said = hash !== null && seen[key] === hash;
+  delete seen[key];
+  if (hash) seen[key] = hash;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(Object.fromEntries(Object.entries(seen).slice(-AVISOS_MAX)), null, 2) + '\n');
+  } catch {
+    /* sin poder anotarlo, el aviso se repite: nunca frena el cierre */
+  }
+  return said ? null : r;
+}
+
 function withClosed(closed, r) {
   if (!closed) return r;
   return { ...(r || {}), systemMessage: r && r.systemMessage ? `${closed}\n${r.systemMessage}` : closed };
@@ -303,14 +333,15 @@ function stopGate(input) {
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
   const closed = closePrep(home.root);
   append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
-  if (busy.length) return withClosed(closed, { systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` });
+  const quiet = (r) => withClosed(closed, once(project, input.session_id, r));
+  if (busy.length) return quiet({ systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` });
   if (pending && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(w)}` });
     return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.${followText(project, w)}` });
   }
-  if (pending) return withClosed(closed, { systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
+  if (pending) return quiet({ systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
   const noReview = unreviewed(project);
-  return withClosed(closed, noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
+  return quiet(noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
 }
 
 function block(project, w) {

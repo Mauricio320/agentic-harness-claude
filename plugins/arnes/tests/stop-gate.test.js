@@ -88,6 +88,22 @@ test('(a) también archivo por archivo: el código sin verificar que dejó la pe
   assert.deepEqual(notes(root), []);
 });
 
+test('el aviso que no bloquea se dice una vez por estado: el mismo texto en la misma sesión calla hasta que cambie', () => {
+  const { api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'de la persona\n');
+  const quieto = (session) => {
+    h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿qué hora es?', cwd: api, session_id: session });
+    return h.hook('stop-gate', { hook_event_name: 'Stop', stop_hook_active: false, cwd: api, session_id: session }).out;
+  };
+  assert.match(quieto('s1').systemMessage, /este turno no los tocó/, 'la primera vez se dice');
+  assert.equal(quieto('s1'), null, 'el mismo pendiente, en la misma sesión, calla');
+  assert.match(quieto('s2').systemMessage, /este turno no los tocó/, 'otra sesión lo dice una vez');
+  h.write(api, 'src/b.ts', 'otro\n');
+  assert.match(quieto('s1').systemMessage, /api \(2 archivo\(s\) de código\)/, 'otro estado se dice');
+  fs.unlinkSync(path.join(api, 'src/b.ts'));
+  assert.match(quieto('s1').systemMessage, /api \(1 archivo\(s\) de código\); este turno no los tocó/, 'y el anterior, si vuelve, también');
+});
+
 test('con stop_hook_active deja pasar, avisa con systemMessage y lo anota en la timeline', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
