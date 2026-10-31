@@ -114,6 +114,42 @@ test('approve en el checkout: con --en-checkout crea la rama del issue ahí, y c
   assert.equal(run(other, 'plan-state.js', ['approve', '--desde-otra', '--quedarse']).status, 2);
 });
 
+const CORTO = (archivos, extra = '') =>
+  `# Plan: Mensaje de cuota vencida\n\n## Criterios de aceptación\n- C1 [literal] la cuota vencida dice «vencida»\n\n## Contrato de API\nSin cambios.\n\n## Datos\nSin migración.\n\n## Archivos previstos\n${archivos.map((f) => `- ${f} (modificado)`).join('\n')}\n${extra}`;
+
+test('carril corto: un plan trivial se aprueba por reglas, sin la persona; si no cumple alguna, dice por qué y sigue por la aprobación', () => {
+  const { dir } = cloned();
+  run(dir, 'plan-state.js', ['start', '--detail', 'mensaje de cuota vencida']);
+  h.write(dir, '.tmp/harness/plan.md', CORTO(['src/a.ts', 'src/cuotas/cuota.ts']));
+  const c = run(dir, 'plan-state.js', ['corto', '--en-checkout']);
+  assert.equal(c.status, 0, c.stdout + c.stderr);
+  assert.match(c.stdout, /^carril corto: sí · api · 2 archivo\(s\), sin zonas de riesgo ni preguntas; el plan quedó aprobado por reglas$/m);
+  assert.match(c.stdout, /^siguiente: sigue con la skill build en este mismo turno, carril corto/m);
+  assert.match(c.stdout, /^tareas: /m);
+  assert.match(fs.readFileSync(path.join(dir, '.tmp/harness/plan.md'), 'utf8'), /^Aprobado: \d{4}-\d\d-\d\d por reglas, carril corto \(api, 2 archivo\(s\), sin zonas de riesgo ni preguntas\)$/m);
+  assert.equal(h.git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/mensaje-cuota-vencida', 'ubica la rama como approve');
+  assert.equal(tl.planState(tl.read(dir)).approved, true, 'sin una respuesta de la persona');
+  assert.match(tl.read(dir).filter((e) => e.result === 'aprobado').pop().detail, /^carril corto: aprobado por reglas/);
+  assert.equal(run(dir, 'plan-state.js', ['corto']).status, 1, 'ya aprobado no vuelve a aprobar');
+
+  const no = (plan, motivo) => {
+    const d = cloned().dir;
+    run(d, 'plan-state.js', ['start', '--detail', 'x']);
+    h.write(d, '.tmp/harness/plan.md', plan);
+    const r = run(d, 'plan-state.js', ['corto']);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stdout, /^carril corto: no; el plan sigue por la aprobación de la persona$/m);
+    assert.match(r.stdout, motivo);
+    assert.equal(tl.planState(tl.read(d)).approved, false);
+    assert.equal(tl.planState(tl.read(d)).written, false, 'tampoco lo cierra: sigue finish-draft');
+  };
+  no(CORTO(['src/auth/login.ts']), /^- toca zonas de riesgo: src\/auth\/login\.ts$/m);
+  no(CORTO(['src/1.ts', 'src/2.ts', 'src/3.ts', 'src/4.ts', 'src/5.ts', 'src/6.ts']), /^- prevé 6 archivos; el carril corto llega a 5$/m);
+  no(CORTO(['src/a.ts'], '\n## Preguntas\n1. ¿Vencida o atrasada? Recomendación: vencida.\n'), /^- tiene preguntas para la persona$/m);
+  no(CORTO(['src/a.ts']).replace('Sin migración.', 'Una columna nueva.'), /^- «## Datos» no dice «sin migración»$/m);
+  no(CORTO(['src/a.ts']).replace('Sin cambios.', 'POST /cuotas: nuevo campo.'), /^- «## Contrato de API» no dice que queda sin cambios$/m);
+});
+
 function approved(over, extra, files) {
   const c = cloned(over, extra, files);
   h.git(c.dir, 'switch', '-q', '-c', 'feature/cobros');

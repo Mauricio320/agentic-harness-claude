@@ -52,6 +52,12 @@
 //   trivial  el escape explícito de /arnes:plan --trivial: escribe .tmp/harness/plan.md mínimo, con
 //            el pedido y un criterio, y lo deja aprobado. Exige que el último mensaje de la persona
 //            sea /arnes:plan --trivial (la nota "respuesta" trae trivial); el modelo no puede elegirlo
+//   corto [--en-checkout] [--desde-otra | --quedarse]
+//            el carril corto: con el plan corto escrito, comprueba por reglas que es trivial (un solo
+//            workspace, CORTO_MAX archivos o menos, sin riskPaths, sin contrato, sin migración y sin
+//            preguntas). Si lo es, hace lo de finish-draft y approve sin esperar a la persona: anota
+//            la línea Aprobado en el plan, la nota "aprobado" (carril corto) y ubica la rama. Si no,
+//            dice cada motivo y sale con 1: el plan sigue por finish-draft y la aprobación
 // Uso: node plan-state.js start --detail <texto>
 //      node plan-state.js finish-draft
 //      node plan-state.js approve [--detail <texto>] [--en-checkout] [--desde-otra | --quedarse]
@@ -61,8 +67,9 @@
 //      node plan-state.js grafo
 //      node plan-state.js caminos "<texto>"
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
+//      node plan-state.js corto [--en-checkout] [--desde-otra | --quedarse]
 // Exit: 0 hecho, aprobado, o status con plan aprobado · 1 status sin plan aprobado, approve/trivial
-//       negados (el motivo en stderr), o la rama no quedó ubicada en algún repo (el motivo en stdout)
+//       negados (el motivo en stderr), corto que no es trivial (los motivos en stdout), o la rama no quedó ubicada en algún repo (el motivo en stdout)
 //       · 2 uso inválido, sin manifiesto o sin plan escrito
 
 'use strict';
@@ -71,6 +78,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
+const { matchAny } = require('./lib/glob.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
@@ -225,6 +233,79 @@ function trivial(project, pedido, criterio) {
   return 0;
 }
 
+// El carril corto (docs/PLAN.md §6.3): un plan trivial se aprueba solo, por reglas que el script
+// comprueba sobre el plan escrito, no por el juicio del modelo. Trivial es un solo workspace adoptable
+// en "## Archivos previstos", con CORTO_MAX archivos o menos, ninguno en sus riskPaths, al menos un
+// criterio, "## Contrato de API" sin cambios, "## Datos" sin migración y "## Preguntas" sin preguntas.
+// Es seguro aprobarlo sin la persona porque nada sale de la máquina sin su sí al push, y ship vuelve a
+// mirar lo que de verdad se tocó. → { ok, ws, files } | { ok: false, why: [motivos] }
+const CORTO_MAX = 5;
+const NONE = /^\s*[-*]?\s*(ningun[oa]s?|no hay|sin preguntas)\b/i;
+const NO_API = /^\s*[-*]?\s*(sin (cambios?|api|contrato)|no (hay|cambia|expone|consume)|ningun[oa])\b/i;
+
+function plannedFiles(plan) {
+  return section(plan, /^archivos previstos/i)
+    .split('\n')
+    .map((l) => l.match(/^\s*[-*]\s+`?([^`\s:]+\.[\w]+)`?/))
+    .filter(Boolean)
+    .map((m) => m[1].replace(/\\/g, '/').replace(/^\.\//, ''));
+}
+
+// El workspace adoptable de una ruta del plan: en una carpeta va con el repo delante; en un repo solo,
+// relativa a su raíz. Gana el de carpeta más larga.
+function wsOf(project, file) {
+  const ws = project.workspaces
+    .filter((w) => w.adoptable && (!w.rel || w.rel === '.' || file === w.rel || file.startsWith(`${w.rel}/`)))
+    .sort((a, b) => (b.rel || '').length - (a.rel || '').length)[0];
+  return ws ? { ws, rel: ws.rel && ws.rel !== '.' ? file.slice(ws.rel.length + 1) : file } : null;
+}
+
+function shortCheck(project, plan) {
+  const why = [];
+  const files = plannedFiles(plan);
+  const owned = files.map((f) => ({ f, at: wsOf(project, f) }));
+  const names = [...new Set(owned.filter((o) => o.at).map((o) => o.at.ws.name))];
+  if (!files.length) why.push('«## Archivos previstos» no lista ningún archivo');
+  if (files.length > CORTO_MAX) why.push(`prevé ${files.length} archivos; el carril corto llega a ${CORTO_MAX}`);
+  if (owned.some((o) => !o.at)) why.push(`archivos fuera de todo workspace adoptable: ${owned.filter((o) => !o.at).map((o) => o.f).join(', ')}`);
+  if (names.length > 1) why.push(`toca ${names.length} workspaces (${names.join(', ')}); el carril corto es de uno`);
+  const risk = owned.filter((o) => o.at && matchAny(o.at.ws.riskPaths, o.at.rel)).map((o) => o.f);
+  if (risk.length) why.push(`toca zonas de riesgo: ${risk.join(', ')}`);
+  if (!/^\s*[-*]?\s*C\d+\b/m.test(section(plan, /^criterios/i))) why.push('sin criterios de aceptación numerados (C1…)');
+  const api = section(plan, /^contrato/i).trim();
+  if (!api || !NO_API.test(api)) why.push('«## Contrato de API» no dice que queda sin cambios');
+  if (!/sin migraci[oó]n/i.test(section(plan, /^datos/i))) why.push('«## Datos» no dice «sin migración»');
+  const q = section(plan, /^preguntas/i).trim();
+  if (q && !NONE.test(q)) why.push('tiene preguntas para la persona');
+  return why.length ? { ok: false, why } : { ok: true, ws: names[0], files };
+}
+
+function corto(project, opts = {}) {
+  const plan = readPlan(project);
+  if (!plan) die(`plan-state: el plan no está escrito en ${posix(planPath(project))}`);
+  const entries = read(project.root);
+  const p = planState(entries);
+  if (!p.open) die('plan-state: no hay plan en curso; empieza con plan-state.js start', 1);
+  if (p.approved) die('plan-state: el plan en curso ya está aprobado', 1);
+  const c = shortCheck(project, plan);
+  if (!c.ok) {
+    console.log('carril corto: no; el plan sigue por la aprobación de la persona');
+    for (const w of c.why) console.log(`- ${w}`);
+    console.log('siguiente: completa el plan si hace falta, corre finish-draft y pide la aprobación');
+    return 1;
+  }
+  const line = `Aprobado: ${today()} por reglas, carril corto (${c.ws}, ${c.files.length} archivo(s), sin zonas de riesgo ni preguntas)`;
+  fs.writeFileSync(planPath(project), plan.replace(/^(#[^\n]*\n)/, `$1${line}\n`));
+  grafo(project);
+  append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan corto escrito' });
+  append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: `carril corto: aprobado por reglas (${c.ws}, ${c.files.length} archivo(s))` });
+  issues.setState(project, 'planeado');
+  console.log(`carril corto: sí · ${c.ws} · ${c.files.length} archivo(s), sin zonas de riesgo ni preguntas; el plan quedó aprobado por reglas`);
+  console.log('siguiente: sigue con la skill build en este mismo turno, carril corto: el hilo principal escribe el código');
+  anotaTareas(project);
+  return place(project, opts);
+}
+
 // Los workspaces de "## Workspaces y orden" en el orden en que el plan los nombra; sin ninguno, los
 // adoptables del proyecto.
 function planOrder(project, plan) {
@@ -331,10 +412,10 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js start --detail t | finish-draft | approve [--detail t] [--en-checkout] [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo | caminos "<texto>"';
+  const usage = 'uso: plan-state.js start --detail t | finish-draft | approve [--detail t] [--en-checkout] [--desde-otra | --quedarse] | corto [--en-checkout] [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t | tareas [--anota] | referencias | grafo | caminos "<texto>"';
   const placing = o['en-checkout'] || o['desde-otra'] || o.quedarse;
-  if ((extra && mode !== 'caminos') || (mode === 'caminos' && !(extra && extra.trim())) || !['start', 'finish-draft', 'status', 'approve', 'trivial', 'tareas', 'referencias', 'grafo', 'caminos'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
-  if ((placing && mode !== 'approve') || (o['desde-otra'] && o.quedarse) || (o.detail && !['start', 'approve'].includes(mode))) die(usage);
+  if ((extra && mode !== 'caminos') || (mode === 'caminos' && !(extra && extra.trim())) || !['start', 'finish-draft', 'status', 'approve', 'corto', 'trivial', 'tareas', 'referencias', 'grafo', 'caminos'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  if ((placing && !['approve', 'corto'].includes(mode)) || (o['desde-otra'] && o.quedarse) || (o.detail && !['start', 'approve'].includes(mode))) die(usage);
   if (mode === 'start' && !(o.detail && o.detail.trim())) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
   if (mode !== 'trivial' && (o.pedido || o.criterio)) die(usage);
@@ -346,6 +427,7 @@ function main() {
   if (mode === 'referencias') process.exit(referencias(project));
   if (mode === 'grafo') process.exit(grafo(project));
   if (mode === 'caminos') process.exit(printCaminos(project, extra.trim()));
+  if (mode === 'corto') process.exit(corto(project, { checkout: o['en-checkout'] || o['desde-otra'] || o.quedarse, fromOther: o['desde-otra'], stay: o.quedarse }));
   if (mode === 'approve') process.exit(approve(project, o.detail, { checkout: o['en-checkout'] || o['desde-otra'] || o.quedarse, fromOther: o['desde-otra'], stay: o.quedarse }));
   process.exit(trivial(project, o.pedido, o.criterio));
 }

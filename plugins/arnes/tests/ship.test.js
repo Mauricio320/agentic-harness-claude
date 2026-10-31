@@ -236,6 +236,18 @@ test('check: un repo con solo configuración o archivos del arnés sin commitear
   assert.match(ship(root, ['check']).stdout, /verificar front/, 'con código, vuelve a entrar');
 });
 
+test('check: un plan del carril corto cuyo cambio salió de él lo avisa para la pregunta del push, sin frenar', () => {
+  const { root, api } = folder();
+  const tl = require('../scripts/lib/timeline.js');
+  tl.append(root, { event: 'start', stage: 'plan' });
+  tl.append(root, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'carril corto: aprobado por reglas (api, 1 archivo(s))' });
+  h.write(api, 'src/auth/login.ts', 'x\n');
+  ready(root);
+  const r = ship(root, ['check']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /^aviso: el plan se aprobó por reglas, en el carril corto, pero el cambio tocó 2 workspaces, tocó zonas de riesgo \(src\/auth\/login\.ts\); va en la pregunta del push/m);
+});
+
 test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => {
   const dir = h.tmp('ship-limpio');
   h.repo(dir, { '.claude/harness.json': h.repoManifest('api') });

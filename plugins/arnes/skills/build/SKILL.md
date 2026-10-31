@@ -1,6 +1,6 @@
 ---
 name: build
-description: Implementar un plan aprobado de .tmp/harness/plan.md con un agente dev por workspace tocado, el back antes que el front; el contrato que devuelve el back viaja textual al front, y cada dev declara desviaciones y cobertura de criterios con archivo:línea. También levanta la app para probarla, y la para, cuando la persona lo pide ("inicia la app", "levanta la app", "para la app").
+description: Implementar un plan aprobado de .tmp/harness/plan.md con un agente dev por workspace tocado (en el carril corto, el hilo principal escribe el código), el back antes que el front; el contrato que devuelve el back viaja textual al front, y cada dev declara desviaciones y cobertura de criterios con archivo:línea. También levanta la app para probarla, y la para, cuando la persona lo pide ("inicia la app", "levanta la app", "para la app").
 argument-hint: "[workspace]..."
 ---
 
@@ -11,6 +11,7 @@ Argumentos: `$ARGUMENTS` (opcional: limita a esos workspaces).
 Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando un script imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
 1. Lee `.tmp/harness/plan.md` en la raíz del proyecto. Si no existe, o no dice `Aprobado:`, o le quedan preguntas sin decidir, corre primero la skill plan. Build no decide por la persona.
+   - **Carril corto** (`Aprobado: … carril corto`): no lances el dev, que tarda más que el cambio. Corre `node "${CLAUDE_PLUGIN_ROOT}/scripts/build.js" input --ws <ws>`, lee la entrada entera y escribe tú el código con sus reglas, con las mismas prohibiciones del dev: sin tests, sin `forbidden`, sin migraciones ni dependencias. Después corre el typecheck, las convenciones y el lint de la entrada sobre tus archivos, y corrige. Anota en `## Decisiones` del plan lo que hiciste distinto, cierra con `build.js end --ws <ws>` y carga verify en el mismo turno. Si hace falta tocar una zona de riesgo u otro workspace, para y pregúntale a la persona en una línea. Más archivos de lo previsto no frena: ship lo avisa antes del push.
 2. Arma la lista de workspaces de `## Workspaces y orden`. El orden es back y después front: primero el que provee el contrato (`contract.provides`, o el que expone la API), después el que lo consume. Si dos workspaces no dependen uno del otro y tocan archivos disjuntos, pueden ir en paralelo en el mismo árbol.
 3. Por cada workspace, en ese orden:
    - Si consume un contrato, guarda con Write la sección `## Contrato resultante` que devolvió el dev del back, textual, en `.tmp/harness/build/contrato.md`. No la resumas ni la reescribas: el front se escribe contra ese texto.

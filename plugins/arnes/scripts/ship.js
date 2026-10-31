@@ -183,6 +183,19 @@ function reviewedBy(project) {
   return hit ? hit.revisado : null;
 }
 
+// Un plan que se aprobó solo, en el carril corto (plan-state.js corto), cuyo cambio real salió de él:
+// más de un workspace, más archivos de los que admite, o una zona de riesgo. No frena: la persona lo
+// lee en la pregunta del push, que es su sí. → la frase, o null
+const CORTO_MAX = 5;
+function shortOverflow(project, list) {
+  const note = read(project.root).filter((e) => e.stage === 'plan' && e.result === 'aprobado').pop();
+  if (!note || !/^carril corto/.test(note.detail || '')) return null;
+  const files = list.reduce((n, x) => n + x.files.length + x.gone.length, 0);
+  const risk = list.flatMap((x) => x.files.filter((f) => matchAny(x.ws.riskPaths, f)));
+  const why = [list.length > 1 && `tocó ${list.length} workspaces`, files > CORTO_MAX && `tocó ${files} archivos`, risk.length && `tocó zonas de riesgo (${risk.join(', ')})`].filter(Boolean);
+  return why.length ? why.join(', ') : null;
+}
+
 function check(project) {
   const left = [];
   const list = shipping(project, left);
@@ -262,6 +275,8 @@ function check(project) {
   }
   const manual = section(readPlan(project) || '', /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
   console.log(`prueba manual: ${manual.length ? `${manual.length} paso(s) en el plan; van textuales al cuerpo del MR` : 'el plan no trae'}`);
+  const corto = shortOverflow(project, list);
+  if (corto) console.log(`aviso: el plan se aprobó por reglas, en el carril corto, pero el cambio ${corto}; va en la pregunta del push, para que la persona lo sepa antes de subir`);
   console.log(`entrega: ${local ? `merge local en la rama por defecto, sin MR (integration.merge)` : 'push y MR'}`);
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);
