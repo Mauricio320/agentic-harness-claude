@@ -53,14 +53,24 @@ test('enlaza node_modules del principal, desplaza una vez los puertos del .env y
   assert.doesNotMatch(start(dir), /enlacé|puertos de este worktree/, 'el checkout principal no se toca');
 });
 
-test('sin .env no toca puertos, y sin node_modules en el principal dice que hay que instalar', () => {
+test('sin .env en ninguna parte no toca puertos, y sin node_modules en el principal dice que hay que instalar', () => {
   const dir = repo();
   fs.rmSync(path.join(dir, 'node_modules'), { recursive: true });
+  fs.rmSync(path.join(dir, '.env'));
   const wt = h.nativeWorktree(dir, 'vacio');
   const ctx = start(wt);
   assert.match(ctx, /api: ni este worktree ni el checkout principal tienen las dependencias instaladas/);
-  assert.doesNotMatch(ctx, /puertos de este worktree/);
+  assert.doesNotMatch(ctx, /puertos de este worktree|copié/);
   assert.ok(!fs.existsSync(path.join(wt, '.tmp', 'harness', 'puertos.json')));
+});
+
+test('sin .worktreeinclude, el .env que falta en el worktree se copia del principal sin mostrarlo, y se corren sus puertos', () => {
+  const dir = repo();
+  const wt = h.nativeWorktree(dir, 'sin-include');
+  const ctx = start(wt);
+  assert.match(ctx, /^- api: copié \.env del checkout principal, sin mostrar sus valores$/m);
+  assert.doesNotMatch(ctx, /3306/, 'ningún valor en el contexto');
+  assert.equal(fs.readFileSync(path.join(wt, '.env'), 'utf8'), 'PORT=3013\nDB_PORT=3306\n');
 });
 
 test('build avisa cuando el plan regenera dentro de node_modules enlazado, y deps lo deja propio', () => {

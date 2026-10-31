@@ -74,6 +74,7 @@ const { planWorkspaces } = require('./lib/plan.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
 const { envFiles, NATIVE_PORTS } = require('./lib/puertos.js');
+const { equipar } = require('./worktree-carpeta.js');
 const ledger = require('./worktree-ledger.js');
 
 const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
@@ -409,6 +410,9 @@ function app(project, wsName, dry) {
     console.log(`${ws.name}: no sé cómo se levanta: su package.json no trae start:dev, dev ni start; decláralo en commands.app`);
     return 1;
   }
+  // Un worktree sin sus .env no arranca: el arnés se los copia del checkout principal sin mostrarlos,
+  // lo que la persona hacía a mano (worktree-carpeta.js equipar).
+  if (!dry && !envFiles(ws.dir).length) for (const l of equipar(ws.dir).lines) console.log(l);
   const env = portEnv(project, ws);
   const vars = Object.entries(env).map(([k, v]) => `${k}=${v}`).join(', ');
   const dir = path.join(harnessDir(project), 'app');

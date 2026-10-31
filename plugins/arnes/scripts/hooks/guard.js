@@ -302,13 +302,18 @@ function namedPaths(args) {
   return out;
 }
 
+// Copiar un .env por el shell se niega como leerlo; el arnés lo copia a un worktree sin mostrarlo.
+const COPIERS = new Set(['cp', 'copy', 'xcopy', 'robocopy', 'copy-item', 'cpi', 'install', 'rsync']);
+const EQUIPAR = path.join(__dirname, '..', 'worktree-carpeta.js').split(path.sep).join('/');
+
 function judgeSecrets(cmd, piece, dir) {
   const { project } = workspaceAt(dir);
   const hit = namedPaths(cmd.args).map((p) => ({ p, abs: toPath(dir, p) })).find((x) => secretPath(x.abs, project));
   if (!hit) return null;
   if (LISTERS.has(cmd.exe) && piece.sep !== '|' && !/\$\(|<\(|`/.test(piece.text)) return null;
   const shown = maskedFile(hit.abs, project);
-  return `${cmd.raw} ${hit.p}: ${secretPath(hit.abs, project)}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
+  const copy = COPIERS.has(cmd.exe) ? ` Para llevar los .env a un worktree, corre node "${EQUIPAR}" equipar --dir <carpeta del worktree>: los copia del checkout principal sin mostrarlos.` : '';
+  return `${cmd.raw} ${hit.p}: ${secretPath(hit.abs, project)}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.${copy}`;
 }
 
 // ---------- configuración del proyecto ----------

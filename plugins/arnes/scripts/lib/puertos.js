@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { DB_VAR } = require('./database.js');
-const { nativeWorktrees, key } = require('./worktree-nativo.js');
+const { list, key } = require('./worktree-nativo.js');
 
 const NATIVE_PORTS = 'puertos.json';
 
@@ -70,11 +70,11 @@ function shiftPorts(files, offset) {
   return map;
 }
 
-// Los desplazamientos que ya usan los otros worktrees nativos del repo de w, para que la app de cada
-// uno corra al lado de las demás.
+// Los desplazamientos que ya usan los otros worktrees del repo de w, nativos o no, para que la app de
+// cada uno corra al lado de las demás.
 function usedOffsets(w) {
   const used = new Set();
-  for (const o of nativeWorktrees(w.main)) {
+  for (const o of list(w.main).slice(1)) {
     if (key(o.path) === key(w.path)) continue;
     try {
       used.add(JSON.parse(fs.readFileSync(path.join(o.path, '.tmp', 'harness', NATIVE_PORTS), 'utf8')).offset);

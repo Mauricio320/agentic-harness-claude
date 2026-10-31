@@ -24,6 +24,11 @@
 //          con su rescate
 //   protect  guarda el rescate de cada repo y pone o quita el marcador; dice lo pendiente
 //   status   lo materializado, con su rama y sus enlaces
+//   equipar [--dir <ruta>]
+//          deja usable cualquier worktree enlazado de un repo, nativo o no (una carpeta .tmp/wt/<issue>
+//          que alguien creó con git worktree add): copia los .env* que le faltan desde la misma carpeta
+//          del checkout principal, sin mostrar sus valores, enlaza node_modules y corre los puertos.
+//          Lo que la persona hacía a mano, porque los secretos no se leen ni se copian por el shell
 // Registro: <worktree>/.tmp/harness/materializado.json =
 //   { version, name, links, repos: [{ repo, main, path, branch, from, at, links, copies, copiedDirs,
 //     status }] }
@@ -405,14 +410,34 @@ function pruneOrphans(project) {
   return out;
 }
 
-// Lo que SessionStart hace en un worktree nativo de un workspace adoptable: enlaza el node_modules
-// del checkout principal donde falta y desplaza una sola vez los puertos de los .env que copió
-// .worktreeinclude, con un desplazamiento que no use otro worktree nativo; lo anota en
+// Un worktree de git enlazado que contiene dir, nativo o no: { path, main, name }, o null en el
+// checkout principal o fuera de un repo.
+function linkedOf(dir) {
+  const top = git(dir, ['rev-parse', '--show-toplevel']);
+  if (top.status !== 0) return null;
+  const all = list(dir);
+  const root = path.resolve(top.stdout.trim());
+  const w = all.slice(1).find((x) => key(x.path) === key(root));
+  return w ? { path: w.path, main: all[0].path, name: path.basename(w.path) } : null;
+}
+
+// Lo que SessionStart hace en un worktree nativo de un workspace adoptable: copia los .env* que le
+// faltan desde el checkout principal (los que .worktreeinclude no trajo), sin mostrar sus valores,
+// enlaza el node_modules del checkout principal donde falta y desplaza una sola vez los puertos de los .env, con un desplazamiento que no use otro worktree nativo; lo anota en
 // <worktree>/.tmp/harness/puertos.json y después solo repite el mapa. Sin .env no toca puertos. En
 // el worktree nativo de una carpeta multi-repo, materializa adentro los repos. → { lines, links } con
 // lo que pasó, en palabras, y lo enlazado
 function equipNative(dir) {
-  const w = nativeWorktree(dir);
+  return equip(nativeWorktree(dir));
+}
+
+// equipNative para cualquier worktree enlazado, nativo o no. → { lines, links, linked }
+function equipar(dir) {
+  const w = nativeWorktree(dir) || linkedOf(dir);
+  return { ...equip(w), linked: Boolean(w) };
+}
+
+function equip(w) {
   if (!w) return { lines: [], links: [] };
   const project = loadProject(w.path);
   if (!project || project.errors.length) return { lines: [], links: [] };
@@ -421,6 +446,12 @@ function equipNative(dir) {
   const wss = project.workspaces.filter((ws) => ws.adoptable && inWt(ws.dir));
   const lines = [];
   const links = [];
+  for (const ws of wss) {
+    const from = path.join(w.main, path.relative(w.path, ws.dir));
+    const missing = envFiles(from).filter((n) => !present(path.join(ws.dir, n)));
+    for (const n of missing) fs.copyFileSync(path.join(from, n), path.join(ws.dir, n));
+    if (missing.length) lines.push(`${ws.name}: copié ${missing.join(', ')} del checkout principal, sin mostrar sus valores`);
+  }
   for (const ws of wss) {
     const dst = path.join(ws.dir, 'node_modules');
     const src = path.join(w.main, path.relative(w.path, ws.dir), 'node_modules');
@@ -460,20 +491,29 @@ function equipNative(dir) {
   return { lines, links };
 }
 
-module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo, equipNative };
+module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo, equipNative, equipar, linkedOf };
 
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { repo: { type: 'string', multiple: true }, 'con-cambios': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { repo: { type: 'string', multiple: true }, 'con-cambios': { type: 'boolean' }, dir: { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`worktree-carpeta: ${e.message}`);
   }
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  if (extra || !['materialize', 'unmaterialize', 'protect', 'status'].includes(mode) || (o.repo && mode !== 'materialize') || (o['con-cambios'] && mode !== 'unmaterialize')) {
-    die('uso: worktree-carpeta.js materialize [--repo <ruta>]... | unmaterialize [--con-cambios] | protect | status');
+  if (extra || !['materialize', 'unmaterialize', 'protect', 'status', 'equipar'].includes(mode) || (o.repo && mode !== 'materialize') || (o['con-cambios'] && mode !== 'unmaterialize') || (o.dir && mode !== 'equipar')) {
+    die('uso: worktree-carpeta.js materialize [--repo <ruta>]... | unmaterialize [--con-cambios] | protect | status | equipar [--dir <ruta>]');
+  }
+  if (mode === 'equipar') {
+    const r = equipar(path.resolve(o.dir || process.cwd()));
+    if (!r.linked) {
+      console.log('equipar: esta carpeta no es un worktree enlazado; el checkout principal ya tiene sus .env y sus dependencias');
+      process.exit(1);
+    }
+    console.log(r.lines.length ? r.lines.join('\n') : 'este worktree ya tenía sus .env, sus dependencias y sus puertos');
+    return;
   }
   const f = folderWorktree(process.cwd());
   if (!f) die('worktree-carpeta: esta sesión no está en el worktree nativo de una carpeta multi-repo');
