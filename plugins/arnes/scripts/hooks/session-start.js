@@ -35,11 +35,11 @@ const issues = require('../lib/issues.js');
 const { append, read, planState, tasks } = require('../lib/timeline.js');
 const { planPath } = require('../lib/plan.js');
 const branchFlow = require('../issue-branch.js');
+const { LOCK_MAX_MS, claudePid, alive, planOwner } = require('../lib/sesiones.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
 const WORKTREES = 5;
-const LOCK_MAX_MS = 24 * 60 * 60 * 1000;
 
 // Qué pasa, qué sigue y qué le toca a la persona (principio 7 de docs/PLAN.md §2): sin rutas ni
 // nombres de scripts, y con el nombre de una skill solo cuando la persona tiene que escribirla.
@@ -198,24 +198,11 @@ function leftovers(project, now) {
 
 // ---------- lock de sesión ----------
 
-// pid del proceso de Claude Code, que lo pone en CLAUDE_PID para sus procesos hijos; null si no está.
-function claudePid() {
-  const n = Number(process.env.CLAUDE_PID);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
-
+// claudePid: el pid del proceso de Claude Code, que lo pone en CLAUDE_PID para sus procesos hijos;
+// alive: si un pid sigue vivo. Los dos viven en lib/sesiones.js, que también lee estos locks.
 function lockFile(project, input) {
   const id = String(input.session_id || `pid-${claudePid() || process.ppid}`).replace(/[^\w.-]/g, '_');
   return path.join(harnessDir(project), 'sessions', `${id}.json`);
-}
-
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
 }
 
 // Escribe el lock de esta sesión y devuelve los de las otras que siguen vivas; borra los muertos.
@@ -303,9 +290,13 @@ function sessionStart(input, now = new Date()) {
 }
 
 // ¿El checkout principal tiene un plan aprobado en curso? Es el que se trae al worktree al entrar.
-function approvedIn(dir) {
+// El plan aprobado del checkout principal que esta sesión se lleva al worktree: solo el suyo. El de
+// otra sesión viva se queda donde está (lib/sesiones.js): si no, una segunda sesión que entra a su
+// worktree para planificar lo suyo se llevaba el plan de la primera y se lo cerraba.
+function approvedIn(dir, input) {
   const main = loadProject(dir);
-  return Boolean(main && !main.errors.length && fs.existsSync(planPath(main)) && planState(read(main.root)).approved);
+  if (!main || main.errors.length || !fs.existsSync(planPath(main)) || !planState(read(main.root)).approved) return false;
+  return !planOwner(main, { session: input.session_id || null, pid: claudePid() });
 }
 
 // PostToolUse de EnterWorktree: la sesión ya está en el worktree (el cwd de la entrada es su raíz) y
@@ -324,7 +315,7 @@ function entered(input) {
   if (main && !main.errors.length) fs.rmSync(lockFile(main, input), { force: true });
   lockSession(project, input, cwd);
   const moved = [];
-  if (!fs.existsSync(planPath(project)) && approvedIn(w.main)) branchFlow.enterNative(loadProject(cwd), w, (l) => moved.push(l));
+  if (!fs.existsSync(planPath(project)) && approvedIn(w.main, input)) branchFlow.enterNative(loadProject(cwd), w, (l) => moved.push(l));
   const list = moved.length ? tasks(read(loadProject(cwd).root)) : null;
   const lines = [...new Set([...native, ...moved])];
   return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...lines.map((l) => `- ${l}`), ...(list ? [`tareas: ${JSON.stringify(list)}`] : [])].join('\n');

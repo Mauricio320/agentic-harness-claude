@@ -4,7 +4,9 @@
 // script, que comprueba que vino de la persona. Las tres transiciones de la skill plan son una
 // llamada cada una (start, finish-draft y approve), con lo determinista adentro y una sola salida.
 //   start --detail <texto>
-//            empieza el plan: anota start plan; dice el proyecto con cada workspace, sus riskPaths, su
+//            empieza el plan: anota start plan con la sesión que lo empieza (CLAUDE_CODE_SESSION_ID);
+//            si el plan en curso es de otra sesión viva, no lo pisa: sale con 3 y manda a planificar en
+//            un worktree propio (lib/sesiones.js). Dice el proyecto con cada workspace, sus riskPaths, su
 //            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior; si
 //            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); las referencias de
 //            negocio y los ambientes de prueba; y, si hay grafo y graphify, lo consulta él mismo con el
@@ -70,7 +72,7 @@
 //      node plan-state.js corto [--en-checkout] [--desde-otra | --quedarse]
 // Exit: 0 hecho, aprobado, o status con plan aprobado · 1 status sin plan aprobado, approve/trivial
 //       negados (el motivo en stderr), corto que no es trivial (los motivos en stdout), o la rama no quedó ubicada en algún repo (el motivo en stdout)
-//       · 2 uso inválido, sin manifiesto o sin plan escrito
+//       · 2 uso inválido, sin manifiesto o sin plan escrito · 3 start con el plan de otra sesión viva
 
 'use strict';
 
@@ -79,6 +81,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
+const { planOwner, fromEnv } = require('./lib/sesiones.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
@@ -123,8 +126,20 @@ async function graphStart(project, detail) {
   return [`${head}; los nodos que encontró, con su archivo y su línea, son el punto de partida:`, ...q.nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
 }
 
+// El plan en curso es de otra sesión viva (lib/sesiones.js): no se pisa. Esta planifica en su propio
+// worktree, que trae su propio plan, su timeline y sus banderas. → 3 con lo que sigue
+function taken(project, detail) {
+  if (!planOwner(project)) return 0;
+  const title = ((readPlan(project) || '').match(/^# (?:Plan: )?(.+)$/m) || [])[1];
+  const name = slugOf(`# ${detail}`);
+  console.log(`otra sesión: hay un plan en curso de otra sesión de Claude que sigue abierta en este checkout${title ? ` («${title.trim()}»)` : ''}; no lo piso`);
+  console.log(`siguiente: este pedido se planifica en su propio worktree: llama a EnterWorktree con name "${name}" y vuelve a correr start desde ahí. Sin EnterWorktree, la persona abre esta sesión con claude --worktree ${name}`);
+  return 3;
+}
+
 async function start(project, detail) {
-  append(project.root, { event: 'start', stage: 'plan', detail });
+  if (taken(project, detail)) return 3;
+  append(project.root, { event: 'start', stage: 'plan', detail, session: fromEnv().session || undefined });
   console.log(`proyecto: ${project.name} · ${project.kind === 'folder' ? 'carpeta' : 'repo'} · raíz ${posix(project.root)}`);
   for (const ws of project.workspaces) console.log(workspaceLine(ws));
   const prev = readPlan(project);
@@ -206,6 +221,7 @@ function trivial(project, pedido, criterio) {
   const last = entries.filter(isAnswer).pop();
   if (!last || !last.trivial) die('plan-state: --trivial lo pide la persona escribiendo /arnes:plan --trivial; nunca lo elige el modelo', 1);
   if (planState(entries).approved) die('plan-state: ya hay un plan aprobado en curso; --trivial no hace falta', 1);
+  if (planOwner(project)) die('plan-state: el plan en curso es de otra sesión que sigue abierta; planifica en tu propio worktree (EnterWorktree) y corre --trivial desde ahí', 1);
   const title = [...pedido.replace(/\s+/g, ' ').trim()].slice(0, 60).join('');
   const text = [
     `# Plan: ${title}`,
@@ -224,7 +240,7 @@ function trivial(project, pedido, criterio) {
   const file = path.join(harnessDir(project), 'plan.md');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
-  append(project.root, { event: 'start', stage: 'plan', detail: 'trivial' });
+  append(project.root, { event: 'start', stage: 'plan', detail: 'trivial', session: fromEnv().session || undefined });
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan trivial escrito' });
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'trivial, pedido por la persona' });
   issues.setState(project, 'planeado');

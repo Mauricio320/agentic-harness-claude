@@ -38,6 +38,7 @@ const { checkFlag, writeTurn, takeOrigin } = require('../gate-flag.js');
 const { append, read, planState, prepOpen } = require('../lib/timeline.js');
 const { spawnSync } = require('child_process');
 const { worthGraph, GRAPH_TIMEOUT_MS } = require('../lib/grafo.js');
+const { planOwner, claudePid } = require('../lib/sesiones.js');
 
 const GRAFO = path.join(__dirname, '..', 'lib', 'grafo.js');
 
@@ -54,6 +55,8 @@ const PREP = /^\s*\/arnes:(init|setup)\b|<command-name>\/arnes:(init|setup)<\/co
 // /arnes:ship --revisado <nombre> como lo escribió la persona, o como lo expande el CLI.
 const REVISADO = /^\s*\/arnes:ship\b[^\n]*?--revisado\s+([^\s<]+)|<command-name>\/arnes:ship<\/command-name>[\s\S]*?<command-args>[^<]*?--revisado\s+([^\s<]+)/;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
+// El plan en curso es de otra sesión viva (lib/sesiones.js): esta no escribe bajo él.
+const OTHER_PLAN = 'arnes: el plan en curso en este checkout es de otra sesión de Claude que sigue abierta. Si este mensaje pide cambiar código, carga arnes:plan, que lo planifica en tu propio worktree; no escribas código bajo el plan de la otra.';
 const MODELS = /\b(opus|sonnet|haiku|fable)\b/gi;
 const EFFORT = /\b(?:effort|esfuerzo)\b\D{0,20}?\b(low|medium|high|xhigh|max|bajo|medio|alto|m[aá]ximo)\b/i;
 const EFFORTS = { bajo: 'low', medio: 'medium', alto: 'high', maximo: 'max', máximo: 'max' };
@@ -115,6 +118,7 @@ function promptContext(input) {
   const out = rows.map((r) => r.text).filter(Boolean);
   const entries = read(project.root);
   if (person && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) out.unshift(PLAN_FIRST);
+  else if (person && planOwner(project, { session: input.session_id || null, pid: claudePid() })) out.unshift(OTHER_PLAN);
   if (person && !graphed && worthGraph(project, text)) out.push(...askGraph(project, text));
   return out.length ? out.join('\n') : null;
 }
