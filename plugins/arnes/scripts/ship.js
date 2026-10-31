@@ -260,6 +260,8 @@ function check(project) {
     }
     const rep = path.join(harnessDir(project), 'review', `ronda-${rv.round}.md`);
     stops.push(entrega.blockersStop(rv, fs.existsSync(rep) ? fs.readFileSync(rep, 'utf8') : '', 3));
+    // La regla tal cual para la propuesta de configuración (ajuste.js propone) y el Edit con el «corrígelo».
+    for (const c of rv.convenciones || []) console.log(`regla propuesta: ${c.ws} · ${c.manifest} · ${JSON.stringify(c.regla)}`);
   } else if ([...reviews.values()].some((r) => !r.ok)) fix.push('revisar');
   const todo = [...slugs.map((s) => `integrar ${s}`), ...fix];
   console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);

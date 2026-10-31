@@ -63,6 +63,7 @@ const { append, read: readTimeline, tasks } = require('./lib/timeline.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
 const { unconfirmed } = require('./lib/plan.js');
+const { probar } = require('./conventions.js');
 
 const MAX_DIFF_LINES = 400;
 const MAX_ROUNDS = 3;
@@ -453,6 +454,32 @@ function defectsIn(report) {
   return m ? m[1].split('\n').filter((l) => /^\s*[-*]\s+\S/.test(l)).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()) : [];
 }
 
+// Las convenciones que el reviewer propone para sus bloqueantes de patrón (líneas "CONVENCIÓN: {json}"):
+// lo que la revisión encontró dos veces en academico (literales de negocio, un <button> crudo) no lo
+// tenía ningún chequeo. Se queda una candidata solo si es una regla válida de un workspace adoptable
+// de la revisión, si hoy marca algo (el caso del bloqueante) y si en todo el repo marca CONV_MAX líneas
+// o menos: más es un falso positivo. → [{ ws, manifest, regla, aciertos }]
+const CONV_MAX = 25;
+function conventionsIn(project, report, names) {
+  const out = [];
+  for (const m of report.matchAll(/^\s*-?\s*CONVENCI[ÓO]N:\s*(\{.*\})\s*$/gm)) {
+    let rule;
+    try {
+      rule = JSON.parse(m[1]);
+    } catch {
+      continue;
+    }
+    const name = rule.ws || (names.length === 1 ? names[0] : null);
+    const ws = project.workspaces.find((w) => w.adoptable && w.name === name && names.includes(w.name));
+    if (!ws || !rule.id || !rule.pattern || !rule.message || (ws.conventions || []).some((c) => c.id === rule.id)) continue;
+    const regla = { id: String(rule.id), pattern: String(rule.pattern), message: String(rule.message), ...(Array.isArray(rule.exclude) && rule.exclude.length ? { exclude: rule.exclude.map(String) } : {}), ...(rule.unless ? { unless: String(rule.unless) } : {}) };
+    const p = probar(ws, regla);
+    if (p.error || !p.hits.length || p.hits.length > CONV_MAX) continue;
+    out.push({ ws: ws.name, manifest: posix(path.relative(project.root, ws.manifest)), regla, aciertos: p.hits.length });
+  }
+  return out;
+}
+
 function mark(project, blockers, clean = false) {
   const inp = readJson(path.join(reviewDir(project), 'input.json'));
   if (!inp) die('review: no hay input.json; corre review.js input antes de revisar');
@@ -473,7 +500,9 @@ function mark(project, blockers, clean = false) {
   const [round, mode] = [inp.round || 1, inp.mode || 'completa'];
   const before = mode === 'acotada' ? (readJson(reviewFile(project)) || {}).defectos || [] : [];
   const defectos = [...new Set([...before, ...defectsIn(fs.readFileSync(rep, 'utf8'))])];
-  fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces, ...(defectos.length ? { defectos } : {}) }, null, 2) + '\n');
+  const convenciones = blockers > 0 ? conventionsIn(project, fs.readFileSync(rep, 'utf8'), Object.keys(inp.workspaces)) : [];
+  for (const c of convenciones) console.log(`convención propuesta: ${c.ws} · ${c.regla.id} · hoy marca ${c.aciertos} línea(s) del repo`);
+  fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces, ...(defectos.length ? { defectos } : {}), ...(convenciones.length ? { convenciones } : {}) }, null, 2) + '\n');
   fs.renameSync(rep, roundReport(project, round));
   issues.record(project, { files: [roundReport(project, round), path.join(reviewDir(project), 'input.md')] });
   console.log(`revisión marcada en ${reviewFile(project)}: ${blockers} bloqueante(s) · ronda ${round} de ${MAX_ROUNDS}, ${mode}`);

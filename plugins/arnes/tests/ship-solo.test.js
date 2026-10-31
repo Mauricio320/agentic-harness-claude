@@ -122,6 +122,34 @@ test('una revisión con bloqueantes detiene, con cada bloqueante textual y lo qu
   assert.doesNotMatch(text, /sugerencia/);
 });
 
+test('un bloqueante de patrón trae su convención: si marca poco en el repo, «corrígelo» también la agrega; si marca de más o no compila, no se propone', () => {
+  const dir = repo();
+  h.write(dir, 'src/estado.ts', "export const pendiente = (e: string) => e === 'PENDIENTE';\n");
+  h.write(dir, 'src/grande.ts', 'export const x = 1;\n'.repeat(30));
+  verify(dir);
+  const conv = (rule) => `CONVENCIÓN: ${JSON.stringify(rule)}`;
+  review(dir, [
+    '### Hallazgos por archivo',
+    '**`api/src/estado.ts`**',
+    "- BLOQUEANTE [línea 1] · 5 · compara con el literal 'PENDIENTE' → usa ESTADO.PENDIENTE",
+    conv({ ws: 'api', id: 'sin-literal-de-negocio', pattern: "=== '[A-Z_]{3,}'", message: 'compara con el catálogo, no con un literal', exclude: ['**/*.spec.ts'] }),
+    conv({ ws: 'api', id: 'marca-todo', pattern: '.', message: 'de más' }),
+    conv({ ws: 'api', id: 'rota', pattern: '(', message: 'no compila' }),
+    '',
+    'BLOQUEANTES: 1',
+    '',
+  ].join('\n'), 1);
+  const rv = JSON.parse(fs.readFileSync(path.join(dir, '.tmp/harness/review.json'), 'utf8'));
+  assert.deepEqual(rv.convenciones.map((c) => [c.ws, c.regla.id, c.aciertos, c.manifest]), [['api', 'sin-literal-de-negocio', 1, '.claude/harness.json']]);
+  const r = check(dir);
+  assert.equal(r.status, 3, r.stdout);
+  assert.match(r.stdout, /^regla propuesta: api · \.claude\/harness\.json · \{"id":"sin-literal-de-negocio","pattern":"=== '\[A-Z_\]\{3,\}'"/m);
+  const text = person(r.stdout);
+  assert.match(text, /^  regla nueva para api: compara con el catálogo, no con un literal \(sin-literal-de-negocio; hoy marca una línea del repo, que no se tocan hasta que alguien las cambie\)$/m);
+  assert.match(text, /^1\. Déjame corregirlo: respóndeme "corrígelo" y aplico lo que dice cada bloqueante, y agrego al chequeo automático la regla de abajo, para que no vuelva a pasar; .* Si no quieres las reglas, responde "corrígelo sin reglas"\.$/m);
+  assert.equal(h.run('conventions.js', ['--ws', 'api'], { cwd: dir }).status, 0, 'probar no cambia nada: sin la regla en el manifiesto, el gate sigue igual');
+});
+
 test('una zona de riesgo que iría a main sin MR detiene: dice la ruta y a quién le toca, hasta que la persona dice que la revisaron', () => {
   const dir = repo({}, { merge: 'local' });
   h.write(dir, '.gitlab/CODEOWNERS', '* @equipo\n/src/auth/ @ana\n');

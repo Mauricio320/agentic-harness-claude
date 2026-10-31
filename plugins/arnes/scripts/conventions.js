@@ -81,7 +81,36 @@ function check(ws, files, base = 'HEAD') {
 
 const describe = (f) => `${f.file}:${f.line} · ${f.id} · ${f.message}`;
 
-module.exports = { compile, changedLines, check, describe };
+// Una regla candidata contra todo el workspace, no solo lo tocado: los archivos de código del repo
+// (trackeados o nuevos), fuera de su exclude, línea por línea con su unless. La usa review.js para
+// quedarse con la convención que propone el reviewer solo si marca poco: una que marca medio repo es
+// un falso positivo. → { hits: [{ file, line }], files } o { error }
+function probar(ws, rule) {
+  const c = compile([rule]);
+  if (c.error) return c;
+  const [r] = c.rules;
+  const ls = git(ws.dir, ['ls-files', '--cached', '--others', '--exclude-standard']);
+  if (ls.status !== 0) return { error: `git ls-files falló en ${ws.name}: ${firstLine(ls.stderr)}` };
+  const hits = [];
+  const files = new Set();
+  for (const file of lines(ls.stdout).filter((f) => matchAny(ws.codeGlobs, f) && !(r.exclude && matchAny(r.exclude, f)))) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(ws.dir, file), 'utf8');
+    } catch {
+      continue;
+    }
+    text.split(/\r?\n/).forEach((l, i) => {
+      if (r.re.test(l) && !(r.except && r.except.test(l))) {
+        hits.push({ file, line: i + 1 });
+        files.add(file);
+      }
+    });
+  }
+  return { hits, files: files.size };
+}
+
+module.exports = { compile, changedLines, check, describe, probar };
 
 function main() {
   let args;

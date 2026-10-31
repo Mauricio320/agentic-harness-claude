@@ -52,13 +52,20 @@ function blockersOf(report) {
   return out;
 }
 
+// Con convenciones propuestas (review.js conventionsIn), el mismo «corrígelo» las agrega al chequeo
+// automático, para que el mismo error no llegue otra vez a la revisión; «corrígelo sin reglas» no.
 function blockersStop(review, report, maxRounds) {
   const list = blockersOf(report || '');
   const n = review.blockers;
+  const rules = review.convenciones || [];
+  const fix = rules.length
+    ? `Déjame corregirlo: respóndeme "corrígelo" y aplico lo que dice cada bloqueante, y agrego al chequeo automático ${rules.length === 1 ? 'la regla de abajo' : 'las reglas de abajo'}, para que no vuelva a pasar; después verifico, reviso de nuevo y sigo con la entrega. Si no quieres las reglas, responde "corrígelo sin reglas".`
+    : 'Déjame corregirlo: respóndeme "corrígelo" y aplico lo que dice cada bloqueante; después verifico, reviso de nuevo y sigo con la entrega.';
   const steps = review.round >= maxRounds
     ? ['La revisión ya llegó a su tope de rondas de corrección y no sigue sola. Corrígelo tú, o dime qué hacer; si quieres que la revise de nuevo desde cero, dímelo.']
-    : ['Déjame corregirlo: respóndeme "corrígelo" y aplico lo que dice cada bloqueante; después verifico, reviso de nuevo y sigo con la entrega.', 'Si crees que alguno no corresponde, dime cuál y por qué antes de que toque nada.'];
-  return { kind: 'bloqueantes', text: `No pude entregar porque la revisión encontró ${count(n, 'bloqueante', 'bloqueantes')}, y con bloqueantes no se entrega:`, quote: list, steps };
+    : [fix, 'Si crees que alguno no corresponde, dime cuál y por qué antes de que toque nada.'];
+  const quote = [...list, ...rules.map((r) => `regla nueva para ${r.ws}: ${r.regla.message} (${r.regla.id}; hoy marca ${r.aciertos === 1 ? 'una línea' : `${r.aciertos} líneas`} del repo, que no se tocan hasta que alguien las cambie)`)];
+  return { kind: 'bloqueantes', text: `No pude entregar porque la revisión encontró ${count(n, 'bloqueante', 'bloqueantes')}, y con bloqueantes no se entrega:`, quote, steps };
 }
 
 // Quién mira una ruta, según el CODEOWNERS del repo si lo hay: la última regla que coincide gana.

@@ -47,6 +47,8 @@ Del repo: las reglas duras de las `.claude/rules` que `input.md` trae como "siem
 
 Cada bloqueante cita su regla: el número genérico, o el archivo de la regla con su sección. Si no puedes citarla, no es bloqueante.
 
+Un bloqueante de patrón, uno que una expresión regular vería en una sola línea (un literal de negocio, un `<button>` crudo, un import entre capas), no debería volver a llegar hasta aquí. Debajo de él, en una línea, propón la convención que lo atrapa: `CONVENCIÓN: {"ws": "<workspace>", "id": "<kebab-case>", "pattern": "<regex de JavaScript>", "message": "<qué usar en su lugar>", "exclude": ["<globs donde no aplica, como los tests>"]}`. El arnés la prueba sobre todo el repo y solo se la propone a la persona si no marca de más.
+
 # Criterios del plan
 
 Con plan, lee sus criterios, los literales y los inferidos. Por cada uno:
