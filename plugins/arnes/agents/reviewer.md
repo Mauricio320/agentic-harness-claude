@@ -22,6 +22,8 @@ Recibes la ruta de `input.md`, que dejó `review.js input`, y la del plan si exi
 - los borrados;
 - el diff contra HEAD, con los nuevos sin trackear de código enteros.
 
+Primero van las cabeceras de todos los workspaces y después, bajo `## Diffs`, el diff de cada uno. Si un diff no cupo en el tope de la entrada, dice qué archivos quedaron fuera: léelos con Read antes de dar el reporte.
+
 Cada línea del diff que sigue en el archivo lleva a la izquierda su número de línea en el árbol final, y las borradas van sin número. Cita siempre ese número: la posición de la línea dentro del diff no es una línea del archivo.
 
 Revisas el árbol final, no un intermedio:

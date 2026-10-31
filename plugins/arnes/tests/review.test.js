@@ -185,7 +185,7 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
     /Ronda 2 de 3, acotada: revisa solo el diff desde lo revisado en la ronda 1, contra sus 2 bloqueante\(s\)/,
     /## Reporte de la ronda 1\n\n- BLOQUEANTE \[línea 1\] · 5 · a vale 2 a mano/,
     /REVISIÓN HUMANA OBLIGATORIA: toca riskPaths: prisma\/migrations\/001\/migration\.sql/,
-    /Cambió desde la ronda 1 \(1\):\n- src\/a\.ts\n### Diff desde lo revisado en la ronda 1/,
+    /Cambió desde la ronda 1 \(1\):\n- src\/a\.ts\n[\s\S]*### Diff de api desde lo revisado en la ronda 1/,
     / {6}-const a = 2;\n {4}1 \+const a = 3;/,
   ]) {
     assert.match(md, re);
@@ -230,7 +230,7 @@ test('tras una revisión sin bloqueantes, lo que cambió después es una ronda a
   h.write(dir, 'src/nuevo.ts', Array.from({ length: 30 }, (_, i) => `const n${i} = ${i};`).join('\n') + '\n');
   r = review(dir, ['input']);
   assert.match(r.stdout, /ronda 3 de 3 · acotada: el diff desde la ronda 2, que terminó sin bloqueantes/, 'más grande que lo revisado, y aun así solo ese diff');
-  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), /### Diff desde lo revisado en la ronda 2\n````diff\ndiff --git a\/src\/nuevo\.ts/);
+  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), /### Diff de api desde lo revisado en la ronda 2\n````diff\ndiff --git a\/src\/nuevo\.ts/);
 });
 
 test('la ronda de corrección acotada cubre los archivos nuevos; escala a completa solo por riskPaths; con otro HEAD vuelve a la 1', () => {
@@ -248,7 +248,7 @@ test('la ronda de corrección acotada cubre los archivos nuevos; escala a comple
   let md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
   assert.match(md, /- src\/c\.spec\.ts · cambió desde la ronda 1: va en el diff/);
   assert.match(md, /- src\/a\.ts · sin cambios desde la ronda 1/);
-  assert.match(md, /### Diff desde lo revisado en la ronda 1\n````diff\ndiff --git a\/src\/c\.spec\.ts b\/src\/c\.spec\.ts\nnew file mode[\s\S]*\+el spec que escribió test-writer/, 'el nuevo va entero en el diff de la corrección');
+  assert.match(md, /### Diff de api desde lo revisado en la ronda 1\n````diff\ndiff --git a\/src\/c\.spec\.ts b\/src\/c\.spec\.ts\nnew file mode[\s\S]*\+el spec que escribió test-writer/, 'el nuevo va entero en el diff de la corrección');
   report(dir, 1);
   review(dir, ['mark', '--blockers', '1']);
 
@@ -257,7 +257,7 @@ test('la ronda de corrección acotada cubre los archivos nuevos; escala a comple
   assert.match(r.stdout, /ronda 3 de 3 · completa: el cambio desde la ronda 2 tocó riskPaths: prisma\/migrations\/001\/migration\.sql/);
   md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
   assert.match(md, /Ronda 3 de 3, completa porque el cambio desde la ronda 2 tocó riskPaths/);
-  assert.match(md, /### Diff contra HEAD/);
+  assert.match(md, /### Diff de api contra HEAD/);
   report(dir, 0);
   review(dir, ['mark', '--blockers', '0']);
 
@@ -296,7 +296,24 @@ test('input: las reglas que aplican van con su texto sin frontmatter, las otras 
   for (let i = 0; i < 80; i++) h.write(dir, `src/m${i}.ts`, `${'const largo = "' + 'x'.repeat(3000) + '";\n'}`);
   assert.equal(review(dir, ['input', '--completa']).status, 0);
   assert.ok(md().length < 252000);
-  assert.match(md(), /… input cortado en 250000 caracteres\. Quedó fuera: .*src\/m\d+\.ts.*\. Lee esos archivos con Read/);
+  assert.match(md(), /… diff cortado por el tope de la entrada\. Quedó fuera: .*src\/m\d+\.ts.*\. Léelos con Read/);
+});
+
+test('input: con un diff enorme en el primer workspace, la cabecera del segundo y su línea de riesgo no se pierden', () => {
+  const root = h.tmp('review-dos');
+  for (const name of ['api', 'web']) {
+    h.repo(path.join(root, name), { '.claude/harness.json': h.repoManifest(name, h.workspace({ name, riskPaths: ['src/auth/**'] })), 'src/a.ts': 'a\n' });
+  }
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }, { path: 'web' }] }));
+  for (let i = 0; i < 90; i++) h.write(path.join(root, 'api'), `src/m${i}.ts`, `const largo = "${'x'.repeat(3000)}";\n`);
+  h.write(path.join(root, 'web'), 'src/auth/login.ts', 'export const login = 1;\n');
+  assert.equal(review(root, ['input']).status, 0);
+  const md = fs.readFileSync(path.join(root, '.tmp', 'harness', 'review', 'input.md'), 'utf8');
+  assert.ok(md.length < 252000, String(md.length));
+  assert.ok(md.indexOf('## Workspace web') < md.indexOf('## Diffs'), 'las cabeceras van antes que los diffs');
+  assert.match(md, /## Workspace web[\s\S]*REVISIÓN HUMANA OBLIGATORIA: toca riskPaths: src\/auth\/login\.ts/);
+  assert.match(md, /### Diff de web contra HEAD\n````diff\n[\s\S]*export const login = 1/, 'el diff chico del segundo entra entero');
+  assert.match(md, /### Diff de api contra HEAD[\s\S]*… diff cortado por el tope de la entrada/);
 });
 
 test('mark --clean escribe el reporte mínimo si el reviewer no escribió el suyo, y solo sin bloqueantes', () => {

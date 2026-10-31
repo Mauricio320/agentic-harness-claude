@@ -220,7 +220,7 @@ function section(project, ws, files, corr) {
   const failed = [fresh, gone, diff].find((x) => x.error);
   if (failed) return failed;
   const untracked = new Set(lines(git(ws.dir, ['ls-files', '--others', '--exclude-standard']).stdout));
-  const head = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
+  const base = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
   const risk = riskOf(ws, files);
   const contract = ws.contract ? [ws.contract.provides && `provee ${ws.contract.provides.join(', ')}`, ws.contract.consumes && `consume ${ws.contract.consumes.join(', ')}`].filter(Boolean).join(' · ') : '';
   const claude = [...new Set([ws.repo, ws.dir].map((d) => path.join(d, 'CLAUDE.md')))].filter((f) => fs.existsSync(f));
@@ -232,10 +232,10 @@ function section(project, ws, files, corr) {
       ? corr.files.includes(f) ? `cambió desde la ronda ${corr.from}: va en el diff` : `sin cambios desde la ronda ${corr.from}`
       : inDiff(f) ? 'nuevo sin trackear: va entero en el diff' : untracked.has(f) ? 'nuevo sin trackear: léelo entero, no sale en el diff' : fresh.files.includes(f) ? 'nuevo' : 'modificado';
   const body = [diff.text, extra.text].filter(Boolean).join('\n');
-  const out = [
+  const head = [
     `## Workspace ${ws.name}`,
     `Carpeta: ${ws.dir}`,
-    `HEAD de base: ${head}`,
+    `HEAD de base: ${base}`,
     risk.length ? `${RISK}: toca riskPaths: ${risk.join(', ')}` : 'riskPaths tocadas: ninguna',
     `Contrato: ${contract || 'sin contrato declarado'}`,
     `CLAUDE.md: ${claude.length ? claude.join(' · ') : 'no hay'}`,
@@ -245,14 +245,42 @@ function section(project, ws, files, corr) {
     ...files.map((f) => `- ${f} · ${tag(f)}`),
     ...(gone.files.length ? ['Borrados:', ...gone.files.map((f) => `- ${f}`)] : []),
     ...(corr ? [`Cambió desde la ronda ${corr.from} (${corr.files.length}):`, ...corr.files.map((f) => `- ${f}`)] : []),
-    corr ? `### Diff desde lo revisado en la ronda ${corr.from}` : '### Diff contra HEAD',
-    '````diff',
-    body || (corr ? '(nada cambió en este workspace desde esa ronda)' : '(sin diff de archivos trackeados)'),
-    '````',
-    ...(extra.out.length ? [`Quedaron fuera del diff por pasar de ${MAX_DIFF_LINES} líneas o no poder leerse: ${extra.out.join(', ')}. Léelos enteros.`] : []),
     '',
   ];
-  return { text: out.join('\n'), risk, head };
+  const tail = extra.out.length ? `\nQuedaron fuera del diff por pasar de ${MAX_DIFF_LINES} líneas o no poder leerse: ${extra.out.join(', ')}. Léelos enteros.` : '';
+  return {
+    head: head.join('\n'),
+    title: corr ? `### Diff de ${ws.name} desde lo revisado en la ronda ${corr.from}` : `### Diff de ${ws.name} contra HEAD`,
+    body: body || (corr ? '(nada cambió en este workspace desde esa ronda)' : '(sin diff de archivos trackeados)'),
+    tail,
+    risk,
+  };
+}
+
+// Las cabeceras de todos los workspaces van primero y los diffs después, cada uno con su parte del
+// tope de la entrada: lo que un diff no usa pasa al siguiente. Antes el corte era ciego, al final del
+// texto, y un diff grande del primer workspace podía dejar fuera la cabecera del segundo, con su línea
+// de REVISIÓN HUMANA OBLIGATORIA. → el texto de los diffs
+function budgetDiffs(sections, room) {
+  const out = [];
+  let left = Math.max(room, 0);
+  sections.forEach((s, i) => {
+    const share = Math.floor(left / (sections.length - i));
+    const whole = ['', s.title, '````diff', s.body, '````', s.tail].join('\n');
+    if (whole.length <= share) {
+      out.push(whole);
+      left -= whole.length;
+      return;
+    }
+    const keep = Math.max(share - 600, 0);
+    const cut = s.body.lastIndexOf('\n', keep);
+    const shown = cut > 0 ? s.body.slice(0, cut) : '';
+    const lost = s.body.slice(shown.length).split('\n').filter((l) => /^diff --git /.test(l)).map((l) => l.replace(/^diff --git a\/(\S+).*/, '$1'));
+    const text = ['', s.title, '````diff', shown || '(sin espacio para este diff)', '````', `… diff cortado por el tope de la entrada. Quedó fuera: ${lost.join(', ') || 'el final del último archivo'}. Léelos con Read.${s.tail}`].join('\n');
+    out.push(text);
+    left -= text.length;
+  });
+  return out.join('\n');
 }
 
 // El árbol de git de lo que hay en el disco: el índice real copiado a uno temporal, con los tocados
@@ -369,16 +397,19 @@ function input(project, full) {
   ];
   const prev = bounded ? readJson(reviewFile(project)).workspaces : {};
   const marks = {};
+  const sections = [];
   for (const [name, { ws, files, st, tree }] of Object.entries(now)) {
     const s = section(project, ws, files, bounded ? { from: r.from, refs: [prev[name].tree, tree], files: r.changed[name] } : null);
     if (s.error) die(`review: ${s.error}`);
-    parts.push(s.text);
+    parts.push(s.head);
+    sections.push(s);
     marks[name] = { head: st.head, touchedHash: st.touchedHash, contentHash: st.contentHash, risk: s.risk, files, tree };
     console.log(`${name}: ${files.length} tocado(s)${s.risk.length ? ` · ${RISK}: ${s.risk.join(', ')}` : ' · sin riskPaths tocadas'}`);
   }
+  const heads = parts.join('\n');
   const dir = reviewDir(project);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'input.md'), capInput(parts.join('\n')));
+  fs.writeFileSync(path.join(dir, 'input.md'), capInput(`${heads}\n## Diffs\n${budgetDiffs(sections, MAX_INPUT_CHARS - heads.length - 200)}\n`));
   fs.writeFileSync(path.join(dir, 'input.json'), JSON.stringify({ at: new Date().toISOString(), round: r.round, mode: r.mode, workspaces: marks }, null, 2) + '\n');
   const why = bounded ? (r.blockers ? `el diff de la corrección contra los ${r.blockers} bloqueante(s) de la ronda ${r.from}` : `el diff desde la ronda ${r.from}, que terminó sin bloqueantes`) : r.reason;
   console.log(`ronda ${r.round} de ${MAX_ROUNDS} · ${r.mode}${why ? `: ${why}` : ''}`);
