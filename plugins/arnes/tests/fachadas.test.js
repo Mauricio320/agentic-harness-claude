@@ -154,6 +154,12 @@ test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests c
   assert.match(fs.readFileSync(file, 'utf8'), /^## api\n\n```\n== api \(\.\)[\s\S]*Sin spec después del test-writer: src\/b\.ts/m);
   assert.equal(run(dir, 'gate-flag.js', ['check', 'api']).status, 0, 'la bandera quedó vigente');
   assert.deepEqual(events(dir).slice(-2), ['start verify', 'end verify ok']);
+  r = run(dir, 'verify.js', ['run']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: VERDE · bandera vigente, no se corrió de nuevo$/m, 'el mismo contenido verde no se vuelve a correr, ni pide el test-writer');
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(path.join(dir, '.claude', 'harness.json'), later, later);
+  assert.match(run(dir, 'verify.js', ['run', '--tras-tests']).stdout, /^api: VERDE · bandera escrita/m, 'un manifiesto más nuevo que la bandera obliga a correrlo');
   h.write(dir, 'src/a.spec.ts', 'pass|A|debe sumar\nfail|A|debe restar\n');
   r = run(dir, 'verify.js', ['run', '--tras-tests']);
   assert.equal(r.status, 1, r.stdout);

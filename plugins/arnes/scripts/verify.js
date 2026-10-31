@@ -13,6 +13,8 @@
 //     ci-gate de cada workspace tal cual, lo que quedó sin spec y la línea de cada bandera.
 //     Imprime la sección de ci-gate de cada workspace, una línea por workspace con su veredicto, la
 //     ruta del informe, si toca decir la frase del verde y la lista de tareas de la corrida.
+//     Un workspace que ya quedó verde con este mismo contenido no se vuelve a correr (fresh): al
+//     corregir el rojo de otro, verify repetía el gate y el test-writer de todos.
 // Uso: node verify.js run [--base <commit>] [--tras-tests]
 // Exit: 0 verde, o nada que verificar · 1 algún workspace en rojo · 3 falta escribir tests: lanza el
 //       test-writer de cada entrada y vuelve con --tras-tests · 2 uso inválido o sin manifiesto
@@ -23,8 +25,9 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { parseArgs } = require('util');
-const { requireProject, harnessDir, posix } = require('./lib/manifest.js');
-const { help, die } = require('./lib/exec.js');
+const { requireProject, harnessDir, posix, MANIFEST } = require('./lib/manifest.js');
+const { git, help, die } = require('./lib/exec.js');
+const { checkFlag, flagPath } = require('./gate-flag.js');
 const { append, read, tasks } = require('./lib/timeline.js');
 const { touched } = require('./touched-files.js');
 const { missingSpecs } = require('./test-select.js');
@@ -48,6 +51,22 @@ function firstRed(section) {
   return l ? l.trim().replace(/\s+FALLA\s+·\s*/, ': ') : 'el gate salió en rojo';
 }
 
+// Verde con este mismo contenido: la bandera está vigente, es del mismo base y es más nueva que los
+// manifiestos del workspace y del proyecto, porque una convención nueva obliga a correrlo de nuevo.
+function fresh(project, ws, base) {
+  if (!checkFlag(project, ws).ok) return false;
+  let flag;
+  try {
+    flag = JSON.parse(fs.readFileSync(flagPath(project, ws), 'utf8'));
+  } catch {
+    return false;
+  }
+  const want = base === 'HEAD' ? 'HEAD' : git(ws.gitRoot, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]).stdout.trim();
+  if ((flag.base || 'HEAD') !== want) return false;
+  const rules = [ws.manifest, path.join(project.root, MANIFEST)].filter((f) => f && fs.existsSync(f)).map((f) => fs.statSync(f).mtimeMs);
+  return Date.parse(flag.at) > Math.max(0, ...rules);
+}
+
 function run(project, base, afterTests) {
   if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
   const found = [];
@@ -69,12 +88,13 @@ function run(project, base, afterTests) {
   }
   for (const { ws } of found.filter((x) => !x.ws.adoptable)) say(`${ws.name}: no adoptable todavía; tiene cambios, pero no se verifica`);
   const adoptable = found.filter((x) => x.ws.adoptable);
+  const kept = new Set(adoptable.filter((x) => fresh(project, x.ws, base)).map((x) => x.ws.name));
   const missing = new Map(adoptable.map(({ ws, files }) => [ws.name, missingSpecs(ws, files)]));
   if (!afterTests) {
     const writers = [];
     for (const { ws } of adoptable) {
       const files = missing.get(ws.name);
-      if (!files.length) continue;
+      if (!files.length || kept.has(ws.name)) continue;
       const r = node('build.js', ['input', '--ws', ws.name, '--para', 'test-writer', '--files', ...files]);
       if (r.status !== 0) die(`verify: no pude armar la entrada del test-writer de ${ws.name}:\n${r.out.trim()}`);
       writers.push(`test-writer: ${ws.name} · ${files.length} archivo(s) sin spec (${files.join(', ')}) · carpeta ${posix(ws.dir)} · entrada ${posix(path.join(harnessDir(project), 'build', `${ws.name}-test-writer-input.md`))}`);
@@ -87,6 +107,11 @@ function run(project, base, afterTests) {
   }
   const results = [];
   for (const { ws } of adoptable) {
+    if (kept.has(ws.name)) {
+      const section = `== ${ws.name}\n  verde con este mismo contenido en una verificación anterior: no se corrió de nuevo`;
+      results.push({ ws, ok: true, kept: true, section, flag: 'vigente, de una verificación anterior de este mismo contenido', left: [] });
+      continue;
+    }
     const gate = node('ci-gate.js', ['--ws', ws.name, '--base', base]);
     const section = gateSection(gate.out);
     let flag = 'sin bandera: el gate salió en rojo';
@@ -108,7 +133,7 @@ function run(project, base, afterTests) {
   fs.writeFileSync(rep.file, body.join('\n'));
   issues.record(project, { files: [rep.file] });
   for (const r of results) say(r.section);
-  for (const r of results) say(`${r.ws.name}: ${r.ok ? 'VERDE · bandera escrita' : `ROJO · ${firstRed(r.section)}`}${r.left.length ? ` · sin spec: ${r.left.join(', ')}` : ''}`);
+  for (const r of results) say(`${r.ws.name}: ${r.kept ? 'VERDE · bandera vigente, no se corrió de nuevo' : r.ok ? 'VERDE · bandera escrita' : `ROJO · ${firstRed(r.section)}`}${r.left.length ? ` · sin spec: ${r.left.join(', ')}` : ''}`);
   say(`informe: ${posix(rep.file)}`);
   say(rep.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
   listTasks();
