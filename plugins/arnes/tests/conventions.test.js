@@ -39,6 +39,14 @@ test('marca con archivo y línea lo agregado o cambiado; lo que ya estaba en un 
   ]);
 });
 
+test('un archivo renombrado trae lo que ya tenía sin ponerlo en rojo; solo cuenta lo que el viejo no tenía', () => {
+  const dir = repo();
+  fs.renameSync(path.join(dir, 'src/viejo.ts'), path.join(dir, 'src/renombrado.ts'));
+  assert.equal(conv(dir).status, 0, 'el comentario que ya estaba viaja con el archivo');
+  fs.appendFileSync(path.join(dir, 'src/renombrado.ts'), 'console.log(a);\n');
+  assert.deepEqual(h.lines(conv(dir).stdout), ['src/renombrado.ts:3 · sin-console · sin console', 'api: 1 hallazgo(s) en 1 archivo(s), 3 convención(es)']);
+});
+
 test('con archivos dados revisa esos; sin hallazgos sale en 0; sin reglas no hay nada que comprobar', () => {
   const dir = repo();
   h.write(dir, 'src/limpio.ts', 'export const limpio = 1;\n');

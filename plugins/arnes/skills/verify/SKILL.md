@@ -21,7 +21,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 ## Si algo falla
 
 - **Un paso en rojo:** corrígelo y vuelve a verificar desde el principio, en el mismo turno y sin pedir permiso: en rojo se corrige, no se pregunta. El código lo corrige el dev de ese workspace, relanzado con la falla concreta; un spec que escribió el test-writer, él. Solo paras si la falla es de configuración (propónle el cambio a la persona, que lo aprueba respondiendo que sí) o si corregir pide una decisión de negocio que el plan no tomó; ahí, dilo y termina.
-- **Una falla de la línea base** (un test borrado o saltado, un salto no declarado, un spec de la base borrado): no se arregla recapturando la base para que cuadre. Recapturar (`test-baseline.js capture <ws>`) es una decisión de la persona, y su commit lleva `gates:` en el asunto.
+- **Una falla de la línea base** (un test borrado o saltado, un salto no declarado, un spec de la base borrado): no se arregla recapturando la base para que cuadre. Un spec renombrado no es falla: el gate lo reconoce por su contenido, y en verde la base pasa sola al nombre nuevo; no deshagas el renombre. Recapturar (`test-baseline.js capture <ws>`) es una decisión de la persona, y su commit lleva `gates:` en el asunto.
 - **Una falla `preexistente (<fecha>)`:** no pone rojo. Va al informe con su fecha.
 - **Sin bandera vigente:** el commit se niega y el Stop bloquea una vez. No los rodees.
 

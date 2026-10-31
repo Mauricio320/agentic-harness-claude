@@ -204,6 +204,20 @@ test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests c
   assert.equal(events(dir).pop(), 'end verify fail');
 });
 
+test('verify.js run con un spec renombrado: verde, la base pasa al nombre nuevo y la bandera la cubre', () => {
+  const { dir } = approved();
+  assert.equal(run(dir, 'test-baseline.js', ['capture', 'api']).status, 0);
+  h.commitAll(dir, 'gates: línea base');
+  fs.renameSync(path.join(dir, 'src/a.spec.ts'), path.join(dir, 'src/suma.spec.ts'));
+  const r = run(dir, 'verify.js', ['run', '--tras-tests']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: línea base: el spec src\/a\.spec\.ts pasa a src\/suma\.spec\.ts, con sus mismos números$/m);
+  assert.match(r.stdout, /^api: VERDE · bandera escrita/m);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'tests', 'baseline.json'), 'utf8')).specs), ['src/suma.spec.ts']);
+  assert.equal(run(dir, 'gate-flag.js', ['check', 'api']).status, 0, 'la bandera cubre la base renombrada');
+  assert.match(run(dir, 'ship.js', ['check']).stdout, /línea base de tests: cambia → el asunto del commit empieza con gates:/);
+});
+
 test('review.js round prepara la ronda y anota su inicio; round --marca toma los bloqueantes del reporte, marca y deja el informe', () => {
   const { dir } = approved();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');

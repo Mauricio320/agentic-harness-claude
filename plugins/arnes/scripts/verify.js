@@ -115,11 +115,15 @@ function run(project, base, afterTests) {
     const gate = node('ci-gate.js', ['--ws', ws.name, '--base', base]);
     const section = gateSection(gate.out);
     let flag = 'sin bandera: el gate salió en rojo';
+    let moved = '';
     if (gate.status === 0) {
+      // Un spec renombrado pasa a su nombre nuevo en la línea base antes de la bandera, que así la
+      // cubre, y el commit la lleva con gates: (test-baseline.js renombra).
+      moved = node('test-baseline.js', ['renombra', ws.name]).out.trim();
       const w = node('gate-flag.js', ['write', ws.name, '--result', 'pass', ...(base === 'HEAD' ? [] : ['--base', base])]);
       flag = w.status === 0 ? w.out.trim() : `la bandera no se escribió: ${w.out.trim()}`;
     }
-    results.push({ ws, ok: gate.status === 0, section, flag, left: afterTests ? missingSpecs(ws, adoptable.find((x) => x.ws === ws).files) : [] });
+    results.push({ ws, ok: gate.status === 0, section: moved ? `${section}\n${moved}` : section, flag, left: afterTests ? missingSpecs(ws, adoptable.find((x) => x.ws === ws).files) : [] });
   }
   const ok = results.every((r) => r.ok);
   append(project.root, { event: 'end', stage: 'verify', result: ok ? 'ok' : 'fail', detail: results.map((r) => `${r.ws.name}: ${r.ok ? 'ok' : 'fail'}`).join(', ') });

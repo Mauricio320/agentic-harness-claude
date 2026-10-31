@@ -5,8 +5,10 @@
 // ci-gate corren solo los specs de test-select: se compara la suma de los specs que corrieron contra
 // la suma de esos mismos specs en la base. Es rojo, aunque lo que queda esté verde: menos tests que en
 // la base, menos tests que pasan, más saltos, un salto que la base no declara por nombre, o un spec de
-// la base que ya no existe (esto último, haya o no código tocado). Un commit que cambia la base lleva
-// el prefijo gates: en el asunto.
+// la base que ya no existe (esto último, haya o no código tocado). Un spec renombrado sin commitear no
+// es uno borrado (lib/renombres.js): se compara con lo que tenía bajo su nombre viejo, y verify, en
+// verde y antes de la bandera, pasa la base al nombre nuevo (renombra). Un commit que cambia la base
+// lleva el prefijo gates: en el asunto.
 // Las fallas se separan en nuevas y preexistentes. Preexistente es solo la que coincide exacto, por
 // spec y nombre completo, con una línea fechada de <workspace>/tests/known-failures.txt:
 //   AAAA-MM-DD | <spec relativo al workspace> | <nombre completo, con › entre describe y test>
@@ -45,7 +47,10 @@
 //      node test-baseline.js check <ws> [--base <ref>] [spec ...]
 //        corre los specs dados, o los que elige test-select para los tocados respecto de --base
 //        (HEAD por defecto), y compara contra la base
-// Exit: capture 0 escrita · check 0 verde · 1 check rojo (motivos en stdout) · 2 uso inválido, sin
+//      node test-baseline.js renombra <ws>
+//        pasa a su nombre nuevo cada spec de la base renombrado sin commitear, con sus mismos números;
+//        lo corre verify con el gate en verde, antes de escribir la bandera
+// Exit: capture 0 escrita · check 0 verde · renombra 0 · 1 check rojo (motivos en stdout) · 2 uso inválido, sin
 //       manifiesto, workspace desconocido o no adoptable, sin commands.test ni commands.testJson, sin
 //       specPattern, un runner sin adaptador y sin commands.testJson, base ilegible o inválida, o git
 //       falló · 3 capture: hay código tocado, o los resultados no cumplen el contrato o no cuadran
@@ -66,6 +71,7 @@ const { selectSpecs, patternRegExp } = require('./test-select.js');
 const { toolOf } = require('./typecheck-baseline.js');
 const { SUITE_FAILED } = require('./lib/node-test-reporter.js');
 const { karmaTarget, karmaSetup, karmaTsconfig } = require('./lib/karma-config.js');
+const { pairs } = require('./lib/renombres.js');
 
 const DEFAULT_BASELINE = 'tests/baseline.json';
 const KNOWN = 'tests/known-failures.txt';
@@ -410,6 +416,33 @@ function missingSpecs(ws, base) {
   return base ? Object.keys(base.specs).filter((s) => !fs.existsSync(path.join(ws.dir, s))) : [];
 }
 
+// Los specs de la base que se renombraron sin commitear (lib/renombres.js): un spec movido no es un spec
+// borrado. → Map(viejo → nuevo)
+function movedSpecs(ws, base) {
+  const gone = new Set(missingSpecs(ws, base));
+  return new Map(gone.size ? pairs(ws, 'HEAD').filter((p) => gone.has(p.from) && !base.specs[p.to]).map((p) => [p.from, p.to]) : []);
+}
+
+// La base con cada spec movido bajo su nombre nuevo, con los mismos números y los mismos saltos.
+function withMoves(base, moved) {
+  if (!moved.size) return base;
+  const name = (s) => moved.get(s) || s;
+  const specs = Object.fromEntries(Object.keys(base.specs).map((k) => [name(k), base.specs[k]]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+  return { ...base, specs, skipped: base.skipped.map((k) => ({ ...k, spec: name(k.spec) })) };
+}
+
+// verify, con el gate en verde y antes de escribir la bandera: la base pasa los specs movidos a su
+// nombre nuevo, sin tocar sus números, para que la bandera la cubra y el commit la lleve (con gates:).
+// → [{ from, to }] de lo que cambió
+function renameBaseline(ws) {
+  const base = readBaseline(ws);
+  if (base.error || !base.data) return [];
+  const moved = movedSpecs(ws, base.data);
+  if (!moved.size) return [];
+  fs.writeFileSync(base.file, JSON.stringify(withMoves(base.data, moved), null, 2) + '\n');
+  return [...moved].map(([from, to]) => ({ from, to }));
+}
+
 function trackedSpecs(ws) {
   const ls = git(ws.dir, ['ls-files']);
   if (ls.status !== 0) return { error: `test-baseline: git ls-files falló en ${ws.name}` };
@@ -448,11 +481,15 @@ function compare(base, scope, now, skipped) {
 
 function checkTests(ws, p) {
   if (p.error) return { status: 'falla', detail: p.error };
-  const base = readBaseline(ws);
-  if (base.error) return { status: 'falla', detail: base.error };
+  const read = readBaseline(ws);
+  if (read.error) return { status: 'falla', detail: read.error };
+  const moved = read.data ? movedSpecs(ws, read.data) : new Map();
+  const base = { ...read, data: read.data && withMoves(read.data, moved) };
+  const movedNotes = [...moved].map(([from, to]) => `línea base: spec movido: ${from} → ${to}; se compara con lo que tenía, y la base pasa al nombre nuevo al quedar en verde`);
   const reds = missingSpecs(ws, base.data).map((s) => `línea base: spec de la base borrado: ${s} (si es a propósito, recaptura la base y commitéala con gates:)`);
   if (p.specs && !p.specs.length) {
-    return reds.length ? { status: 'falla', detail: 'sin specs para lo tocado, pero la base no cuadra', out: reds.join('\n') } : { status: 'ok', detail: 'sin specs para lo tocado' };
+    if (reds.length) return { status: 'falla', detail: 'sin specs para lo tocado, pero la base no cuadra', out: [...reds, ...movedNotes].join('\n') };
+    return { status: 'ok', detail: 'sin specs para lo tocado', out: movedNotes.join('\n') || undefined };
   }
   const { runner, run, res } = runTests(ws, p.cmd, p.specs, Boolean(p.all));
   if (!runner) {
@@ -462,7 +499,7 @@ function checkTests(ws, p) {
   }
   if (res.error) return { status: 'falla', detail: p.label, out: [...reds, res.error, tail(run.out, 30)].filter(Boolean).join('\n') };
   const known = readKnown(ws);
-  const notes = known.invalid.length ? [`${KNOWN}: línea(s) ${known.invalid.join(', ')} sin fecha o mal formadas; no absuelven nada`] : [];
+  const notes = [...movedNotes, ...(known.invalid.length ? [`${KNOWN}: línea(s) ${known.invalid.join(', ')} sin fecha o mal formadas; no absuelven nada`] : [])];
   const failed = res.tests.filter((t) => t.status === 'falla');
   for (const f of failed) {
     const k = known.entries.find((e) => e.spec === f.file && e.name === f.name);
@@ -584,6 +621,8 @@ module.exports = {
   probeTests,
   captureBaseline,
   missingSpecs,
+  movedSpecs,
+  renameBaseline,
   planTests,
   compare,
   checkTests,
@@ -598,10 +637,14 @@ function main() {
   }
   if (args.values.help) help(__filename);
   const [mode, wsName, ...given] = args.positionals;
-  if (!['capture', 'check'].includes(mode) || !wsName || (mode === 'capture' && given.length)) die('uso: test-baseline.js capture <ws> | check <ws> [--base <ref>] [spec ...]');
+  if (!['capture', 'check', 'renombra'].includes(mode) || !wsName || (mode !== 'check' && given.length)) die('uso: test-baseline.js capture <ws> | check <ws> [--base <ref>] [spec ...] | renombra <ws>');
   const project = requireProject();
   const [ws] = selectWorkspaces(project, [wsName]);
   if (!ws.adoptable) die(`${ws.name}: workspace no adoptable todavía (sin .claude/harness.json propio)`);
+  if (mode === 'renombra') {
+    for (const m of renameBaseline(ws)) console.log(`${ws.name}: línea base: el spec ${m.from} pasa a ${m.to}, con sus mismos números`);
+    return;
+  }
   if (!ws.commands.test && !ws.commands.testJson) die(`${ws.name}: el manifiesto no declara commands.test ni commands.testJson`);
   if (!ws.specPattern) die(`${ws.name}: el manifiesto no declara specPattern`);
   if (mode === 'capture') return capture(project, ws);

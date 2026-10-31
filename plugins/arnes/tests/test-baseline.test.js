@@ -326,6 +326,36 @@ test('un spec de la base borrado es rojo, aunque no quede ningún spec que corre
   assert.match(r.stdout, /spec de la base borrado: src\/b\.spec\.ts/);
 });
 
+test('un spec renombrado no es uno borrado: se compara con lo que tenía, y renombra pasa la base al nombre nuevo', () => {
+  const dir = adopted();
+  fs.renameSync(path.join(dir, 'src/a.spec.ts'), path.join(dir, 'src/suma.spec.ts'));
+  const r = run(dir, ['check', 'api']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /línea base: spec movido: src\/a\.spec\.ts → src\/suma\.spec\.ts; se compara con lo que tenía/);
+  assert.match(r.stdout, /base 2 pasan, 0 fallan, 1 saltados/, 'contra los números del nombre viejo');
+  assert.doesNotMatch(r.stdout, /borrado/);
+  const ren = run(dir, ['renombra', 'api']);
+  assert.equal(ren.status, 0, ren.stderr);
+  assert.match(ren.stdout, /^api: línea base: el spec src\/a\.spec\.ts pasa a src\/suma\.spec\.ts, con sus mismos números$/m);
+  const b = base(dir);
+  assert.deepEqual(Object.keys(b.specs), ['src/b.spec.ts', 'src/suma.spec.ts']);
+  assert.deepEqual(b.skipped.map((s) => s.spec), ['src/suma.spec.ts'], 'los saltos declarados van con él');
+  assert.equal(run(dir, ['renombra', 'api']).stdout, '', 'una segunda vez no hay nada que mover');
+});
+
+test('un renombre que perdió tests sigue rojo, y uno que se llevó con git mv también se reconoce', () => {
+  const dir = adopted();
+  fs.renameSync(path.join(dir, 'src/a.spec.ts'), path.join(dir, 'src/suma.spec.ts'));
+  fs.writeFileSync(path.join(dir, 'src/suma.spec.ts'), 'pass|A|debe sumar\nskip|A|debe esperar\n');
+  const r = run(dir, ['check', 'api']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /spec movido: src\/a\.spec\.ts → src\/suma\.spec\.ts/);
+  assert.match(r.stdout, /hay menos tests que en la base/);
+  const mv = adopted();
+  h.git(mv, 'mv', 'src/b.spec.ts', 'src/existe.spec.ts');
+  assert.match(run(mv, ['check', 'api']).stdout, /spec movido: src\/b\.spec\.ts → src\/existe\.spec\.ts/);
+});
+
 test('falla nueva → rojo; la que coincide exacto con una línea fechada → preexistente y verde', () => {
   const fails = 'pass|A|debe sumar\nfail|A|debe restar\nskip|A|debe esperar\n';
   const dir = adopted({}, { 'src/a.spec.ts': fails });
