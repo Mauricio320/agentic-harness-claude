@@ -95,6 +95,15 @@ function cleanup(tmp, links) {
   return safe ? null : `no se pudo quitar un enlace; queda ${tmp} para borrar a mano`;
 }
 
+// Un base que todavía no trae el workspace (el commit inicial vacío de un repo nuevo, o un workspace
+// que nace en este issue) no tiene diagnósticos: todo lo de ahora es nuevo. git archive fallaba con
+// «pathspec did not match» y el typecheck quedaba en rojo sin nada que corregir.
+function baseWithout(ws, hash) {
+  const relWs = posix(path.relative(ws.gitRoot, ws.dir)) || '.';
+  const r = git(ws.gitRoot, ['ls-tree', '-r', '--name-only', hash, '--', relWs]);
+  return r.status === 0 && !r.stdout.trim();
+}
+
 function baseTypecheck(ws, hash, cmds) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'arnes-base-'));
   const links = [];
@@ -143,18 +152,19 @@ function stepTypecheck(project, ws, base) {
   const { parse, error } = tb.workspaceParser(cmds);
   if (error) return { status: 'falla', detail: error };
   const file = photoPath(project, ws);
-  const cached = cachedPhoto(file, base.hash);
-  const before = cached || baseTypecheck(ws, base.hash, cmds);
+  const empty = baseWithout(ws, base.hash);
+  const cached = empty ? null : cachedPhoto(file, base.hash);
+  const before = empty ? { out: '', exit: 0, empty } : cached || baseTypecheck(ws, base.hash, cmds);
   if (before.error) return { status: 'falla', detail: before.error };
   if (tb.invalidRunReason(tb.countDiagnostics(parse(before.out)), before.exit)) {
     return { status: 'falla', detail: `el typecheck del base no corrió; no hay contra qué comparar`, out: tail(before.out, 10) };
   }
-  if (!cached) {
+  if (!cached && !empty) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, `${before.out}BASELINE: ${base.hash}\nTYPECHECK_EXIT: ${before.exit}\n`);
     issues.record(project, { files: [file] });
   }
-  const photo = `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
+  const photo = before.empty ? 'base sin el workspace' : `foto del base ${cached ? 'reutilizada' : 'capturada'}`;
   const now = tb.runTypecheck(cmds, ws.dir);
   const bad = tb.invalidRunReason(tb.countDiagnostics(parse(now.out)), now.exit);
   if (bad) return { status: 'falla', detail: bad, out: tail(now.out, 10) };

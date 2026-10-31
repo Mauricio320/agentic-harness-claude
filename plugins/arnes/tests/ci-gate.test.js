@@ -70,6 +70,18 @@ test('cambio limpio: typecheck sin nuevos contra la foto del base, lint y el spe
   assert.match(r.stdout, /VERDE\. Verde significa que cumple convenciones y compila\/testea; nunca que sea correcto en el negocio/);
 });
 
+test('un base que todavía no trae el workspace cuenta con cero diagnósticos: no es rojo por git archive', () => {
+  const { dir } = repo();
+  const empty = h.git(dir, 'commit-tree', '4b825dc642cb6eb9a060e54bf8d69288fbee4904', '-m', 'inicio vacío').trim();
+  h.write(dir, 'tsc-out.txt', '');
+  let r = gate(dir, ['--base', empty]);
+  assert.match(r.stdout, /typecheck\s+ok · sin diagnósticos nuevos \(base 0, ahora 0\) · base sin el workspace/);
+  assert.doesNotMatch(r.stdout, /git archive/);
+  h.write(dir, 'tsc-out.txt', BASE_ERR);
+  r = gate(dir, ['--base', empty]);
+  assert.match(r.stdout, /typecheck\s+FALLA · 1 diagnóstico\(s\) nuevo\(s\) · base sin el workspace/, 'lo de ahora es todo nuevo');
+});
+
 test('un diagnóstico nuevo respecto del base → ROJO con el diagnóstico', () => {
   const { dir, head } = repo();
   fs.appendFileSync(path.join(dir, 'src/a.js'), 'b\n');
