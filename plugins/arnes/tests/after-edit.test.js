@@ -97,3 +97,33 @@ test('un error propio sale con 0 y no decide nada', () => {
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
 });
+
+// Un lint lento (eslint type-checked, que compila el proyecto entero: tres minutos por archivo en
+// renova365/api) no puede colgar cada edición hasta los 120 s del hook.
+test('un lint que se pasa del tope se corta con su árbol de procesos, lo dice una vez y no se repite en ese workspace por diez minutos', () => {
+  const { root, api } = folder({ lint: 'node tools/lento.js {files}' });
+  h.write(api, 'tools/lento.js', 'setTimeout(() => process.exit(0), 30000);\n');
+  const file = h.write(api, 'src/a.ts', 'cambio\n');
+  const env = { ARNES_LINT_TIMEOUT_MS: '1000' };
+  const t0 = Date.now();
+  const r = edit(root, file, { env });
+  assert.ok(Date.now() - t0 < 15000, `el hook esperó ${Date.now() - t0} ms al lint`);
+  assert.match(ctx(r), /^arnes · lint de src\/a\.ts en api: tardó más de 1 s y se cortó\. El lint de este repo es lento para un archivo suelto/);
+  assert.match(ctx(r), /queda para la verificación, y en api no se vuelve a intentar tras cada edición durante 10 minutos\.$/);
+  const marca = path.join(root, '.tmp', 'harness', 'after-edit', 'api.lint-lento.json');
+  assert.ok(fs.existsSync(marca), 'la marca del lint lento');
+  assert.equal(edit(root, file, { env }).out, null, 'dentro del plazo, silencio: no se vuelve a lanzar');
+  fs.writeFileSync(marca, JSON.stringify({ at: new Date(Date.now() - 11 * 60 * 1000).toISOString() }));
+  assert.match(ctx(edit(root, file, { env })), /se cortó/, 'pasado el plazo vuelve a intentar');
+});
+
+test('runTimed: devuelve el exit del comando, y al vencer el tope mata el árbol y vuelve enseguida', async () => {
+  const { runTimed } = require('../scripts/lib/exec.js');
+  const dir = h.tmp('timed');
+  const ok = await runTimed('node -e "console.log(1); process.exit(3)"', dir, 5000);
+  assert.deepEqual([ok.status, ok.timedOut, ok.out.trim()], [3, false, '1']);
+  const t0 = Date.now();
+  const slow = await runTimed('node -e "setTimeout(() => {}, 30000)"', dir, 300);
+  assert.equal(slow.timedOut, true);
+  assert.ok(Date.now() - t0 < 10000, `tardó ${Date.now() - t0} ms`);
+});

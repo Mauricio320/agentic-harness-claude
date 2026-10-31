@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.8.0, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.8.1, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -17,7 +17,7 @@ claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.0`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.1`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -154,6 +154,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 - **Errores en tiempo de ejecución.** Lo que solo se ve arrancando la app, como un error de inyección de dependencias, no lo detectan ni tsc ni jest.
 - **Las rondas de review.** La primera revisa todo en opus. Las siguientes revisan todo lo que cambió desde la anterior, archivos nuevos incluidos, en sonnet, y vuelven a revisar todo en opus si el cambio toca `riskPaths` o es más grande que lo que se revisó. Hay dos rondas de corrección como máximo: en el tope, el arnés se detiene y te lo reporta.
 - **El typecheck tras cada edición** solo corre si el manifiesto declara `commands.typecheckFast`. Si no, espera a verify.
+- **Un eslint con reglas type-checked** (la configuración por defecto de NestJS, con `projectService`) tarda minutos en lintear un solo archivo, porque compila el proyecto entero cada vez. El lint tras cada edición se corta a los 30 s, te lo dice una vez y no se repite en ese repo por 10 minutos; el lint entero lo corre verify, y ahí tarda lo que tarde. init te avisa «lint lento» al adoptar un repo así. Si quieres el lint rápido tras cada edición, el repo necesita una configuración de eslint sin reglas type-checked.
 - **Los worktrees** nacen con `node_modules` enlazado al del checkout principal y con sus propias copias de `.env`, con los puertos desplazados (10 el primero, 20 el segundo), y te dicen el mapa: `api 3003 → 3013, front 3000 → 3010`.
   - Para probar la app, pídelo: "inicia la app". El arnés la levanta desde el worktree con sus puertos puestos en el entorno del proceso, que ganan a cualquier `.env` (también al del principal que carga Prisma por el enlace), y te dice dónde mirar su salida. Para pararla, "para la app"; y si pides borrar lo creado o sales del worktree con "remove", el arnés la para antes. Solo para lo que levantó él.
   - Si el issue regenera algo dentro de `node_modules`, como un cambio de `prisma/schema.prisma`, ábrelo con `--no-link`, que instala adentro. Borra el worktree solo con integrate o close, que quitan el enlace primero.

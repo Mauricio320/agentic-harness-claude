@@ -28,16 +28,22 @@ function deny(reason) {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
 
-// main(input) devuelve el objeto a escribir, o null para salir sin decir nada.
+// main(input) devuelve el objeto a escribir, o null para salir sin decir nada; también puede
+// devolver una promesa de eso (un hook que corre un comando con tope de tiempo, como after-edit).
 function run(name, main) {
   const fail = (e) => {
     process.stderr.write(`arnes ${name}: error interno, el hook no actúa: ${e && e.stack ? e.stack : e}\n`);
     process.exit(0);
   };
+  const out = (r) => {
+    emit(r);
+    process.exit(0);
+  };
   process.on('uncaughtException', fail);
   try {
-    emit(main(readInput()));
-    process.exit(0);
+    const r = main(readInput());
+    if (r && typeof r.then === 'function') r.then(out, fail);
+    else out(r);
   } catch (e) {
     fail(e);
   }

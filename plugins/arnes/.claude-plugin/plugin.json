@@ -1,6 +1,6 @@
 {
   "name": "arnes",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Flujo plan → build → verify → review → ship en cualquier proyecto, con verificación determinista y revisión humana en zonas de riesgo.",
   "author": { "name": "Mauricio Triana" }
 }

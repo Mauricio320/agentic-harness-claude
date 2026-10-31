@@ -2,6 +2,18 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.1] - 2026-10-31
+
+El lint tras cada edición con tope (`docs/PLAN.md` §6.2). Medido en renova365/api: un eslint con reglas type-checked (`recommendedTypeChecked` con `projectService`, la configuración por defecto de NestJS) tarda 163 s y 180 s en lintear un solo archivo, porque compila el monorepo entero en cada corrida, y el hook after-edit tiene 120 s: cada Edit o Write colgaba dos minutos y el resultado nunca llegaba. Los hooks en sí cuestan poco en ese repo: 72 ms read-guard, 113 ms guard y 258 ms plan-guard por llamada. Probada con Claude Code 2.1.316 y Node 24 con `claude plugin validate --strict` y `node --test`.
+
+### Agregado
+- `lib/exec.js runTimed` y `runTimedExpanded`: un comando con tope de tiempo que al vencer mata el árbol de procesos entero (`taskkill /T` en Windows, el grupo de procesos en el resto), no solo el shell.
+- init avisa «lint lento» cuando la configuración de eslint del repo tiene reglas type-checked (`projectService`, `parserOptions.project`, `recommendedTypeChecked`…).
+
+### Cambiado
+- after-edit corre el lint del archivo editado con un tope de 30 s. Al vencer lo corta, dice una vez que el lint de ese repo queda para la verificación, y en ese workspace no vuelve a intentarlo durante 10 minutos (`.tmp/harness/after-edit/<ws>.lint-lento.json`). `ARNES_LINT_TIMEOUT_MS` acorta el tope en los tests.
+- `lib/hook.js run` acepta un hook que devuelve una promesa.
+
 ## [0.8.0] - 2026-10-31
 
 Flujo liviano (`docs/PLAN.md` §6.2, ronda de flujo liviano): menos paradas, con la misma calidad. Por los datos de uso real del 26 al 31 de octubre: en renova365, unos diez mensajes de la persona por issue y más espera de la persona que trabajo del agente; en academico, una revisión que se llevaba un tercio del costo con bloqueantes casi todos de patrón. Rama `feature/flujo-liviano`, desde la 0.7.5, probada con Claude Code 2.1.316 y Node 24 con `claude plugin validate --strict`, `node --test` (512 tests) y `claude plugin test` de los dos mods.

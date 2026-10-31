@@ -2,7 +2,7 @@
 // git, comandos del manifiesto y ayudas de CLI. Los comandos corren con shell: cmd.exe en
 // Windows y sh en el resto, así que funcionan igual desde PowerShell, Git Bash y CI.
 
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -77,6 +77,54 @@ function runExpanded(cmd, cwd, lists) {
   return { status, out, ran: cmds.length };
 }
 
+// Como sh, con tope de tiempo. Al vencer mata el árbol de procesos entero, no solo el shell: en
+// Windows el cmd.exe que abre shell: true no muere con sus hijos (taskkill /T), y en el resto el hijo
+// nace en su propio grupo de procesos (detached) y se mata el grupo. → Promise { status, out, timedOut }
+function runTimed(cmd, cwd, timeoutMs, env) {
+  return new Promise((resolve) => {
+    const win = process.platform === 'win32';
+    let out = '';
+    let done = false;
+    const p = spawn(cmd, { cwd, shell: true, windowsHide: true, detached: !win, env: env || process.env });
+    const finish = (status, timedOut) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ status, out, timedOut });
+    };
+    const timer = setTimeout(() => {
+      try {
+        if (win) spawnSync('taskkill', ['/T', '/F', '/PID', String(p.pid)], { windowsHide: true });
+        else process.kill(-p.pid, 'SIGKILL');
+      } catch {
+        /* ya había terminado */
+      }
+      finish(-1, true);
+    }, timeoutMs);
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (out += d));
+    p.on('error', (e) => {
+      out += `${e.message}\n`;
+      finish(-1, false);
+    });
+    p.on('close', (code) => finish(code == null ? -1 : code, false));
+  });
+}
+
+// Como runExpanded, con el tope de runTimed sobre cada trozo; al primero que vence, para.
+async function runTimedExpanded(cmd, cwd, lists, timeoutMs) {
+  const cmds = expand(cmd, lists);
+  let status = 0;
+  let out = '';
+  for (const c of cmds) {
+    const r = await runTimed(c, cwd, timeoutMs);
+    out += r.out;
+    if (r.timedOut) return { status: -1, out, ran: cmds.length, timedOut: true };
+    if (r.status !== 0 && status === 0) status = r.status;
+  }
+  return { status, out, ran: cmds.length, timedOut: false };
+}
+
 // --help imprime el bloque de comentarios de la cabecera del script: una sola fuente para el uso
 // y los exit codes.
 function help(file) {
@@ -103,4 +151,4 @@ function onPath(tool) {
   return (process.env.PATH || '').split(path.delimiter).some((dir) => dir && exts.some((e) => fs.existsSync(path.join(dir, tool + e))));
 }
 
-module.exports = { MAX_LINE, git, lines, firstLine, quote, expand, sh, runExpanded, help, die, tail, onPath };
+module.exports = { MAX_LINE, git, lines, firstLine, quote, expand, sh, runExpanded, runTimed, runTimedExpanded, help, die, tail, onPath };

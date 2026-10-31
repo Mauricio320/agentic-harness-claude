@@ -12,6 +12,13 @@
 // workspace, el workspace no es adoptable, el archivo no cae en codeGlobs o ya no existe, o el
 // lint pasa sin hallazgos. Un comando lint sin {files} lintea el workspace entero: no se corre; un
 // archivo fuera del alcance de lint del repo (lintGlobs) tampoco.
+// El lint de un archivo tiene tope (LINT_TIMEOUT_MS): un eslint con reglas type-checked (la
+// configuración por defecto de NestJS: recommendedTypeChecked con projectService) compila el proyecto
+// entero en cada corrida, tres minutos por archivo en un monorepo, medido en renova365/api, y el hook
+// entero tiene 120 s. Al vencer se mata el árbol de procesos (lib/exec.js runTimed), se dice una vez
+// que queda para la verificación, y en ese workspace no se vuelve a intentar durante LINT_BACKOFF_MS
+// (la marca .tmp/harness/after-edit/<ws>.lint-lento.json). ARNES_LINT_TIMEOUT_MS acorta el tope en
+// los tests.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -21,18 +28,39 @@ const path = require('path');
 const { run, context } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { runExpanded, tail } = require('../lib/exec.js');
+const { runTimedExpanded, tail } = require('../lib/exec.js');
 const tb = require('../typecheck-baseline.js');
 const { splitLint } = require('../lib/lint.js');
 
 const DEBOUNCE_MS = 20 * 1000;
 const RESCUE_MS = 60 * 1000;
 const MAX_CHARS = 4000;
+const LINT_TIMEOUT_MS = Number(process.env.ARNES_LINT_TIMEOUT_MS) || 30 * 1000;
+const LINT_BACKOFF_MS = 10 * 60 * 1000;
 
-function lint(ws, rel) {
+const slowMark = (project, ws) => path.join(harnessDir(project), 'after-edit', `${ws.name}.lint-lento.json`);
+
+function lintBackedOff(project, ws, now) {
+  try {
+    return now - Date.parse(JSON.parse(fs.readFileSync(slowMark(project, ws), 'utf8')).at) < LINT_BACKOFF_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function lint(project, ws, rel, now) {
   const cmd = ws.commands.lint;
-  if (!cmd || !cmd.includes('{files}') || !splitLint(ws, [rel]).inside.length) return null;
-  const r = runExpanded(cmd, ws.dir, { files: [rel] });
+  if (!cmd || !cmd.includes('{files}') || !splitLint(ws, [rel]).inside.length || lintBackedOff(project, ws, now)) return null;
+  const r = await runTimedExpanded(cmd, ws.dir, { files: [rel] }, LINT_TIMEOUT_MS);
+  if (r.timedOut) {
+    const file = slowMark(project, ws);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ at: new Date(now).toISOString() }));
+    return (
+      `lint de ${rel} en ${ws.name}: tardó más de ${Math.round(LINT_TIMEOUT_MS / 1000)} s y se cortó. El lint de este repo es lento para un archivo suelto ` +
+      `(compila el proyecto entero en cada corrida); queda para la verificación, y en ${ws.name} no se vuelve a intentar tras cada edición durante ${Math.round(LINT_BACKOFF_MS / 60000)} minutos.`
+    );
+  }
   if (r.status === 0) return null;
   return `lint de ${rel} en ${ws.name} (exit ${r.status}):\n${tail(r.out, 40)}`;
 }
@@ -86,7 +114,7 @@ function rescue(project, cwd, now) {
   }
 }
 
-function afterEdit(input, now = Date.now()) {
+async function afterEdit(input, now = Date.now()) {
   const filePath = input.tool_input && (input.tool_input.file_path || input.tool_input.path);
   if (!filePath) return null;
   const cwd = path.resolve(input.cwd || process.cwd());
@@ -96,14 +124,14 @@ function afterEdit(input, now = Date.now()) {
   const hit = resolveWorkspace(project, path.resolve(cwd, filePath));
   if (!hit || !hit.ws.adoptable || !matchAny(hit.ws.codeGlobs, hit.rel)) return null;
   if (!fs.existsSync(path.join(hit.ws.dir, hit.rel))) return null;
-  const parts = [lint(hit.ws, hit.rel), typecheckFast(project, hit.ws, hit.rel, now)].filter(Boolean);
+  const parts = [await lint(project, hit.ws, hit.rel, now), typecheckFast(project, hit.ws, hit.rel, now)].filter(Boolean);
   if (!parts.length) return null;
   const text = `arnes · ${parts.join('\n\n')}`;
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS)}\n[… recortado]` : text;
 }
 
-module.exports = { DEBOUNCE_MS, RESCUE_MS, afterEdit };
+module.exports = { DEBOUNCE_MS, RESCUE_MS, LINT_TIMEOUT_MS, LINT_BACKOFF_MS, afterEdit };
 
 if (require.main === module) {
-  run('after-edit', (input) => context('PostToolUse', afterEdit(input)));
+  run('after-edit', (input) => afterEdit(input).then((text) => context('PostToolUse', text)));
 }

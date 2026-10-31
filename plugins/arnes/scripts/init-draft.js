@@ -87,6 +87,18 @@ const DISCARD = [
   }],
 ];
 const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc.yml', '.eslintrc.yaml'];
+// Un eslint con reglas type-checked compila el proyecto entero en cada corrida (minutos por archivo en
+// un monorepo): el lint tras cada edición se corta al tope de after-edit, y el cierre lo dice.
+const TYPED_ESLINT = /projectService|recommendedTypeChecked|strictTypeChecked|stylisticTypeChecked|parserOptions[\s\S]{0,160}\bproject\s*:/;
+
+function typedLint(dir) {
+  const f = ESLINT_CONFIGS.find((c) => fs.existsSync(path.join(dir, c)));
+  try {
+    return Boolean(f) && TYPED_ESLINT.test(fs.readFileSync(path.join(dir, f), 'utf8'));
+  } catch {
+    return false;
+  }
+}
 
 // Las convenciones mecánicas que se proponen a un repo de JavaScript o TypeScript (conventions.js):
 // lo que la ronda 1 de review marcaba una y otra vez, y que no necesita criterio.
@@ -376,7 +388,7 @@ function detectRepo(dir) {
     afterBuild: afterBuildDraft(pkg, pm, has('.env.example') ? fs.readFileSync(path.join(dir, '.env.example'), 'utf8') : '') || undefined,
   };
   for (const k of Object.keys(ws)) if (ws[k] === undefined) delete ws[k];
-  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] }, risk, lintFrom: scope && scope.from };
+  return { adoptable: true, manifest: { version: 1, name, workspaces: [ws] }, risk, lintFrom: scope && scope.from, lintTyped: Boolean(commands.lint) && typedLint(dir) };
 }
 
 function riskNotes(name, risk) {
@@ -406,7 +418,7 @@ function draft(root) {
     const r = detectRepo(root);
     if (!r.adoptable) return { error: `${path.basename(root)}: ${r.reason}; no hay manifiesto que generar` };
     where(root, path.basename(root));
-    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom });
+    drafts.push({ file: path.join(root, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom, lintTyped: r.lintTyped });
   } else {
     const repos = [];
     const sides = [];
@@ -421,7 +433,7 @@ function draft(root) {
       const entry = { path: rel, remote: remote.status === 0 ? cloneUrl(remote.stdout) || undefined : undefined, branch: compositionBranch(dir), contract };
       for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
       repos.push(entry);
-      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom });
+      if (r.adoptable) drafts.push({ file: path.join(dir, MANIFEST), data: r.manifest, risk: r.risk, lintFrom: r.lintFrom, lintTyped: r.lintTyped });
       else notes.push(`no adoptable  ${rel}: ${r.reason}; entra en la composición sin manifiesto propio`);
     }
     drafts.push({ file: path.join(root, MANIFEST), data: { version: 1, name: kebab(path.basename(root)), repos, integration: INTEGRATION } });
@@ -438,6 +450,7 @@ function draft(root) {
       if (ws.afterBuild) notes.push(`propuesto     ${ws.name}: afterBuild corre ${ws.afterBuild.commands.join(', ')} al cerrar build, solo si ${ws.afterBuild.onlyIfLocalDb.env} cumple ${ws.afterBuild.onlyIfLocalDb.pattern}`);
       if (!ws.commands.lint) notes.push(`sin lint      ${ws.name}: no hay eslint configurado; no se inventa`);
       else if (ws.lintGlobs) notes.push(`lint          ${ws.name}: acotado a ${ws.lintGlobs.map(code).join(', ')}, de ${d.lintFrom}; un tocado fuera de ahí no se lintea, como en el repo`);
+      if (ws.commands.lint && d.lintTyped) notes.push(`lint lento    ${ws.name}: eslint con reglas type-checked, que compilan el proyecto entero en cada corrida; el lint de un archivo tras cada edición se corta a los 30 s y queda para la verificación`);
       if (ws.commands.test && !ws.commands.test.includes('{specs}')) notes.push(`suite entera  ${ws.name}: el test no filtra por spec`);
     }
   }

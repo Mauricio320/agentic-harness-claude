@@ -427,3 +427,20 @@ test('el guard frena npm run migration:run cuando init lo dejó en forbidden', (
   assert.ok(denied(guard('pnpm migration:run')));
   assert.ok(!denied(guard('npm run build')));
 });
+
+test('un eslint con reglas type-checked (la configuración por defecto de NestJS) se avisa como lint lento; uno plano, no', () => {
+  const nest = h.tmp('init-typed');
+  h.repo(nest, {
+    'package.json': pkg({ '@nestjs/core': '1', typescript: '5', jest: '30', eslint: '9' }),
+    'tsconfig.json': '{}',
+    'eslint.config.mjs': "export default tseslint.config(...tseslint.configs.recommendedTypeChecked, { languageOptions: { parserOptions: { projectService: true } } });\n",
+    'src/a.ts': 'x',
+    'src/a.spec.ts': 'x',
+  });
+  const r = h.run('init-draft.js', [], { cwd: nest });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /^lint lento +arnes-init-typed-\S+: eslint con reglas type-checked, que compilan el proyecto entero en cada corrida; el lint de un archivo tras cada edición se corta a los 30 s y queda para la verificación$/m);
+  const plain = h.tmp('init-plain');
+  h.repo(plain, { 'package.json': pkg({ typescript: '5', jest: '30', eslint: '9' }), 'tsconfig.json': '{}', 'eslint.config.mjs': 'export default [];', 'src/a.ts': 'x', 'src/a.spec.ts': 'x' });
+  assert.doesNotMatch(h.run('init-draft.js', [], { cwd: plain }).stderr, /lint lento/);
+});
