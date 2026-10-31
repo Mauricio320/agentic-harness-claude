@@ -88,7 +88,7 @@ const { parseArgs } = require('util');
 const { informe } = require('./informe.js');
 const I = require('./lib/issues.js');
 const entrega = require('./lib/entrega.js');
-const { baselinePath } = require('./test-baseline.js');
+const { baselinePath, knownPath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const { configRoot } = require('./lib/configuracion.js');
 const ledger = require('./worktree-ledger.js');
@@ -102,9 +102,18 @@ const CONFIG_OUT = 'la configuración del proyecto se queda fuera del commit; la
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
+// Lo que el arnés deja en un repo y no es del issue: su configuración, el .worktreeinclude, la línea
+// base y las fallas conocidas, más lo que nunca entra a un commit (.env, logs).
+function harnessFile(ws, f) {
+  const rel = (p) => posix(path.relative(ws.dir, p));
+  return isConfig(ws, f) || f === '.worktreeinclude' || f === rel(baselinePath(ws)) || f === rel(knownPath(ws)) || suspicious(f);
+}
+
 // Workspaces adoptables con tocados, en orden de commit: proveen contrato (back) → sin contrato →
-// lo consumen (front). Dentro de cada grupo, el orden del manifiesto.
-function shipping(project) {
+// lo consumen (front). Dentro de cada grupo, el orden del manifiesto. Un workspace cuyos cambios son
+// todos del arnés no se entrega: va a `left`, si se pasa, con sus archivos, porque los commitea la
+// persona; antes se colaba en ship, pedía verificarse y revisarse, y el stage fallaba sin nada que commitear.
+function shipping(project, left = null) {
   const rank = (ws) => (ws.contract && ws.contract.provides ? 0 : ws.contract && ws.contract.consumes ? 2 : 1);
   const out = [];
   for (const ws of project.workspaces.filter((w) => w.adoptable)) {
@@ -112,7 +121,12 @@ function shipping(project) {
     if (t.error) die(`ship: ${t.error}`);
     const d = deleted(ws, 'HEAD');
     if (d.error) die(`ship: ${d.error}`);
-    if (t.files.length || d.files.length) out.push({ ws, files: t.files, gone: d.files });
+    const all = [...t.files, ...d.files];
+    if (all.length && all.every((f) => harnessFile(ws, f))) {
+      if (left) left.push({ ws, files: all });
+      continue;
+    }
+    if (all.length) out.push({ ws, files: t.files, gone: d.files });
   }
   return out.map((x, i) => ({ ...x, i })).sort((a, b) => rank(a.ws) - rank(b.ws) || a.i - b.i);
 }
@@ -170,7 +184,9 @@ function reviewedBy(project) {
 }
 
 function check(project) {
-  const list = shipping(project);
+  const left = [];
+  const list = shipping(project, left);
+  for (const x of left) console.log(`- ${x.ws.name} no entra: solo cambió configuración o archivos del arnés (${x.files.join(', ')}); los commitea la persona si los quiere`);
   if (!list.length) {
     const up = unpushed(project);
     const toMerge = mergeMode(project) === 'local' ? up.filter((x) => (unmerged(x.ws.gitRoot, x.branch, [defaultOf(x.ws)]) || []).length) : [];
@@ -184,7 +200,8 @@ function check(project) {
     else console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
     return 0;
   }
-  const reviews = new Map(checkReview(project).map((r) => [r.ws, r]));
+  // La revisión que cuenta es la de lo que se entrega: un repo que quedó fuera no la pide.
+  const reviews = new Map(checkReview(project).filter((r) => list.some((x) => x.ws.name === r.ws)).map((r) => [r.ws, r]));
   const fix = [];
   const stops = [];
   const local = mergeMode(project) === 'local';

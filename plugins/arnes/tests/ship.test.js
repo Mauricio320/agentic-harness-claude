@@ -214,6 +214,28 @@ test('check avisa cuando ningún workspace declara contract: el orden es el del 
   assert.doesNotMatch(ship(folder().root, ['check']).stdout, /aviso: ningún workspace declara contract/);
 });
 
+test('check: un repo con solo configuración o archivos del arnés sin commitear no entra, ni pide verificarse ni revisarse', () => {
+  const { root, front, api } = folder();
+  h.git(front, 'checkout', '-q', '--', 'src/a.ts');
+  fs.appendFileSync(path.join(front, '.claude/harness.json'), '\n');
+  h.write(front, '.worktreeinclude', '.env\n');
+  h.write(front, 'tests/baseline.json', '{}\n');
+  h.write(front, 'tests/known-failures.txt', '\n');
+  h.write(front, '.env', 'X=1\n');
+  assert.equal(h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: root }).status, 0);
+  reviewed(root, 0);
+  const r = ship(root, ['check']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /- front no entra: solo cambió configuración o archivos del arnés \(\.claude\/harness\.json, \.env, \.worktreeinclude, tests\/baseline\.json, tests\/known-failures\.txt\); los commitea la persona si los quiere/);
+  assert.match(r.stdout, /ship · carpeta · 1 workspace\(s\) con cambios/);
+  assert.match(r.stdout, /orden de commit: api\n/);
+  assert.match(r.stdout, /resultado: LISTO$/m);
+  fs.appendFileSync(path.join(front, '.claude/harness.json'), ' \n');
+  assert.match(ship(root, ['check']).stdout, /resultado: LISTO$/m, 'la configuración que cambió después de revisar no pide otra revisión');
+  h.write(front, 'src/nuevo.ts', 'código\n');
+  assert.match(ship(root, ['check']).stdout, /verificar front/, 'con código, vuelve a entrar');
+});
+
 test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => {
   const dir = h.tmp('ship-limpio');
   h.repo(dir, { '.claude/harness.json': h.repoManifest('api') });
