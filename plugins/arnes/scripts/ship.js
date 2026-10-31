@@ -656,6 +656,7 @@ function deliverCommit(project, say) {
   for (const [name, b] of Object.entries(bodies)) addToReport(d.informe, `MR de ${name}: ${b.title}`, b.body);
   say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
   for (const l of unconfirmed(readPlan(project))) say(`aviso: el dev decidió algo que el plan no decía y nadie confirmó: ${l.replace(DEV, '').trim()}`);
+  for (const l of (readJsonFile(path.join(harnessDir(project), 'review.json')) || {}).defectos || []) say(`aviso: la revisión vio un posible defecto de lógica, que no bloquea: ${l}`);
   say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba); con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
   return 0;
 }
@@ -686,6 +687,7 @@ function mrBodies(project, d, msgs, links) {
         '',
         '## Revisión',
         `Revisión del arnés sin bloqueantes${rv.round ? ` (ronda ${rv.round}, ${rv.mode || 'completa'})` : ''}.`,
+        ...((rv.defectos || []).length ? ['', '## Posibles defectos de lógica, para mirar', ...rv.defectos.map((l) => `- ${l}`)] : []),
         ...(others.length ? ['', '## En los otros repos', ...others] : []),
       ].join('\n'),
     };

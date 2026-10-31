@@ -47,7 +47,7 @@ Dentro de un issue en curso (`.tmp/harness/plan.md` con `Aprobado:`) no te deten
 
 Lo que lee la persona (docs/PLAN.md §2), sin nombres de scripts, códigos de salida, hashes ni rutas del plugin:
 - **Riesgo:** si `round` imprimió `REVISIÓN HUMANA OBLIGATORIA` en algún workspace, esa es la primera línea, con las rutas.
-- **Los bloqueantes, en el chat y textuales:** la persona tiene que verlos. Cópialos del reporte del reviewer en su orden, cada uno con su archivo, su línea, su regla y cómo arreglarlo, sin suavizarlos ni reescribirlos.
+- **Los bloqueantes, en el chat y textuales:** la persona tiene que verlos. Cópialos del reporte del reviewer en su orden, cada uno con su archivo, su línea, su regla y cómo arreglarlo, sin suavizarlos ni reescribirlos. Los posibles defectos de lógica no se corrigen solos: ship se los muestra a la persona antes del push; si te cargó la persona, cópialos también.
 - **Una línea** con cuántos bloqueantes y sugerencias hubo y en qué ronda, y lo que sigue: la corrección, o `Listo para /arnes:ship`.
 - **El detalle ya está en el informe:** `round --marca` deja ahí el reporte entero, con las sugerencias, el cumplimiento de criterios y, en una ronda acotada, el estado de los bloqueantes anteriores, y dice su ruta en la línea `informe:` (la carpeta de `node "S/informe.js" path review`). En el chat, una línea con esa ruta.
 - **La frase** "Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio." va al final solo si la marca dijo `frase: dila`. La revisión tampoco certifica el negocio: busca lo que está en la lista cerrada.

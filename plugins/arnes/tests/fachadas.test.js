@@ -306,7 +306,7 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.equal(events(dir).pop(), 'end ship ok');
 });
 
-test('las desviaciones del dev sin confirmar llegan al reviewer, a la pregunta del push y al cuerpo del MR', () => {
+test('las desviaciones del dev y los posibles defectos de lógica llegan a la pregunta del push y al cuerpo del MR', () => {
   const { dir } = shippable();
   const plan = path.join(dir, '.tmp/harness/plan.md');
   fs.appendFileSync(plan, '\n## Decisiones\n- La plataforma viaja en ?plataforma= porque el Draft no trae platformId (del dev, sin confirmar)\n- Vigencia de la prueba: lo elegió la persona\n');
@@ -314,15 +314,18 @@ test('las desviaciones del dev sin confirmar llegan al reviewer, a la pregunta d
   const inp = fs.readFileSync(path.join(dir, '.tmp/harness/review/input.md'), 'utf8');
   assert.match(inp, /Desviaciones que declaró el dev y la persona todavía no confirmó: júzgalas como decisiones del plan[\s\S]*\n- La plataforma viaja en \?plataforma= porque el Draft no trae platformId \(del dev, sin confirmar\)/);
   assert.doesNotMatch(inp, /- Vigencia de la prueba/, 'solo las del dev sin confirmar');
-  h.write(dir, '.tmp/harness/review/report.md', 'BLOQUEANTES: 0\n');
-  assert.equal(run(dir, 'review.js', ['mark', '--clean']).status, 0);
+  h.write(dir, '.tmp/harness/review/report.md', '### Resumen\nsin bloqueantes\n\n### Posibles defectos de lógica\n- `api/src/a.ts:2` · una respuesta 302 → cuenta como aprobada (esperado: rechazada)\n\nBLOQUEANTES: 0\n');
+  assert.equal(run(dir, 'review.js', ['mark', '--blockers', '0']).status, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.tmp/harness/review.json'), 'utf8')).defectos, ['`api/src/a.ts:2` · una respuesta 302 → cuenta como aprobada (esperado: rechazada)']);
   assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
   h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
   const r = run(dir, 'ship.js', ['deliver', '--commit']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^aviso: el dev decidió algo que el plan no decía y nadie confirmó: La plataforma viaja en \?plataforma= porque el Draft no trae platformId$/m);
+  assert.match(r.stdout, /^aviso: la revisión vio un posible defecto de lógica, que no bloquea: `api\/src\/a\.ts:2` · una respuesta 302 → cuenta como aprobada/m);
   const informe = fs.readFileSync(/^informe: (\S+)$/m.exec(run(dir, 'ship.js', ['deliver', '--sin-push']).stdout)?.[1] || '', 'utf8');
   assert.match(informe, /## Decisiones del dev, por confirmar\n- La plataforma viaja en \?plataforma=/);
+  assert.match(informe, /## Posibles defectos de lógica, para mirar\n- `api\/src\/a\.ts:2`/);
 });
 
 test('ship.js deliver: lo que falta lo dice y para; un archivo cambiado después del stage no se commitea', () => {

@@ -444,6 +444,15 @@ function cleanReport(inp) {
   return [...(risk.length ? [`${RISK}: ${risk.join(', ')}`, ''] : []), '### Resumen', '0 bloqueantes: se puede entregar.', '', '### Hallazgos por archivo', 'Sin hallazgos.', '', 'BLOQUEANTES: 0', ''].join('\n');
 }
 
+// Los posibles defectos de lógica del reporte (su sección "### Posibles defectos de lógica"): no son
+// bloqueantes, pero ship los muestra a la persona antes del push y los pone en el MR. En academico, los
+// errores de lógica de verdad quedaban como sugerencias, mezclados con el estilo. Una ronda acotada
+// suma los suyos a los de antes. → [líneas, sin la viñeta]
+function defectsIn(report) {
+  const m = /^### Posibles defectos de l[oó]gica[^\n]*\n([\s\S]*?)(?=^###|^BLOQUEANTES:|(?![\s\S]))/m.exec(report);
+  return m ? m[1].split('\n').filter((l) => /^\s*[-*]\s+\S/.test(l)).map((l) => l.replace(/^\s*[-*]\s+/, '').trim()) : [];
+}
+
 function mark(project, blockers, clean = false) {
   const inp = readJson(path.join(reviewDir(project), 'input.json'));
   if (!inp) die('review: no hay input.json; corre review.js input antes de revisar');
@@ -462,7 +471,9 @@ function mark(project, blockers, clean = false) {
     }
   }
   const [round, mode] = [inp.round || 1, inp.mode || 'completa'];
-  fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces }, null, 2) + '\n');
+  const before = mode === 'acotada' ? (readJson(reviewFile(project)) || {}).defectos || [] : [];
+  const defectos = [...new Set([...before, ...defectsIn(fs.readFileSync(rep, 'utf8'))])];
+  fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces, ...(defectos.length ? { defectos } : {}) }, null, 2) + '\n');
   fs.renameSync(rep, roundReport(project, round));
   issues.record(project, { files: [roundReport(project, round), path.join(reviewDir(project), 'input.md')] });
   console.log(`revisión marcada en ${reviewFile(project)}: ${blockers} bloqueante(s) · ronda ${round} de ${MAX_ROUNDS}, ${mode}`);

@@ -93,8 +93,13 @@ REVISIÓN HUMANA OBLIGATORIA: <rutas>        ← solo si input.md lista riskPath
 ### Cumplimiento de criterios                ← en una ronda acotada, ### Bloqueantes anteriores
 - C1 <criterio>: ✅ `ruta:línea` | ⚠️ parcial: <qué falta> | ❌ no implementado
 
+### Posibles defectos de lógica              ← solo si viste alguno
+- `<workspace>/<ruta>:<línea>` · <con qué datos o en qué caso> → <qué pasa> (esperado: <qué debería pasar>)
+
 BLOQUEANTES: <n>
 ```
+
+Un posible defecto de lógica (un caso que el código resuelve mal: un 3xx contado como aprobado, un cambio que aplica a más de lo que debe) no es bloqueante si no cae en la lista cerrada, pero no va mezclado con las sugerencias: va en su sección, con el caso concreto, y la persona lo ve antes de subir. Sin un caso concreto que puedas señalar en una línea, no lo escribas.
 
 En los hallazgos por archivo:
 - **Orden:** primero los archivos con bloqueantes, y dentro de cada archivo los bloqueantes antes que las sugerencias.
