@@ -2,10 +2,13 @@
 // La entrada de un agente dev o test-writer (docs/PLAN.md §6.3, §6.4): lo que antes cada agente
 // juntaba leyendo el manifiesto, el CLAUDE.md, las reglas y el plan entero, armado antes por un
 // script para que el agente lea un solo archivo y vaya al código.
-//   input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...]
+//   input --ws <ws> [--para dev|test-writer] [--integracion] [--contrato <archivo>] [--files <ruta>...]
 //          escribe .tmp/harness/build/<ws>-input.md (o <ws>-test-writer-input.md) con:
 //          - la carpeta y los comandos del manifiesto, las riskPaths y los forbidden;
-//          - para el dev, el comando de convenciones si el workspace las declara;
+//          - el comando de convenciones si el workspace las declara, para el dev y para el
+//            test-writer, que lo corren sobre lo suyo antes de entregar;
+//          - con --integracion (solo test-writer), que el plan pide pruebas de integración, con sus
+//            líneas del plan: el test-writer las escribe como las de integración del repo;
 //          - para el test-writer, los archivos de --files, specPattern, la ruta del spec de cada uno y
 //            el contenido de cada archivo, hasta 400 líneas como el diff de review.js (uno más largo
 //            se nombra para leerlo aparte);
@@ -205,7 +208,10 @@ function claudeMd(ws) {
   return files.flatMap((f) => [`### ${posix(f)}`, '', withoutFrontmatter(fs.readFileSync(f, 'utf8')), '']);
 }
 
-function input(project, wsName, { para = 'dev', contrato, files } = {}) {
+// Una línea del plan que pide pruebas de integración.
+const INTEGRATION = /integraci[oó]n|\bIT\b|\be2e\b|end-to-end/i;
+
+function input(project, wsName, { para = 'dev', contrato, files, integracion = false } = {}) {
   const [ws] = selectWorkspaces(project, [wsName]);
   if (!ws.adoptable) die(`build: ${ws.name} no es adoptable (sin manifiesto propio)`);
   const planFile = path.join(harnessDir(project), 'plan.md');
@@ -230,7 +236,7 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
     '## Comandos del manifiesto',
     '',
     ...['typecheck', 'typecheckFast', 'lint', 'test'].filter((k) => c[k]).map((k) => `- ${k}: ${list(c[k]).map((x) => `\`${x}\``).join(', ')}`),
-    ...(!tests && ws.conventions && ws.conventions.length ? [`- convenciones, antes de entregar: \`node "${scripts}/conventions.js" --ws ${ws.name} <tus archivos>\`, desde ${project.root}`] : []),
+    ...(ws.conventions && ws.conventions.length ? [`- convenciones, antes de entregar: \`node "${scripts}/conventions.js" --ws ${ws.name} <tus archivos>\`, desde ${project.root}`] : []),
     '',
     `riskPaths: ${ws.riskPaths && ws.riskPaths.length ? ws.riskPaths.join(', ') : 'ninguna declarada'}`,
     '',
@@ -239,6 +245,10 @@ function input(project, wsName, { para = 'dev', contrato, files } = {}) {
   ];
   if (tests) {
     out.push(`## Archivos para spec`, '', `specPattern: ${list(ws.specPattern).join(', ') || 'no declarado'}`, ...targets.map((f, i) => `- ${f} → ${specs[i] || '(sin specPattern)'}`), '');
+    if (integracion) {
+      const asked = plan.split(/\r?\n/).filter((l) => INTEGRATION.test(l)).map((l) => l.trim());
+      out.push('## Pruebas de integración', '', 'El plan pide pruebas de integración para estos archivos, no specs unitarios. Escríbelas como las de integración que ya tiene el repo (búscalas por su nombre: *IT.java, *.it.spec.*, *.e2e-spec.*, test/integration/…), en su carpeta y con su forma. Si el repo no tiene ninguna, dilo en el reporte y no inventes la infraestructura.', '', ...(asked.length ? ['Lo que dice el plan:', ...asked.map((l) => `> ${l}`)] : []), '');
+    }
     out.push('## El código de cada archivo', '', ...contents(ws, targets));
   } else {
     out.push('## CLAUDE.md del workspace', '', ...claudeMd(ws));
@@ -451,7 +461,7 @@ function main() {
   try {
     args = parseArgs({
       allowPositionals: true,
-      options: { ws: { type: 'string' }, para: { type: 'string' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, result: { type: 'string' }, worktree: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { ws: { type: 'string' }, para: { type: 'string' }, integracion: { type: 'boolean' }, contrato: { type: 'string' }, files: { type: 'string', multiple: true }, write: { type: 'boolean' }, dry: { type: 'boolean' }, result: { type: 'string' }, worktree: { type: 'string' }, help: { type: 'boolean', short: 'h' } },
     });
   } catch (e) {
     die(`build: ${e.message}`);
@@ -460,7 +470,7 @@ function main() {
   if (o.help) help(__filename);
   const [mode, ...rest] = args.positionals;
   const files = [...list(o.files), ...rest];
-  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--contrato <archivo>] [--files <ruta>...] | end --ws <ws> [--result ok|parcial|fail] [--worktree <ruta>] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
+  const usage = 'uso: build.js input --ws <ws> [--para dev|test-writer] [--integracion] [--contrato <archivo>] [--files <ruta>...] | end --ws <ws> [--result ok|parcial|fail] [--worktree <ruta>] | after --ws <ws> | deps --ws <ws> [--write] | app --ws <ws> [--dry] | app stop [--ws <ws>]';
   if (mode === 'app' && rest[0] === 'stop') {
     if (rest.length > 1 || list(o.files).length || o.para || o.contrato || o.write || o.dry) die(usage);
     process.exit(stop(requireProject(), o.ws));
@@ -487,7 +497,8 @@ function main() {
   if (mode !== 'input' || !o.ws || (o.para && !['dev', 'test-writer'].includes(o.para))) die(usage);
   if (o.para === 'test-writer' && !files.length) die('build: --para test-writer necesita --files con los archivos para spec');
   if (o.para !== 'test-writer' && files.length) die('build: --files solo va con --para test-writer');
-  process.exit(input(requireProject(), o.ws, { para: o.para, contrato: o.contrato, files }));
+  if (o.integracion && o.para !== 'test-writer') die('build: --integracion solo va con --para test-writer');
+  process.exit(input(requireProject(), o.ws, { para: o.para, contrato: o.contrato, files, integracion: o.integracion }));
 }
 
 if (require.main === module) main();

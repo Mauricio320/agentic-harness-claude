@@ -209,6 +209,17 @@ test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests c
   assert.match(r.stdout, /^tope: api lleva 3 verificaciones en rojo desde el último mensaje de la persona; para, dile qué sigue fallando/m);
 });
 
+test('verify.js run --integracion arma la entrada de integración del test-writer con el código tocado, sin los specs', () => {
+  const { dir } = approved();
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
+  fs.appendFileSync(path.join(dir, 'src/a.spec.ts'), 'pass|A|otra\n');
+  const r = run(dir, 'verify.js', ['run', '--integracion']);
+  assert.equal(r.status, 3, r.stdout + r.stderr);
+  assert.match(r.stdout, /^test-writer: api · pruebas de integración para 1 archivo\(s\) \(src\/a\.ts\) · carpeta \S+ · entrada \S+\/build\/api-test-writer-input\.md$/m);
+  assert.match(fs.readFileSync(path.join(dir, '.tmp/harness/build/api-test-writer-input.md'), 'utf8'), /## Pruebas de integración/);
+  assert.equal(run(dir, 'verify.js', ['run', '--integracion', '--tras-tests']).status, 2);
+});
+
 test('verify.js run con un spec renombrado: verde, la base pasa al nombre nuevo y la bandera la cubre', () => {
   const { dir } = approved();
   assert.equal(run(dir, 'test-baseline.js', ['capture', 'api']).status, 0);

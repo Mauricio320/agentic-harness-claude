@@ -15,7 +15,12 @@
 //     ruta del informe, si toca decir la frase del verde y la lista de tareas de la corrida.
 //     Un workspace que ya quedó verde con este mismo contenido no se vuelve a correr (fresh): al
 //     corregir el rojo de otro, verify repetía el gate y el test-writer de todos.
-// Uso: node verify.js run [--base <commit>] [--tras-tests]
+//   run --integracion
+//     el plan pide pruebas de integración que el test-writer no escribió: arma su entrada de
+//     integración (build.js input --integracion) con el código tocado de cada workspace, fuera de sus
+//     specs, y sale con 3 con una línea test-writer: por cada una; la skill lo lanza y vuelve con
+//     --tras-tests
+// Uso: node verify.js run [--base <commit>] [--tras-tests | --integracion]
 // Exit: 0 verde, o nada que verificar · 1 algún workspace en rojo · 3 falta escribir tests: lanza el
 //       test-writer de cada entrada y vuelve con --tras-tests · 2 uso inválido o sin manifiesto
 
@@ -30,7 +35,8 @@ const { git, help, die } = require('./lib/exec.js');
 const { checkFlag, flagPath } = require('./gate-flag.js');
 const { append, read, tasks, redStreak, RED_CAP } = require('./lib/timeline.js');
 const { touched } = require('./touched-files.js');
-const { missingSpecs } = require('./test-select.js');
+const { missingSpecs, patternRegExp } = require('./test-select.js');
+const { matchAny } = require('./lib/glob.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
 
@@ -67,7 +73,7 @@ function fresh(project, ws, base) {
   return Date.parse(flag.at) > Math.max(0, ...rules);
 }
 
-function run(project, base, afterTests) {
+function run(project, base, afterTests, integration = false) {
   if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
   const found = [];
   for (const ws of project.workspaces) {
@@ -90,6 +96,21 @@ function run(project, base, afterTests) {
   const adoptable = found.filter((x) => x.ws.adoptable);
   const kept = new Set(adoptable.filter((x) => fresh(project, x.ws, base)).map((x) => x.ws.name));
   const missing = new Map(adoptable.map(({ ws, files }) => [ws.name, missingSpecs(ws, files)]));
+  if (integration) {
+    const writers = [];
+    for (const { ws, files } of adoptable) {
+      const specs = [].concat(ws.specPattern || []).map(patternRegExp);
+      const code = files.filter((f) => matchAny(ws.codeGlobs, f) && !specs.some((re) => re.test(f)));
+      if (!code.length) continue;
+      const r = node('build.js', ['input', '--ws', ws.name, '--para', 'test-writer', '--integracion', '--files', ...code]);
+      if (r.status !== 0) die(`verify: no pude armar la entrada de integración de ${ws.name}:\n${r.out.trim()}`);
+      writers.push(`test-writer: ${ws.name} · pruebas de integración para ${code.length} archivo(s) (${code.join(', ')}) · carpeta ${posix(ws.dir)} · entrada ${posix(path.join(harnessDir(project), 'build', `${ws.name}-test-writer-input.md`))}`);
+    }
+    if (!writers.length) say('nada para pruebas de integración: ningún workspace tiene código tocado fuera de sus specs');
+    writers.forEach(say);
+    if (writers.length) say('siguiente: lanza un arnes:test-writer por cada entrada, con su carpeta y su entrada, y vuelve con verify.js run --tras-tests');
+    return writers.length ? 3 : 0;
+  }
   if (!afterTests) {
     const writers = [];
     for (const { ws } of adoptable) {
@@ -152,14 +173,14 @@ module.exports = { run };
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { base: { type: 'string', default: 'HEAD' }, 'tras-tests': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { base: { type: 'string', default: 'HEAD' }, 'tras-tests': { type: 'boolean' }, integracion: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`verify: ${e.message}`);
   }
   if (args.values.help) help(__filename);
   const [mode, extra] = args.positionals;
-  if (mode !== 'run' || extra || !args.values.base || args.values.base.startsWith('-')) die('uso: verify.js run [--base <commit>] [--tras-tests]');
-  process.exit(run(requireProject(), args.values.base, args.values['tras-tests']));
+  if (mode !== 'run' || extra || !args.values.base || args.values.base.startsWith('-') || (args.values.integracion && args.values['tras-tests'])) die('uso: verify.js run [--base <commit>] [--tras-tests | --integracion]');
+  process.exit(run(requireProject(), args.values.base, args.values['tras-tests'], args.values.integracion));
 }
 
 if (require.main === module) main();

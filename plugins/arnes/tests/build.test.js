@@ -130,7 +130,20 @@ test('input del test-writer: los archivos con la ruta de su spec y las reglas de
   assert.match(md, /^# Entrada de arnes:test-writer · api/);
   assert.match(md, /- src\/talleres\/talleres\.service\.ts → src\/talleres\/talleres\.service\.spec\.ts/);
   assert.match(md, /#### .*tests\.md · paths \*\*\/\*\.spec\.ts · aplica a src\/talleres\/talleres\.service\.spec\.ts\nEstándar de tests\./);
-  assert.doesNotMatch(md, /convenciones, antes de entregar/);
+  assert.match(md, /convenciones, antes de entregar: `node "\S+\/conventions\.js" --ws api <tus archivos>`/, 'el test-writer también corre las convenciones sobre sus specs');
+  assert.doesNotMatch(md, /## Pruebas de integración/);
+});
+
+test('input del test-writer con --integracion: dice que el plan las pide y trae sus líneas del plan', () => {
+  const root = folder();
+  h.write(root, '.tmp/harness/plan.md', '# Plan: talleres\n\n## Criterios de aceptación\n- C1 [literal] se crea un taller\n- C2 [inferido] una prueba de integración cubre el rollback del taller\n');
+  const r = build(root, ['input', '--ws', 'api', '--para', 'test-writer', '--integracion', '--files', 'src/talleres/talleres.service.ts']);
+  assert.equal(r.status, 0, r.stderr);
+  const md = read(root, 'api-test-writer-input.md');
+  assert.match(md, /## Pruebas de integración\n\nEl plan pide pruebas de integración para estos archivos, no specs unitarios\./);
+  assert.match(md, /Lo que dice el plan:\n> - C2 \[inferido\] una prueba de integración cubre el rollback del taller/);
+  assert.doesNotMatch(md, /> - C1/);
+  assert.equal(build(root, ['input', '--ws', 'api', '--integracion']).status, 2, '--integracion solo va con el test-writer');
 });
 
 test('input del test-writer trae el código de cada archivo hasta el tope; el del dev, el CLAUDE.md sin frontmatter', () => {

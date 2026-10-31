@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: Escribe specs unitarios solo para el código nuevo o cuyo comportamiento cambió que recibe, contra el estándar de tests del repo si existe. Lo lanza /arnes:verify cuando hay código nuevo sin spec. No toca código de producción.
+description: Escribe specs unitarios solo para el código nuevo o cuyo comportamiento cambió que recibe, contra el estándar de tests del repo si existe, o pruebas de integración si su entrada dice que el plan las pide. Lo lanza /arnes:verify cuando hay código nuevo sin spec, o cuando el plan pide pruebas de integración que faltan. No toca código de producción.
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: sonnet
 effort: medium
@@ -40,6 +40,12 @@ Corre cada spec una vez con el `test` de tu entrada, sustituyendo `{specs}` por 
 - **Falla por el test:** corrígelo.
 - **Falla por el código bajo test:** no toques el código. Deja el test que describe el comportamiento esperado y repórtalo como posible defecto.
 - **Tope:** dos intentos por spec. Si sigue en rojo, para y repórtalo.
+
+# Antes de entregar
+
+Lo que escribiste pasa por el mismo gate que el código: un spec que no compila o que rompe una convención pone el gate en rojo, y vuelve a ti.
+1. Corre el typecheck de tu entrada (`typecheckFast` si lo trae, si no `typecheck`) desde la carpeta del workspace y corrige los errores que estén en tus specs o en tus fixtures. Los que no son tuyos no los toques.
+2. Si tu entrada trae el comando de convenciones, córrelo sobre tus specs y corrige cada hallazgo, también en los tests: nada de `any`, comentarios ni `console.` si el repo no los admite.
 
 # Deuda que ves de paso
 
