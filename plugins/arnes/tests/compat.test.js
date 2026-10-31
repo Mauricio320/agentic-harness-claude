@@ -31,6 +31,8 @@ test('el CI instala la versión de compat.json y no fija ninguna a mano', () => 
   const ci = read('.gitlab-ci.yml');
   assert.match(ci, /require\('\.\/plugins\/arnes\/compat\.json'\)\.claudeCode/);
   assert.doesNotMatch(ci, /\b\d+\.\d+\.\d+\b/, 'una versión escrita a mano en el CI se desfasa de compat.json');
+  for (const m of ci.matchAll(/image: node:(\S+)/g)) assert.equal(m[1], String(tested.node), 'cada job corre en el Node de compat.json');
+  assert.ok(/image: node:/.test(ci), 'el CI declara su imagen de Node');
 });
 
 test('el README dice la versión probada donde la fija compat.json: la última fila de la matriz, que es la del plugin, y la frase de cierre', () => {
