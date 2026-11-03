@@ -48,7 +48,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`; abajo, `S`. Córrelos con 
    - **Si dice `worktree: <nombre>`**, llama a EnterWorktree con `name: "<nombre>"` (o con `path`, si check dijo que ya existe). Al entrar, el arnés trae el plan aprobado, en una carpeta trae cada repo en la rama del issue, la anota, y su aviso repite la lista de tareas; si el aviso no trae `rama:`, corre `approve` otra vez desde el worktree. Dile a la persona en una línea la ruta exacta del worktree, que trae el aviso, y que lo que va a mirar y probar es ese árbol, no la raíz. Si el aviso trae el comando de VS Code, ofréceselo siempre, en una línea aparte (`code -r "<ruta>"`), y repítelo al cerrar el turno. Si EnterWorktree no está o falla, dilo y corre `approve --en-checkout`.
    - **La lista de tareas:** si la sesión tiene TodoWrite, créala con la lista de `tareas:` (con TaskCreate, una tarea por elemento, con el mismo texto); si no, sigue sin ella. Las demás etapas la imprimen al día.
    - No escribas la línea `Rama:` a mano: la escribe el arnés. Di en una línea dónde quedó, y anota la elección en `## Decisiones`. Con la rama lista, si aprobó construir, sigue con la skill build.
-   - **Si pide cambios:** `node "S/plan-state.js" start --detail "ajuste"`, ajusta el plan y vuelve al paso 6.
+   - **Si pide cambios antes de aprobar:** `node "S/plan-state.js" start --detail "ajuste"`, ajusta el plan y vuelve al paso 6. Con el plan ya aprobado, un ajuste no pasa por aquí: lo dicen build y verify.
    - **Si lo descarta:** `node "S/lib/timeline.js" note plan --result cancelado`.
 
 Una decisión de arquitectura que salga del plan se guarda después con la skill memory, no aquí.

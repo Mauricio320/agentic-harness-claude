@@ -105,6 +105,15 @@ test('la revisión se paga una vez, en ship: build termina en verify, y verify n
   assert.match(read('ship'), /`revisar`: carga la skill review/);
 });
 
+test('un ajuste de la persona con el plan aprobado no reabre el plan: «pide cambios» es antes de aprobar, y build y verify dicen qué hacer después', () => {
+  const read = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+  assert.match(read('plan'), /\*\*Si pide cambios antes de aprobar:\*\* `node "S\/plan-state\.js" start --detail "ajuste"`/);
+  for (const s of ['build', 'verify']) {
+    assert.match(read(s), /\*\*Un ajuste que pide la persona con el plan aprobado\*\*, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state\.js start`/, s);
+    assert.match(read(s), /anótalo en `## Decisiones` de `\.tmp\/harness\/plan\.md` como ajuste de la persona, corrígelo y verifica\. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea/, s);
+  }
+});
+
 test('cada script que nombra una skill existe', () => {
   let named = 0;
   for (const s of skills) {

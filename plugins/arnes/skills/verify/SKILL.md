@@ -30,6 +30,8 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 Verify es el final de build: no cargues review. La revisión es el gasto grande (un reviewer en opus leyendo el diff), y se paga una vez, en `/arnes:ship`, sobre el diff completo antes de commitear. Cierra con `Listo para /arnes:ship`, y en una línea que si la persona quiere la revisión antes, la pide con `/arnes:review`. Si ship te cargó para verificar, sigue con lo que ship pida.
 
+**Un ajuste que pide la persona con el plan aprobado**, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state.js start`, que reabre el plan y le quita la aprobación: anótalo en `## Decisiones` de `.tmp/harness/plan.md` como ajuste de la persona, corrígelo y verifica. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea como siempre, con la skill plan.
+
 ## Reporte
 
 Lo que lee la persona (docs/PLAN.md §2) es poco, y sin nombres de scripts, códigos de salida, hashes ni rutas del plugin:
