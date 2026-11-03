@@ -467,7 +467,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       <p>Un <dfn>agente</dfn> (o <dfn>subagente</dfn>) es un ayudante que Claude llama para un trabajo puntual. Arranca con la memoria en blanco, recibe solo lo que Claude le pasa, hace su trabajo y devuelve un reporte. Cada uno tiene sus propias herramientas permitidas y su propio <dfn>modelo</dfn>, que es la versión de Claude que lo mueve: <strong>opus</strong> es la más capaz y la más cara, <strong>sonnet</strong> va en el medio y <strong>haiku</strong> es la más rápida y barata.</p>
       <div class="grid">
         <div class="card"><h4>dev <span class="badge b-ayudante">sonnet</span></h4><p>El que escribe el código de producción de un solo workspace. Recibe en su entrada las reglas del repo que aplican. No escribe tests.</p></div>
-        <div class="card"><h4>test-writer <span class="badge b-ayudante">sonnet</span></h4><p>El que solo sabe escribir tests, y solo para código nuevo o cambiado. No toca código de producción.</p></div>
+        <div class="card"><h4>test-writer <span class="badge b-ayudante">sonnet</span></h4><p>El que solo sabe escribir tests, y solo para código nuevo o cambiado. No toca código de producción. Antes de entregar corre sobre sus specs las mismas convenciones que el gate, hasta que salgan limpias.</p></div>
         <div class="card"><h4>reviewer <span class="badge b-ayudante">opus</span></h4><p>El revisor. Lee (Read, Grep, Glob) y solo escribe su reporte: no tiene terminal ni puede editar código. Trabaja con esfuerzo alto.</p></div>
       </div>
       <p>¿Por qué un modelo distinto por ayudante? Porque cada trabajo pide algo distinto: escribir un test contra un estándar no necesita al modelo más caro, y juzgar un cambio entero contra una lista de reglas sí lo agradece. Cada agente lleva su <code>model</code> y su <code>effort</code> escritos en su archivo. Y como cada uno tiene su propio contexto, el revisor juzga el árbol de archivos, no el relato de quien lo construyó.</p>
@@ -478,10 +478,10 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       <p>Estos son los momentos (<dfn>eventos</dfn>) de una sesión, en orden, y el guardia del arnés que Claude Code dispara en cada uno según <code>hooks/hooks.json</code>. Son ocho guardias en seis eventos: <code>PreToolUse</code> tiene tres, uno por tipo de herramienta.</p>
       <div class="turn">
         <div class="ev"><code>SessionStart</code><div>Cuando abres la sesión (o después de un <code>/clear</code>), antes de que escribas nada.<br><span class="badge b-script">session-start.js</span> Lee el manifiesto y le inyecta a Claude el estado del proyecto y el protocolo del arnés. Además escribe el candado de la sesión.</div></div>
-        <div class="ev"><code>UserPromptSubmit</code><div>Cada vez que mandas un mensaje, antes de que Claude lo lea.<br><span class="badge b-script">prompt-context.js</span> Adjunta una línea por workspace con lo tocado, si la bandera está vigente y si se tocó una zona de riesgo. También saca la foto del turno. Nunca bloquea.</div></div>
+        <div class="ev"><code>UserPromptSubmit</code><div>Cada vez que mandas un mensaje, antes de que Claude lo lea.<br><span class="badge b-script">prompt-context.js</span> Adjunta una línea por workspace con lo tocado, si la bandera está vigente y si se tocó una zona de riesgo, salvo en una sesión que no es dueña del plan en curso: ese estado es de la otra. También saca la foto del turno. Nunca bloquea.</div></div>
         <div class="ev"><code>PreToolUse</code><div>Justo antes de que Claude use una herramienta. Aquí se puede negar.<br><span class="badge b-script">guard.js</span> Antes de cada comando de Bash o PowerShell: niega git destructivo, leer secretos con <code>cat</code> y compañía, lo que el manifiesto marca como <code>forbidden</code> y un <code>git commit</code> sin bandera.<br><span class="badge b-script">read-guard.js</span> Antes de Read, Glob o Grep: niega abrir o buscar en archivos de secretos.<br><span class="badge b-script">worktree-remove.js</span> Antes de ExitWorktree: niega borrar un worktree con commits sin integrar.</div></div>
         <div class="ev"><code>PostToolUse</code><div>Justo después de que la herramienta terminó.<br><span class="badge b-script">after-edit.js</span> Después de cada Edit o Write: pasa el lint por el archivo editado y le devuelve a Claude lo que encontró. Nunca bloquea.</div></div>
-        <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".<br><span class="badge b-script">stop-gate.js</span> Bloquea una vez por turno si quedó código sin verificar o worktrees con commits sin integrar.</div></div>
+        <div class="ev"><code>Stop</code><div>Cuando Claude quiere terminar su respuesta y devolverte el turno. Aquí se le puede decir "todavía no".<br><span class="badge b-script">stop-gate.js</span> Bloquea una vez por turno si quedó código sin verificar o worktrees con commits sin integrar. A una sesión que no es dueña del plan en curso no le dice nada del trabajo de la otra.</div></div>
         <div class="ev"><code>SessionEnd</code><div>Cuando cierras la sesión.<br><span class="badge b-script">session-start.js</span> El mismo script del arranque: aquí borra el candado de la sesión.</div></div>
       </div>
       <p>El detalle de cada uno (qué mira, qué bloquea y qué nunca bloquea) está en la <a href="#guardias">sección 6</a>.</p>
@@ -740,7 +740,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
           <dl>
             <dt>Cuándo</dt><dd>Cada vez que mandas un mensaje.</dd>
             <dt>Qué mira</dt><dd>Por workspace: cuántos archivos tocados y cuántos de código, si la bandera está vigente y qué zonas de riesgo se tocaron.</dd>
-            <dt>Qué hace</dt><dd>Adjunta una línea de estado por workspace, por ejemplo <code>arnes · api-academico: 25 tocado(s), 25 de código · bandera vigente</code>, y saca una "foto del turno" (<code>.tmp/harness/turn.json</code>) que después usa el Stop.</dd>
+            <dt>Qué hace</dt><dd>Adjunta una línea de estado por workspace, por ejemplo <code>arnes · api-academico: 25 tocado(s), 25 de código · bandera vigente</code>, y saca una "foto del turno" (<code>.tmp/harness/turn.json</code>) que después usa el Stop. Si el plan en curso es de otra sesión que sigue abierta, no adjunta esas líneas, que son de su trabajo: solo avisa que esta planifique en su propio worktree.</dd>
             <dt>Qué bloquea</dt><dd class="never">Nunca bloquea.</dd>
           </dl>
         </div>
@@ -771,7 +771,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
           <dl>
             <dt>Cuándo</dt><dd>Antes de que Claude abra o busque en un archivo.</dd>
             <dt>Qué mira</dt><dd>La ruta o el patrón: <code>.env</code> y sus variantes, lo que esté dentro de <code>.ssh</code> o <code>.aws</code>, <code>.netrc</code>, <code>.pgpass</code>, <code>.git-credentials</code>, <code>credentials</code>, llaves privadas (<code>id_rsa</code>, <code>*.pem</code>, <code>*.key</code>…), tokens, y los <code>secretPaths</code> del manifiesto.</dd>
-            <dt>Qué bloquea</dt><dd class="block">Abrir o buscar en esos archivos, para que su contenido nunca entre al transcript. Vale haya o no manifiesto.</dd>
+            <dt>Qué bloquea</dt><dd class="block">Abrir o buscar en esos archivos, para que su contenido nunca entre al transcript. En <code>.ssh</code> y las llaves, además, porque dan acceso a servidores, y el motivo lo dice así: lo que las lee, las crea o las cambia lo corres tú en tu terminal. Vale haya o no manifiesto.</dd>
             <dt>Qué nunca bloquea</dt><dd class="never"><code>.env.example</code> ni la llave <code>.pub</code>. Tampoco un Grep sobre una carpeta entera: ripgrep ya salta lo ignorado por git, que es donde viven esos archivos.</dd>
           </dl>
         </div>
@@ -792,7 +792,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
             <dt>Cuándo</dt><dd>Cuando Claude quiere terminar el turno.</dd>
             <dt>Qué mira</dt><dd>(a) Si hay archivos de código tocados sin bandera vigente. (b) Si hay worktrees del issue con commits sin integrar. Y si este turno cambió algo, comparando con la foto que dejó el guardia de cada mensaje.</dd>
             <dt>Qué bloquea</dt><dd class="block">Una sola vez por turno, y solo si el turno cambió algo: le dice a Claude "verifica con <code>/arnes:verify</code>" o "pídele a la persona que integre". Cada bloqueo queda anotado en la timeline.</dd>
-            <dt>Qué nunca bloquea</dt><dd class="never">Un segundo intento en el mismo turno (deja pasar con aviso y anota el pendiente); un turno que no tocó nada (solo avisa); un proyecto sin manifiesto; los ayudantes (no se engancha a <code>SubagentStop</code>).</dd>
+            <dt>Qué nunca bloquea</dt><dd class="never">Un segundo intento en el mismo turno (deja pasar con aviso y anota el pendiente); un turno que no tocó nada (solo avisa); una sesión que no es dueña del plan en curso, que tampoco recibe avisos del código sin verificar ni de los ayudantes de la otra; un proyecto sin manifiesto; los ayudantes (no se engancha a <code>SubagentStop</code>).</dd>
           </dl>
         </div>
         <div class="hook">
@@ -1266,7 +1266,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
       <details class="faq">
         <summary>¿Qué pasa si me equivoco en el plan?</summary>
         <div>
-          <p>Antes de aprobar, pides cambios y el plan se ajusta (y vuelve a esperar), o lo descartas. Las preguntas son cerradas y cada una trae una recomendación con su motivo y una alternativa real con lo que cuesta.</p>
+          <p>Antes de aprobar, pides cambios y el plan se ajusta (y vuelve a esperar), o lo descartas. Con el plan ya aprobado, un ajuste en los mismos repos, sin zonas de riesgo y sin cambiar el contrato ni los datos, no reabre el plan: queda en sus decisiones como ajuste tuyo, se corrige y se verifica; si cambia el contrato, una zona de riesgo o los datos, se vuelve a planear. Las preguntas son cerradas y cada una trae una recomendación con su motivo y una alternativa real con lo que cuesta.</p>
           <p>Si apruebas algo equivocado, el arnés lo va a construir bien hecho y en verde. El revisor comprueba que el código cumpla los criterios del plan, no que el plan sea correcto para el negocio. Por eso el plan está escrito para que lo apruebe alguien que no conoce el stack: frases cortas, cada término técnico explicado. Ejemplo real: el issue pedía "solo ADMIN y COORDINADOR". El plan lo tradujo a permisos <code>taller.*</code>, porque las reglas del repo prohíben comparar nombres de rol, y dejó pendiente otorgarlos en el mantenedor de roles. Esa clase de decisión es la que tienes que leer.</p>
         </div>
       </details>

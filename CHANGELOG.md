@@ -2,6 +2,21 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.2] - 2026-11-03
+
+Ronda correctiva con lo que se vio usando la 0.8.1 el 2026-11-03 en renova365 y academico. Una sesión sin código recibía el estado y los avisos de otra. El grafo se disparaba con palabras comunes. El Stop pedía construir con la rama a medias. Un ajuste después de verify reabría el plan. En una carpeta sin repo se ofrecían caminos que fallan. La banda arrastraba el gate del checkout al worktree. El motivo de `.ssh` no decía lo que protege. El test-writer volvía por convenciones. Sin funciones, subcomandos ni flags nuevos. Probada en local con Claude Code 2.1.317 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`.
+
+### Corregido
+- Con otra sesión viva dueña del plan en curso (`lib/sesiones.js planOwner`), el Stop de esta sesión no juzga el código sin verificar, los worktrees sin integrar ni el plan sin construir, y no avisa del trabajo en marcha ni de la revisión que falta: todo eso es de la dueña. plan-guard le niega escribir código bajo ese plan. Los agentes de la dueña llevan su sesión y escriben.
+- En esa sesión, prompt-context no adjunta las líneas de estado de cada workspace: queda solo el aviso de planificar en su propio worktree.
+- Una pregunta suelta consulta el grafo solo si trae un término con forma de código: camelCase, PascalCase de dos palabras o más, snake_case, una ruta o un archivo. Ya no basta con «cuatro palabras». De los nodos quedan los que nombran ese término, y si no queda ninguno no inyecta nada.
+- El Stop (e) no pide construir si approve no dejó la rama del issue en todos los workspaces del plan. La nota `rama` de plan lleva `faltan`, y `issue-branch.js create` la anota aunque la rama no quede en ninguno.
+- «Si pide cambios», en la skill plan, es antes de aprobar. build y verify dicen qué hacer con el plan ya aprobado: un ajuste en los mismos workspaces, sin riskPaths y sin cambiar el contrato ni los datos, se anota en `## Decisiones` como ajuste de la persona, se corrige y se verifica, sin `plan-state.js start`.
+- En una carpeta que no es repo, `plan-state.js start` con el plan de otra sesión no sugiere EnterWorktree ni `claude --worktree`, que fallan ahí: dice cómo hacerla repo de carpeta. `issue-branch.js create`, cuando se niega por cambios sin commitear en otra rama, ofrece eso primero y después commit o stash.
+- arnes-ui reinicia las filas del gate al entrar o salir de un worktree.
+- La negativa sobre `.ssh` o una llave dice que ahí están las llaves y el acceso a servidores, en vez de «los secretos no entran al transcript». La regla no cambia.
+- El test-writer corre sobre sus specs las convenciones del gate (la línea de su entrada, el mismo chequeo de verify) hasta que salgan limpias, antes de entregar.
+
 ## [0.8.1] - 2026-10-31
 
 El lint tras cada edición con tope (`docs/PLAN.md` §6.2). Medido en renova365/api: un eslint con reglas type-checked (`recommendedTypeChecked` con `projectService`, la configuración por defecto de NestJS) tarda 163 s y 180 s en lintear un solo archivo, porque compila el monorepo entero en cada corrida, y el hook after-edit tiene 120 s: cada Edit o Write colgaba dos minutos y el resultado nunca llegaba. Los hooks en sí cuestan poco en ese repo: 72 ms read-guard, 113 ms guard y 258 ms plan-guard por llamada. Probada con Claude Code 2.1.316 y Node 24 con `claude plugin validate --strict` y `node --test`.
