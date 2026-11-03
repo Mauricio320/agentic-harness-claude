@@ -11,8 +11,9 @@
 //                                      relativos a la raíz; null si no hay grafo o graphify
 //   isQuestion(texto)                  una pregunta: signo de interrogación al inicio o al final
 //   worthGraph(project, texto)         una pregunta sobre el código, la única que paga la consulta:
-//                                      cuatro palabras o un identificador, sin coletilla («¿sí?»), sin
-//                                      hablar del arnés o de la sesión, y sin una etapa de trabajo abierta
+//                                      con un término con forma de código, sin coletilla («¿sí?»), sin
+//                                      hablar del arnés o de la sesión, y sin una etapa de trabajo abierta;
+//                                      de sus nodos, questionContext deja solo los que nombran ese término
 // Uso: node grafo.js consulta --texto <t>
 //        las líneas de contexto de una pregunta (nada si no vale la consulta, si no hay grafo, si no
 //        encuentra nodos o si pasa del tope), para el hook del prompt y para arnes-mod. Siempre exit 0, salvo uso inválido (2)
@@ -32,18 +33,19 @@ const QUESTION = /^[\s"'«(*_]*[¿?]|\?[\s"'»)*_.!]*$/u;
 const isQuestion = (text) => QUESTION.test(String(text || ''));
 
 // En renova365 se pagaron 111 consultas en cuatro días, muchas por «prod quedó ok, ¿sí?» o «¿cuál es el
-// comando para borrar los archivos?». Vale la consulta una pregunta sobre el código: cuatro palabras o
-// más, o un identificador (camelCase, snake_case, un archivo, una ruta); sin coletilla al final; sin
-// palabras del arnés o de la sesión; y sin build, verify, review o ship abiertos, porque entonces la
-// pregunta es sobre la corrida.
+// comando para borrar los archivos?»; el 2026-11-03, en una sesión sin código, «primero», «ver»,
+// «consulta», «server», «reinicio» y «ahora» trajeron constantes de enum y clases que se llaman igual, y
+// un log pegado trajo nodos que nada tenían que ver. Vale la consulta una pregunta con un término con
+// forma de código (camelCase, PascalCase de dos palabras o más, snake_case, una ruta o un archivo); sin
+// coletilla al final; sin palabras del arnés o de la sesión; y sin build, verify, review o ship abiertos,
+// porque entonces la pregunta es sobre la corrida.
 const TAG = /(^|[\s¿,])(s[ií]|no|ok|verdad|cierto|correcto|vale)\s*\?[\s"'»)*_.!]*$/iu;
 const META = /(^|[^\p{L}])(ship|verify|review|commit\w*|push|mr|pr|merge|bandera|arn[eé]s|rama|worktree|terminaste|hiciste|qued[oó]|comando)(?!\p{L})/iu;
-const IDENT = /[a-z][a-z0-9]*[A-Z]\w*|[A-Za-z]+_\w+|\w\.(tsx?|jsx?|java|php|sql|py)\b|\w\/\w/u;
+const CODE = /[a-z][a-z0-9]*[A-Z]\w*|[A-Z][a-z0-9]+[A-Z]\w*|[A-Za-z]+_\w+|[\w.-]*\w\/[\w./-]*\w|[\w-]+\.(?:tsx?|jsx?|java|php|sql|py)\b/gu;
 
 function worthGraph(project, text) {
   const t = String(text || '');
-  if (!isQuestion(t) || TAG.test(t) || META.test(t)) return false;
-  if ((t.match(/[\p{L}\p{N}_]+/gu) || []).length < 4 && !IDENT.test(t)) return false;
+  if (!isQuestion(t) || TAG.test(t) || META.test(t) || !t.match(CODE)) return false;
   return !stageOpen(read(project.root));
 }
 
@@ -92,10 +94,14 @@ async function queryProject(project, texto, para) {
   return { dirs: dirs.map((d) => relOf(project, d)), text, late: results.some((r) => r.late), took: `${(Math.round((Date.now() - began) / 100) / 10).toString().replace('.', ',')} s`, nodes };
 }
 
+// Los nodos de una pregunta que nombran alguno de sus términos de código (de una ruta o un archivo, su
+// último tramo sin extensión), en el nombre o en el archivo; si ninguno, nada.
 async function questionContext(project, texto) {
+  const terms = (String(texto).match(CODE) || []).map((t) => t.split('/').pop().replace(/\.\w+$/, '').toLowerCase()).filter((t) => t.length > 2);
   const q = await queryProject(project, texto, 'pregunta');
-  if (!q || !q.nodes.length) return [];
-  return [`arnes · grafo: para esta pregunta, el grafo de código (${q.dirs.join(', ')}) trae estos nodos, con su archivo y su línea; empieza por ahí antes de buscar con Grep:`, ...q.nodes];
+  const nodes = q ? q.nodes.filter((n) => terms.some((t) => n.toLowerCase().includes(t))) : [];
+  if (!nodes.length) return [];
+  return [`arnes · grafo: para esta pregunta, el grafo de código (${q.dirs.join(', ')}) trae estos nodos, con su archivo y su línea; empieza por ahí antes de buscar con Grep:`, ...nodes];
 }
 
 module.exports = { GRAPH_TIMEOUT_MS, GRAPH_BUDGET, graphDirs, queryProject, questionContext, isQuestion, worthGraph };
