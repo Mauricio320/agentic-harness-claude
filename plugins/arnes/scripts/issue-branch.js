@@ -33,7 +33,8 @@
 //           /arnes:sync para traerlos; si el issue irá a un worktree, una sola línea: no importa,
 //           porque el worktree sale de origin. Nunca hace pull
 // create y stay anotan la rama en el plan (la línea "Rama:" bajo el título) y en la timeline (nota
-// "rama" de plan).
+// "rama" de plan). Los workspaces del plan donde no quedó van en su campo faltan, y create la anota aunque
+// no quede en ninguno: el Stop no pide construir con la rama a medias.
 // Exit: 0 hecho · 1 check con algún repo en otra rama, create negado en algún repo (motivo en
 //       stdout), o behind con alguna rama atrás · 2 uso inválido, sin manifiesto o sin plan
 
@@ -206,7 +207,7 @@ function enterNative(project, w, say = console.log) {
   if (carried) say(carried);
   const renamed = renameNative(project, w);
   if (renamed) say(renamed);
-  let failed = false;
+  let missing = [];
   if (project.kind === 'folder') {
     const want = (() => {
       const main = loadProject(w.main);
@@ -214,11 +215,8 @@ function enterNative(project, w, say = console.log) {
     })();
     for (const l of materialize(w.path).lines) say(l);
     project = requireProject(w.path);
-    const missing = want.filter((n) => !project.workspaces.some((ws) => ws.adoptable && ws.name === n));
-    if (missing.length) {
-      say(`${missing.join(', ')}: no quedó en este worktree; no se puede construir ahí hasta resolverlo`);
-      failed = true;
-    }
+    missing = want.filter((n) => !project.workspaces.some((ws) => ws.adoptable && ws.name === n));
+    if (missing.length) say(`${missing.join(', ')}: no quedó en este worktree; no se puede construir ahí hasta resolverlo`);
   }
   const plan = readPlan(project);
   const here = workspaces(project, plan).map((ws) => {
@@ -226,14 +224,14 @@ function enterNative(project, w, say = console.log) {
     return `${branchOf(ws)} en ${ws.name}`;
   });
   notePlan(project, `${here.join(', ')}: la del worktree nativo de Claude Code`);
-  append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `worktree nativo ${w.name}: ${here.join(', ')}` });
+  append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `worktree nativo ${w.name}: ${here.join(', ')}`, faltan: missing.length ? missing : undefined });
   issues.record(project, {
     branches: workspaces(project, plan).map((ws) => ({ repo: posix(ws.gitRoot.replace(path.resolve(w.path), path.resolve(w.main))), branch: branchOf(ws) })),
     worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch },
     files: [planPath(project)],
   });
   say(`rama: ${here.join(', ')}`);
-  return failed ? 1 : 0;
+  return missing.length ? 1 : 0;
 }
 
 function create(project, wanted, fromOther) {
@@ -242,7 +240,7 @@ function create(project, wanted, fromOther) {
   const plan = readPlan(project);
   const name = nameOf(project, plan, wanted);
   if (git(project.root, ['check-ref-format', '--branch', name]).status !== 0) die(`issue-branch: "${name}" no es un nombre de rama válido`);
-  let failed = false;
+  const faltan = [];
   const done = [];
   for (const ws of workspaces(project, plan)) {
     const say = (m) => console.log(`${ws.name}: ${m}`);
@@ -261,12 +259,12 @@ function create(project, wanted, fromOther) {
     }
     if (!s.onDefault && !fromOther) {
       say(`está en ${s.branch}, no en ${s.def}: no la muevo sin el sí de la persona (--desde-otra)`);
-      failed = true;
+      faltan.push(ws.name);
       continue;
     }
     if (!s.onDefault && s.dirty) {
       say(`${s.branch} tiene ${s.dirty} archivo(s) sin commitear: commitéalos o guárdalos (git stash) antes; git se los llevaría a la rama nueva. No sigo`);
-      failed = true;
+      faltan.push(ws.name);
       continue;
     }
     if (refExists(ws.gitRoot, `refs/heads/${name}`)) {
@@ -274,7 +272,7 @@ function create(project, wanted, fromOther) {
       const head = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
       if (at !== head) {
         say(`se niega: ${name} ya existe en ${at.slice(0, 10)} y no es el HEAD; decide tú si es la del issue`);
-        failed = true;
+        faltan.push(ws.name);
         continue;
       }
       const r = git(ws.gitRoot, ['switch', name]);
@@ -300,13 +298,13 @@ function create(project, wanted, fromOther) {
     say(`crea ${name} desde ${from === 'HEAD' ? s.def : from} (${git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim()})`);
     done.push(ws.name);
   }
+  if (done.length || faltan.length) append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `${name} en ${done.join(', ') || 'ningún workspace'}`, faltan: faltan.length ? faltan : undefined });
   if (done.length) {
     notePlan(project, `${name}, creada al aprobar el plan en ${done.join(', ')}`);
-    append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `${name} en ${done.join(', ')}` });
     issues.record(project, { branches: workspaces(project, plan).filter((ws) => done.includes(ws.name)).map((ws) => ({ repo: posix(ws.gitRoot), branch: name })), files: [planPath(project)] });
   }
   console.log(`rama: ${name}`);
-  return failed ? 1 : 0;
+  return faltan.length ? 1 : 0;
 }
 
 function stay(project) {

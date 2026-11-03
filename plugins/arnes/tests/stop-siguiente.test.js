@@ -41,6 +41,22 @@ test('el turno que aprueba el plan y no empieza build se frena una vez, con el m
   assert.equal(stop(dir).out, null, 'un turno posterior, en que la persona pidió esperar, no se frena');
 });
 
+test('si approve no dejó la rama del issue en algún workspace del plan, el Stop no pide construir; sin nota de rama, frena como siempre', () => {
+  const aprobado = (rama) => {
+    const dir = repo();
+    planEscrito(dir);
+    say(dir, 'sí a todo');
+    tl.append(dir, { event: 'note', stage: 'plan', result: 'aprobado' });
+    if (rama) tl.append(dir, { event: 'note', stage: 'plan', result: 'rama', ...rama });
+    return (stop(dir).out || {}).decision;
+  };
+  // renova365: api con cambios sin commitear de otro issue en otra rama; la rama solo quedó en client.
+  assert.equal(aprobado({ detail: 'feature/marcador-cxp en client', faltan: ['api'] }), undefined, 'falta api: espera a la persona');
+  assert.equal(aprobado({ detail: 'feature/marcador-cxp en ningún workspace', faltan: ['api', 'client'] }), undefined, 'no quedó en ninguno');
+  assert.equal(aprobado({ detail: 'feature/marcador-cxp en api, client' }), 'block', 'la rama quedó en todos');
+  assert.equal(aprobado(null), 'block', 'sin nota de rama, como hoy: también el worktree al que todavía no se entró');
+});
+
 test('con build empezado, con un plan trivial o con la aprobación de otro turno, no se frena', () => {
   const dir = repo();
   planEscrito(dir);

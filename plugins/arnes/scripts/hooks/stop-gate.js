@@ -11,7 +11,8 @@
 //       el plan, después la verificación, o
 //   (d) el turno cambió la configuración del arnés (un .claude/harness.json) fuera de init y setup,
 //       lo que plan-guard niega en Edit y Write, o
-//   (e) el plan quedó aprobado en este turno y build no empezó, sin nada más pendiente (buildPending).
+//   (e) el plan quedó aprobado en este turno y build no empezó, sin nada más pendiente (buildPending),
+//       salvo que approve no haya dejado la rama del issue en algún workspace del plan.
 // Cuando frena por verificación, el motivo y el aviso dicen el paso que sigue (nextOf): correr la
 // verificación, corregir lo primero que falló en la última corrida del gate, o, si es de configuración,
 // proponer el cambio para que la persona lo apruebe respondiendo que sí.
@@ -224,13 +225,16 @@ function configChanged(root) {
 // (e) El plan quedó aprobado en este turno y build no empezó: el modelo se quedó esperando un
 // «construye». Solo el turno de la aprobación (uno posterior en que la persona pidió esperar no se
 // frena), solo si el turno no dejó otra cosa pendiente, que ya juzgan (a) a (d), y nunca un plan trivial,
-// que se construye sin build.
+// que se construye sin build. Tampoco si approve no dejó la rama del issue en algún workspace (la última
+// nota "rama" trae faltan): la persona tiene que decidir antes, por ejemplo qué hacer con sus cambios.
 function buildPending(home, since) {
   const entries = read(home.root);
   if (!planState(entries).approved || since == null) return [];
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'note' && e.result === 'aprobado').lastIndexOf(true);
   if (i < 0 || Date.parse(entries[i].at) < since || /trivial/.test(entries[i].detail || '')) return [];
   if (entries.slice(i + 1).some((e) => e.stage === 'build' && e.event === 'start')) return [];
+  const rama = entries.slice(i + 1).filter((e) => e.stage === 'plan' && e.result === 'rama').pop();
+  if (rama && rama.faltan && rama.faltan.length) return [];
   return [{ changed: true }];
 }
 

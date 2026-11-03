@@ -84,6 +84,14 @@ test('en otra rama: check hace la pregunta con recomendación y create no la mue
   assert.equal(r.status, 1);
   assert.match(r.stdout, /api: está en feature\/x, no en main: no la muevo sin el sí de la persona/);
   assert.equal(branch(root, 'api'), 'feature/x');
+  const note = tl.read(root).filter((e) => e.result === 'rama').pop();
+  assert.deepEqual([note.detail, note.faltan], [`${NAME} en front`, ['api']], 'la nota dice dónde no quedó');
+
+  const todos = folder();
+  for (const ws of ['api', 'front']) at(todos, ws, 'switch', '-q', '-c', 'feature/x');
+  assert.equal(ib(todos, 'create').status, 1);
+  const ninguno = tl.read(todos).filter((e) => e.result === 'rama').pop();
+  assert.deepEqual([ninguno.detail, ninguno.faltan], [`${NAME} en ningún workspace`, ['api', 'front']], 'sin rama en ninguno, la nota igual queda');
 });
 
 test('con el sí a la recomendación: desde otra rama limpia, rama nueva desde main al día; con cambios sin commitear, no sigue', () => {
