@@ -290,12 +290,18 @@ test('la timeline del panel muestra la edad real; la última corrida de otra ses
   end()
 })
 
-test('al entrar o salir de un worktree, el proyecto se vuelve a pedir y el vigía se relanza', async ($, on) => {
+test('al entrar o salir de un worktree, el proyecto se vuelve a pedir, el vigía se relanza y las filas del gate empiezan de nuevo', async ($, on) => {
   const { b, end } = world(on)
+  b.status[0]!.flag = { result: 'pass', at: START, vigente: true }
   await start($)
+  await $.tool.call({ tool: 'Edit', file_path: 'C:\\p\\academico\\api-academico\\src\\taller.ts', old_string: 'a', new_string: 'b' } as never)
+  expect(await bandOf($)).toBe('arnes ▸ listo · api ✎1 ✓flag · 00:00 $0.00')
+  b.status[0]!.flag = null
   await $.tool.call({ tool: 'EnterWorktree', name: 'talleres' } as never)
   await settle()
   expect(b.calls.filter((c) => c === 'lib/manifest.js' || c === 'vigia.js')).toEqual(['lib/manifest.js', 'vigia.js', 'lib/manifest.js', 'vigia.js'])
+  const band = (await bandOf($)) ?? ''
+  expect([/✎/.test(band), /✓flag/.test(band)]).toEqual([false, false])
   end()
 })
 

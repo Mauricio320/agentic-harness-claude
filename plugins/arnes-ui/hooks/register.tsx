@@ -75,13 +75,15 @@ async function json($: $, name: string, args: string[]): Promise<any> {
   }
 }
 
-async function load($: $): Promise<void> {
+// moved: la sesión cambió de proyecto (entró o salió de un worktree). Las filas del gate empiezan de
+// nuevo: las del proyecto anterior tienen los mismos nombres de workspace, pero no son de este.
+async function load($: $, moved = false): Promise<void> {
   cwd = slash(await $.session.cwd())
   base ||= await findBase($)
   const m = await json($, 'lib/manifest.js', ['show', '--json'])
   ;[ws, root] = [workspacesOf(m), m ? slash(m.root) : '']
   await update($, project, () => (m ? { name: m.name, root } : null))
-  await update($, gate, (rows) => ws.map((w) => rows.find((r) => r.ws === w.name) ?? blankRow(w.name)))
+  await update($, gate, (rows) => ws.map((w) => (moved ? undefined : rows.find((r) => r.ws === w.name)) ?? blankRow(w.name)))
   watch($)
 }
 
@@ -267,7 +269,7 @@ export const register: Register = (on) => {
       if (probe?.gate && r.isError) alert($, `arnes: gate en rojo: ✗ ${probe.label}`)
       if ((e.tool === 'Edit' || e.tool === 'Write') && ok) await edited($, e.file_path)
       // Al entrar o salir de un worktree cambia el cwd de la sesión, y con él el proyecto y la banda.
-      if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) return void (await load($))
+      if ((e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') && ok) return void (await load($, true))
       if (e.tool === 'ExitWorktree') watch($)
       if (probe || e.tool === 'Edit' || e.tool === 'Write') await gateStatus($)
     })
