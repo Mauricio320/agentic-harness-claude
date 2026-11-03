@@ -27,7 +27,9 @@ test('todo lo de ~/.ssh y ~/.aws queda fuera, con ~ o con la ruta completa', () 
   const dir = h.tmp('read-home');
   assert.ok(denied(read(dir, 'Read', { file_path: '~/.ssh/config' })));
   assert.ok(denied(read(dir, 'Read', { file_path: path.join(os.homedir(), '.aws', 'config') })));
-  assert.match(reason(read(dir, 'Read', { file_path: '~/.aws/credentials' })), /está dentro de \.aws/);
+  assert.match(reason(read(dir, 'Read', { file_path: '~/.aws/credentials' })), /está dentro de \.aws\. Los secretos no entran al transcript/);
+  assert.match(reason(read(dir, 'Read', { file_path: '~/.ssh/config' })), /está dentro de \.ssh\. Ahí están las llaves y el acceso a servidores: lo que las lee, las crea o las cambia lo corre la persona en su terminal\.$/, 'en .ssh, lo que protege');
+  assert.match(reason(read(dir, 'Glob', { pattern: '*', path: '~/.ssh' })), /Ahí están las llaves y el acceso a servidores/);
 });
 
 test('Glob se juzga por path y por pattern; Grep por path y por glob', () => {

@@ -451,6 +451,17 @@ test('cat, type, Get-Content y head de un secreto se deniegan, haya o no manifie
   assert.match(reason(guard(dir, 'cat .env')), /^arnes guard: cat \.env: es un archivo \.env\. Los secretos no entran al transcript\.[\s\S]*\.env\.example/);
 });
 
+test('en .ssh y las llaves el motivo dice lo que protege, el acceso a servidores, aunque el comando no lea ningún secreto', () => {
+  const dir = h.tmp('guard-ssh');
+  h.repo(dir, { 'a.ts': 'a\n' });
+  for (const cmd of ['ssh-keygen -t ed25519 -N "" -f ~/.ssh/claude_vm_renova360', 'grep Host ~/.ssh/config', 'cat certs/server.key']) {
+    const r = reason(guard(dir, cmd));
+    assert.match(r, /: (está dentro de \.ssh|es una llave privada o un certificado)\. Ahí están las llaves y el acceso a servidores: lo que las lee, las crea o las cambia lo corre la persona en su terminal\.$/, cmd);
+    assert.doesNotMatch(r, /secretos no entran al transcript|\.env\.example/, cmd);
+  }
+  assert.match(reason(guard(dir, 'cat .env')), /es un archivo \.env\. Los secretos no entran al transcript\./, 'un .env, como siempre');
+});
+
 test('cualquier comando que nombre un secreto se deniega, no solo los lectores, con el contenido enmascarado', () => {
   const dir = h.tmp('guard-nombra');
   h.repo(dir, { 'a.ts': 'a\n' });

@@ -72,6 +72,6 @@ test('read-guard y el guard niegan leer el .env con su contenido enmascarado, y 
   const gc = reason(h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'PowerShell', tool_input: { command: 'Get-Content .env' }, cwd: dir }).out);
   assert.match(gc, /DATABASE_URL=mysql:\/\/\*\*\*:\*\*\*@127\.0\.0\.1:3312/);
   const key = read('Read', { file_path: path.join(dir, 'llaves', 'id_rsa') });
-  assert.match(key, /es una llave privada o un certificado\. Los secretos no entran al transcript\.\nNo tiene forma de \.env, así que no muestro nada de su contenido\./);
+  assert.match(key, /es una llave privada o un certificado\. Ahí están las llaves y el acceso a servidores: lo que las lee, las crea o las cambia lo corre la persona en su terminal\.$/);
   assert.doesNotMatch(key, /b3BlbnNzaC1rZXk/);
 });

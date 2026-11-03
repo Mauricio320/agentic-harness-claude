@@ -52,7 +52,7 @@ const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { checkFlag } = require('../gate-flag.js');
 const { targetOf, liveLinks } = require('../worktree-ledger.js');
 const { targetsOf } = require('./worktree-remove.js');
-const { secretPath, maskedFile } = require('./read-guard.js');
+const { secretPath, maskedFile, deniedText } = require('./read-guard.js');
 const { touchesDatabase, localDb } = require('../lib/database.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const { CONFIG_SPEC, configRoot, configHome, prepAt, AJUSTE, AJUSTE_JS } = require('../lib/configuracion.js');
@@ -313,7 +313,8 @@ function judgeSecrets(cmd, piece, dir) {
   if (LISTERS.has(cmd.exe) && piece.sep !== '|' && !/\$\(|<\(|`/.test(piece.text)) return null;
   const shown = maskedFile(hit.abs, project);
   const copy = COPIERS.has(cmd.exe) ? ` Para llevar los .env a un worktree, corre node "${EQUIPAR}" equipar --dir <carpeta del worktree>: los copia del checkout principal sin mostrarlos.` : '';
-  return `${cmd.raw} ${hit.p}: ${secretPath(hit.abs, project)}. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.${copy}`;
+  const why = secretPath(hit.abs, project);
+  return `${cmd.raw} ${hit.p}: ${why}${deniedText(why, shown)}${copy}`;
 }
 
 // ---------- configuración del proyecto ----------

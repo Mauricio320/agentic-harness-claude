@@ -81,6 +81,13 @@ function maskedFile(abs, project) {
   return [`Su contenido, enmascarado (los nombres completos; enteros, el host, el puerto, la base y el ambiente, que dicen a qué base apunta; de los demás valores, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host, el puerto y, si es de una base, su nombre${whole}):`, ...lines].join('\n');
 }
 
+// Lo que dice la negativa después del porqué: en .ssh y las llaves, lo que protegen, el acceso a
+// servidores, aunque el comando no lea ningún secreto (un ssh-keygen); en lo demás, que no entren al transcript.
+const deniedText = (why, shown) =>
+  /\.ssh|llave/.test(why)
+    ? '. Ahí están las llaves y el acceso a servidores: lo que las lee, las crea o las cambia lo corre la persona en su terminal.'
+    : `. Los secretos no entran al transcript.${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`;
+
 function secretGlob(glob) {
   for (const seg of String(glob).split(/[\\/]/)) {
     if (DIRS.includes(seg.toLowerCase())) return `apunta a ${seg}`;
@@ -109,12 +116,9 @@ function readGuard(input) {
   const found = checks.find(([, why]) => why);
   if (!found) return null;
   const shown = found[2] ? maskedFile(found[2], project) : '';
-  return deny(
-    `arnes guard: ${input.tool_name} sobre ${found[0]} denegado: ${found[1]}. Los secretos no entran al transcript.` +
-      `${shown ? `\n${shown}\n` : ' '}Si hace falta un valor completo, pídeselo a la persona, o lee .env.example.`,
-  );
+  return deny(`arnes guard: ${input.tool_name} sobre ${found[0]} denegado: ${found[1]}${deniedText(found[1], shown)}`);
 }
 
-module.exports = { readGuard, secretName, secretPath, maskedFile };
+module.exports = { readGuard, secretName, secretPath, maskedFile, deniedText };
 
 if (require.main === module) run('read-guard', readGuard);
