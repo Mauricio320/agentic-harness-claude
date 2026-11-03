@@ -90,6 +90,17 @@ test('un mensaje de otra sesión con el plan de la primera en curso trae el avis
   assert.doesNotMatch(JSON.stringify(say('A').out || {}), /otra sesión/, 'la dueña no lo recibe');
 });
 
+test('las líneas de estado de cada workspace van solo a la dueña del plan: la otra sesión no recibe las de su trabajo', () => {
+  const dir = repo();
+  approvedBy(dir, 'A');
+  live(dir, 'A');
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de A\n');
+  const say = (session) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿el túnel sobrevive un reinicio?', cwd: dir, session_id: session }, { env: as(session) }).out.hookSpecificOutput.additionalContext;
+  assert.doesNotMatch(say('B'), /arnes · api:/, 'B no recibe tocados ni bandera de A');
+  assert.match(say('B'), /^arnes: el plan en curso en este checkout es de otra sesión/, 'solo el aviso de su worktree');
+  assert.match(say('A'), /^arnes · api: \d+ tocado\(s\), 1 de código · bandera no vigente/m, 'la dueña sí');
+});
+
 // Un turno de una sesión en el checkout: su mensaje, lo que pase mientras, y su Stop.
 function turn(dir, session, during = () => {}) {
   h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿cómo reinicio el túnel?', cwd: dir, session_id: session }, { env: as(session) });

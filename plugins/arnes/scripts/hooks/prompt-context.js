@@ -2,7 +2,8 @@
 // UserPromptSubmit (docs/PLAN.md §6.2). Adjunta una línea de estado por workspace con código o
 // riskPaths tocados: cuántos archivos tocados y de código, si la bandera de verificación está
 // vigente, y qué riskPaths se tocaron. Si solo hay archivos que no son código, o no hay manifiesto,
-// no dice nada. Nunca bloquea. Con un mensaje de la persona, y no con el aviso de un agente en
+// no dice nada. En una sesión que no es dueña del plan en curso (lib/sesiones.js) no adjunta esas líneas,
+// que son de la otra: solo el aviso de planificar en su worktree. Nunca bloquea. Con un mensaje de la persona, y no con el aviso de un agente en
 // segundo plano, deja la foto del turno (gate-flag writeTurn) que stop-gate compara para decidir
 // si el turno cambió algo, y anota en la timeline que la persona respondió, con el sha256 del texto,
 // de dónde se supo y si el texto trae marcas de tareas o de agentes (plan-state.js approve no acepta
@@ -114,11 +115,12 @@ function promptContext(input) {
       effort: effort ? EFFORTS[effort.toLowerCase()] || effort.toLowerCase() : undefined,
     });
   }
-  const rows = adoptable.map((ws) => state(project, ws));
+  const other = planOwner(project, { session: input.session_id || null, pid: claudePid() });
+  const rows = other ? [] : adoptable.map((ws) => state(project, ws));
   const out = rows.map((r) => r.text).filter(Boolean);
   const entries = read(project.root);
   if (person && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) out.unshift(PLAN_FIRST);
-  else if (person && planOwner(project, { session: input.session_id || null, pid: claudePid() })) out.unshift(OTHER_PLAN);
+  else if (person && other) out.unshift(OTHER_PLAN);
   if (person && !graphed && worthGraph(project, text)) out.push(...askGraph(project, text));
   return out.length ? out.join('\n') : null;
 }
