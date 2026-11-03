@@ -89,3 +89,32 @@ test('un mensaje de otra sesión con el plan de la primera en curso trae el avis
   assert.match(say('B').out.hookSpecificOutput.additionalContext, /^arnes: el plan en curso en este checkout es de otra sesión de Claude que sigue abierta\. Si este mensaje pide cambiar código, carga arnes:plan, que lo planifica en tu propio worktree/m);
   assert.doesNotMatch(JSON.stringify(say('A').out || {}), /otra sesión/, 'la dueña no lo recibe');
 });
+
+// Un turno de una sesión en el checkout: su mensaje, lo que pase mientras, y su Stop.
+function turn(dir, session, during = () => {}) {
+  h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿cómo reinicio el túnel?', cwd: dir, session_id: session }, { env: as(session) });
+  during();
+  return h.hook('stop-gate', { hook_event_name: 'Stop', stop_hook_active: false, cwd: dir, session_id: session }, { env: as(session) }).out;
+}
+
+test('el Stop de una sesión ajena calla lo que es de la dueña del plan: ni cambios sin verificar ni ayudantes trabajando', () => {
+  const dir = repo();
+  approvedBy(dir, 'A');
+  live(dir, 'A');
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de A\n');
+  assert.equal(turn(dir, 'B'), null, 'B, sin código, no recibe «siguen cambios sin verificar»');
+  h.hook('agents', { hook_event_name: 'SubagentStart', agent_id: 'tw-1', agent_type: 'arnes:test-writer', session_id: 'A', cwd: dir }, { env: as('A') });
+  assert.equal(turn(dir, 'B', () => h.write(dir, 'src/a.spec.ts', 'del test-writer de A\n')), null, 'ni bloqueo ni «trabajo en marcha» por lo que escribe el ayudante de A');
+  assert.match(turn(dir, 'A').systemMessage, /^arnes: siguen cambios sin verificar en api/, 'la dueña sí lo recibe');
+});
+
+test('plan-guard: una sesión ajena no escribe código bajo el plan aprobado de otra viva; la dueña sí', () => {
+  const dir = repo();
+  approvedBy(dir, 'A');
+  live(dir, 'A');
+  const edit = (session) => h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' }, cwd: dir, session_id: session }, { env: as(session) }).out;
+  const b = edit('B');
+  assert.equal(b.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(b.hookSpecificOutput.permissionDecisionReason, /^arnes guard: el plan aprobado en este checkout es de otra sesión de Claude que sigue abierta: no escribas código bajo el plan de la otra\. .*src\/a\.ts es código de api\.$/);
+  assert.equal(edit('A'), null, 'la dueña, y sus agentes, que llevan su sesión, escriben');
+});

@@ -8,6 +8,8 @@
 // bajo .claude/ se juzga aparte (abajo).
 // Un archivo dentro de un worktree del ledger es código de su workspace, y el plan que cuenta es el
 // del checkout principal, donde la sesión del issue anotó su timeline.
+// El plan aprobado es de la sesión que lo empezó (lib/sesiones.js): con otra sesión viva dueña de él,
+// esta no escribe código bajo ese plan. Los agentes de la dueña llevan su misma sesión, y escriben.
 // Al reviewer (agent_type arnes:reviewer en el input del hook) le niega toda escritura fuera de
 // .tmp/harness/review del proyecto. Desde la 0.6.6 el reviewer no tiene Write (su reporte lo guarda la
 // skill, porque Claude Code no deja a un subagente escribir archivos de reporte); la regla queda como
@@ -29,6 +31,7 @@ const { matchAny } = require('../lib/glob.js');
 const { read, planState } = require('../lib/timeline.js');
 const { projectFor } = require('../worktree-ledger.js');
 const { configRoot, configHome, prepAt, missingManifest, AJUSTE } = require('../lib/configuracion.js');
+const { planOwner, claudePid } = require('../lib/sesiones.js');
 
 // El reviewer escribe solo su reporte: cualquier Edit o Write suyo fuera de .tmp/harness/review del
 // proyecto se niega. El input del hook trae agent_type dentro de un subagente (arnes:reviewer) y no
@@ -80,6 +83,9 @@ function planGuard(input) {
   if (!hit || !hit.ws.adoptable || /^\.(claude|tmp)\//.test(hit.rel) || !matchAny(hit.ws.codeGlobs, hit.rel)) return null;
   const project = projectFor(path.dirname(abs)) || here;
   const p = planState(read(project.root));
+  if (p.approved && planOwner(project, { session: input.session_id || null, pid: claudePid() })) {
+    return deny(`arnes guard: el plan aprobado en este checkout es de otra sesión de Claude que sigue abierta: no escribas código bajo el plan de la otra. Si este pedido cambia código, carga arnes:plan, que lo planifica en tu propio worktree. ${hit.rel} es código de ${hit.ws.name}.`);
+  }
   if (p.approved) return null;
   return deny(
     `arnes guard: no hay plan aprobado (${whyNoPlan(p)}): carga /arnes:plan, o /arnes:plan --trivial si el cambio es mínimo, que lo escribe la persona. ` +

@@ -38,6 +38,8 @@
 // hay nada en marcha. Esos tres avisos, que no bloquean, se dicen una vez por estado: el mismo texto
 // en la misma sesión calla hasta que cambie (avisos.json), para que una pregunta suelta no repita en
 // cada turno lo que la persona ya leyó.
+// Una sesión ajena (otra sesión viva es dueña del plan en curso, lib/sesiones.js) no juzga (a), (b) ni
+// (e), ni el trabajo en marcha ni la revisión que falta: son de la dueña, y no recibe nada de eso.
 // En el worktree de una carpeta, antes de juzgar, guarda el rescate de lo que quedó sin commitear en
 // cada repo de adentro y pone o quita el marcador (worktree-carpeta.js protect): Claude Code puede
 // borrar ese worktree al cerrar la sesión, sin pasar por el arnés.
@@ -63,6 +65,7 @@ const { whyNoPlan } = require('./plan-guard.js');
 const { missingManifest, CONFIG_SPEC } = require('../lib/configuracion.js');
 const { git, lines } = require('../lib/exec.js');
 const adopcion = require('../lib/adopcion.js');
+const { planOwner, claudePid } = require('../lib/sesiones.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
@@ -323,14 +326,15 @@ function stopGate(input) {
   const prep = prepOpen(timeline) || prepInTurn(timeline);
   const unseen = (ws) => Boolean(prep) && !snap[ws.name];
   const noPlan = unplanned(project, home, unseen);
-  const w = { rules: rulesChanged(project, home), noPlan, code: unverified(project, noPlan.map((p) => p.ws), unseen), wts: pendingWorktrees(cwd, turnStart(project)) };
-  w.build = w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(home, turnStart(project));
+  const mine = !planOwner(home, { session: input.session_id || null, pid: claudePid() });
+  const w = { rules: rulesChanged(project, home), noPlan, code: mine ? unverified(project, noPlan.map((p) => p.ws), unseen) : [], wts: mine ? pendingWorktrees(cwd, turnStart(project)) : [] };
+  w.build = !mine || w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(home, turnStart(project));
   const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts, ...w.build];
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
   // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
   const pending = all.length > 0;
   const due = pending && !input.stop_hook_active && all.some((p) => p.changed);
-  const busy = due ? inProgress(project) : [];
+  const busy = due && mine ? inProgress(project) : [];
   if (due && !busy.length) return block(project, w);
   // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
@@ -343,7 +347,7 @@ function stopGate(input) {
     return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.${followText(project, w)}` });
   }
   if (pending) return quiet({ systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
-  const noReview = unreviewed(project);
+  const noReview = mine ? unreviewed(project) : [];
   return quiet(noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
 }
 
