@@ -100,8 +100,13 @@ test('con el sí a la recomendación: desde otra rama limpia, rama nueva desde m
   fs.appendFileSync(path.join(root, 'api', 'src/a.ts'), 'a medias\n');
   let r = ib(root, 'create', '--desde-otra');
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /api: feature\/x tiene 1 archivo\(s\) sin commitear: commitéalos o guárdalos \(git stash\) antes; git se los llevaría a la rama nueva\. No sigo/);
+  assert.match(r.stdout, /api: feature\/x tiene 1 archivo\(s\) sin commitear y la carpeta no es un repo de git\. Lo primero: hazla repo de carpeta, que deja el checkout intacto y lleva el issue a un worktree nuevo: la persona, en una terminal en .+, corre git init y commitea \.gitignore \(que ignore los repos de adentro, \/\.tmp\/ y \/\.claude\/worktrees\/\), CLAUDE\.md, \.claude\/harness\.json y \.claude\/settings\.json\. Si no, commitéalos o guárdalos \(git stash\) antes; git se los llevaría a la rama nueva\. No sigo/, 'la carpeta no es repo: primero hacerla repo de carpeta, después commit o stash');
   assert.equal(branch(root, 'api'), 'feature/x');
+  h.git(root, 'init', '-q');
+  r = ib(root, 'create', '--desde-otra');
+  assert.match(r.stdout, /api: feature\/x tiene 1 archivo\(s\) sin commitear: commitéalos o guárdalos \(git stash\) antes; git se los llevaría a la rama nueva\. No sigo/, 'con la carpeta ya repo, commit o stash, como siempre');
+  assert.doesNotMatch(r.stdout, /repo de carpeta/);
+  fs.rmSync(path.join(root, '.git'), { recursive: true, force: true });
   at(root, 'api', 'checkout', '--', 'src/a.ts');
   r = ib(root, 'create', '--desde-otra');
   assert.equal(r.status, 0, r.stdout);

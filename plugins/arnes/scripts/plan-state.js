@@ -6,7 +6,7 @@
 //   start --detail <texto>
 //            empieza el plan: anota start plan con la sesión que lo empieza (CLAUDE_CODE_SESSION_ID);
 //            si el plan en curso es de otra sesión viva, no lo pisa: sale con 3 y manda a planificar en
-//            un worktree propio (lib/sesiones.js). Dice el proyecto con cada workspace, sus riskPaths, su
+//            un worktree propio (lib/sesiones.js), o, en una carpeta que no es repo, a hacerla repo de carpeta. Dice el proyecto con cada workspace, sus riskPaths, su
 //            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior; si
 //            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); las referencias de
 //            negocio y los ambientes de prueba; y, si hay grafo y graphify, lo consulta él mismo con el
@@ -133,7 +133,9 @@ function taken(project, detail) {
   const title = ((readPlan(project) || '').match(/^# (?:Plan: )?(.+)$/m) || [])[1];
   const name = slugOf(`# ${detail}`);
   console.log(`otra sesión: hay un plan en curso de otra sesión de Claude que sigue abierta en este checkout${title ? ` («${title.trim()}»)` : ''}; no lo piso`);
-  console.log(`siguiente: este pedido se planifica en su propio worktree: llama a EnterWorktree con name "${name}" y vuelve a correr start desde ahí. Sin EnterWorktree, la persona abre esta sesión con claude --worktree ${name}`);
+  const route = branch.worktreeRoute(project);
+  if (route.noRepo && project.kind === 'folder') console.log(`siguiente: este pedido va en su propio worktree, pero ${route.why}: ${branch.folderRepo(project)}. Después, vuelve a correr start; hasta entonces, no escribas código bajo el plan de la otra`);
+  else console.log(`siguiente: este pedido se planifica en su propio worktree: llama a EnterWorktree con name "${name}" y vuelve a correr start desde ahí. Sin EnterWorktree, la persona abre esta sesión con claude --worktree ${name}`);
   return 3;
 }
 
@@ -197,7 +199,7 @@ function place(project, { checkout, fromOther, stay } = {}) {
     console.log(`siguiente: llama a EnterWorktree con name "${name}"; al entrar, el arnés trae el plan, los repos y la rama, y repite la lista de tareas`);
   } else {
     if (route) console.log(`en el checkout: ${route.why}`);
-    code = stay ? branch.stay(project) : branch.create(project, undefined, fromOther);
+    code = stay ? branch.stay(project) : branch.create(project, undefined, fromOther, route);
   }
   const list = tasks(read(project.root));
   if (list) console.log(`tareas: ${JSON.stringify(list)}`);

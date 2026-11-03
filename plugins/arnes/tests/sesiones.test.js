@@ -50,6 +50,18 @@ test('start no pisa el plan de otra sesión viva: sale con 3 y manda a planifica
   assert.equal(run(dir, ['start', '--detail', 'ajuste'], 'A').status, 0, 'la dueña sí puede seguir con su plan');
 });
 
+test('en una carpeta que no es repo, start con el plan de otra sesión viva no manda a un worktree que no se puede abrir: dice cómo hacerla repo de carpeta', () => {
+  const root = h.tmp('sesiones-carpeta');
+  h.repo(path.join(root, 'api'), { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', defaultBranch: 'main' })), 'src/a.ts': 'a\n' });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
+  assert.equal(run(root, ['start', '--detail', 'etapa 1 del editor'], 'A').status, 0);
+  live(root, 'A');
+  const r = run(root, ['start', '--detail', 'design system de informes'], 'B');
+  assert.equal(r.status, 3, r.stdout + r.stderr);
+  assert.match(r.stdout, /^siguiente: este pedido va en su propio worktree, pero la carpeta no es un repo de git, y un worktree necesita uno: hazla repo de carpeta, que deja el checkout intacto y lleva el issue a un worktree nuevo: la persona, en una terminal en .+, corre git init y commitea \.gitignore .*\. Después, vuelve a correr start/m);
+  assert.doesNotMatch(r.stdout, /claude --worktree|EnterWorktree/, 'los dos fallan sin repo');
+});
+
 test('un plan de una sesión que ya terminó, o sin sesión anotada, se puede pisar como siempre', () => {
   const dir = repo();
   approvedBy(dir, 'A');

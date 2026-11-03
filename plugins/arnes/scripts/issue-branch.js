@@ -23,7 +23,8 @@
 //           En otra rama, solo con --desde-otra (la persona aceptó la recomendación): con cambios
 //           sin commitear se niega, porque git se los llevaría a la rama nueva; si no, adelanta la
 //           por defecto local si es fast-forward y crea la rama desde origin/<defaultBranch>.
-//           Sin --desde-otra, un repo en otra rama no se mueve.
+//           Sin --desde-otra, un repo en otra rama no se mueve. Si la carpeta no es un repo, la negativa
+//           por cambios sin commitear ofrece primero hacerla repo de carpeta (folderRepo).
 //           Una rama que ya existe se reutiliza si es la actual o está en el mismo commit; si no, se
 //           niega, como ship
 //   stay    la persona eligió construir en la rama actual: no la mueve, solo avisa si va atrás de
@@ -122,12 +123,12 @@ function fetch(ws) {
 
 // ¿Se puede abrir el worktree del issue? La raíz del proyecto tiene que ser un repo, y la
 // configuración del arnés tiene que estar en la rama de la que Claude Code lo hace nacer
-// (origin/<rama por defecto>, o la local sin origin). → { ok, base } o { ok: false, why }
+// (origin/<rama por defecto>, o la local sin origin). → { ok, base } o { ok: false, why, noRepo? }
 function worktreeRoute(project) {
   if (project.integration && project.integration.workInPlace) return { ok: false, why: 'la configuración pide trabajar en el checkout (integration.workInPlace)' };
   const top = git(project.root, ['rev-parse', '--show-toplevel']);
   if (top.status !== 0 || path.resolve(top.stdout.trim()).toLowerCase() !== path.resolve(project.root).toLowerCase()) {
-    return { ok: false, why: `${project.kind === 'folder' ? 'la carpeta' : 'la raíz del proyecto'} no es un repo de git, y un worktree necesita uno` };
+    return { ok: false, noRepo: true, why: `${project.kind === 'folder' ? 'la carpeta' : 'la raíz del proyecto'} no es un repo de git, y un worktree necesita uno` };
   }
   if (git(project.root, ['remote']).stdout.trim()) fetchOrigin(project.root);
   const head = git(project.root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
@@ -137,6 +138,10 @@ function worktreeRoute(project) {
   }
   return { ok: true, base: def };
 }
+
+// Cómo se hace repo de carpeta una carpeta que no lo es (docs/PLAN.md §8). Lo hace la persona: el commit
+// lleva la configuración del arnés, que el guard no deja commitear.
+const folderRepo = (project) => `hazla repo de carpeta, que deja el checkout intacto y lleva el issue a un worktree nuevo: la persona, en una terminal en ${posix(project.root)}, corre git init y commitea .gitignore (que ignore los repos de adentro, /.tmp/ y /.claude/worktrees/), CLAUDE.md, .claude/harness.json y .claude/settings.json`;
 
 const repoList = (wss) => (wss.length > 1 ? `${wss.slice(0, -1).map((w) => w.name).join(', ')} y ${wss[wss.length - 1].name}` : wss.map((w) => w.name).join(''));
 
@@ -234,7 +239,7 @@ function enterNative(project, w, say = console.log) {
   return missing.length ? 1 : 0;
 }
 
-function create(project, wanted, fromOther) {
+function create(project, wanted, fromOther, route) {
   const w = nativeRoot(project) || nativeWorktree(project.root);
   if (w) return enterNative(project, w);
   const plan = readPlan(project);
@@ -263,7 +268,8 @@ function create(project, wanted, fromOther) {
       continue;
     }
     if (!s.onDefault && s.dirty) {
-      say(`${s.branch} tiene ${s.dirty} archivo(s) sin commitear: commitéalos o guárdalos (git stash) antes; git se los llevaría a la rama nueva. No sigo`);
+      const first = project.kind === 'folder' && (route || worktreeRoute(project)).noRepo ? ` y la carpeta no es un repo de git. Lo primero: ${folderRepo(project)}. Si no,` : ':';
+      say(`${s.branch} tiene ${s.dirty} archivo(s) sin commitear${first} commitéalos o guárdalos (git stash) antes; git se los llevaría a la rama nueva. No sigo`);
       faltan.push(ws.name);
       continue;
     }
@@ -345,7 +351,7 @@ function behind(project) {
   return late ? 1 : 0;
 }
 
-module.exports = { slugOf, worktreeRoute, renameNative, check, create, stay, behind, enterNative, carry };
+module.exports = { slugOf, worktreeRoute, folderRepo, renameNative, check, create, stay, behind, enterNative, carry };
 
 function main() {
   let args;
