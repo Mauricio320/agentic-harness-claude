@@ -119,6 +119,7 @@ test('el test-writer corre las convenciones del gate sobre sus specs antes de en
   assert.match(text, /2\. Corre las convenciones del gate sobre tus specs y tus fixtures con la línea `convenciones` de tu entrada, tal cual: es el mismo chequeo que corre verify\./);
   assert.match(text, /desde la carpeta que dice esa línea, con las rutas de tus archivos tal como las ves desde ahí; una ruta que no encuentra sale con 2/);
   assert.match(text, /manda la convención/, 'la contradicción con una regla del proyecto la resuelve el agente');
+  assert.match(text, /3\. Corre el `lint` de tu entrada sobre tus specs y tus fixtures, sustituyendo `\{files\}`.*el formato y los imports sin usar.*sin `--fix`.*hasta que salga limpio/, 'verify ya no vuelve rojo por el formato de sus specs');
   assert.match(text, /un `as unknown as`.*vuelve a correrla hasta que salga sin hallazgos/);
   assert.doesNotMatch(text, /Si tu entrada trae el comando de convenciones/, 'ya no es opcional');
 });
