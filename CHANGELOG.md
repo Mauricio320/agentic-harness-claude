@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). V
 
 ## [0.8.3] - 2026-11-05
 
-Worktree aislado: la raíz es la puerta y el worktree es la casa. Sale de ocho sesiones de renova365 que corrieron a la vez el 2026-11-04 con la 0.8.2 y de una de academico el 2026-11-05. Los arreglos de ruido de la 0.8.2 funcionaron; quedaron dos frentes. En los gates, que son el único control de calidad cuando casi nadie lee el código, había un falso verde y bloqueos injustos. En el aislamiento, lo que hacía una sesión se escapaba del worktree o lo heredaba otra. El criterio de la persona: los worktrees sueltos, las sesiones olvidadas y la configuración imperfecta del proyecto son el flujo natural, y el arnés convive con eso. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.939 a 13.969 líneas.
+Worktree aislado: la raíz es la puerta y el worktree es la casa. Sale de ocho sesiones de renova365 que corrieron a la vez el 2026-11-04 con la 0.8.2 y de una de academico el 2026-11-05. Los arreglos de ruido de la 0.8.2 funcionaron; quedaron dos frentes. En los gates, que son el único control de calidad cuando casi nadie lee el código, había un falso verde y bloqueos injustos. En el aislamiento, lo que hacía una sesión se escapaba del worktree o lo heredaba otra. El criterio de la persona: los worktrees sueltos, las sesiones olvidadas y la configuración imperfecta del proyecto son el flujo natural, y el arnés convive con eso. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.939 a 13.973 líneas.
 
 ### Cambiado
 - La raíz es la puerta. `plan-state.js start` y `trivial`, corridos desde la raíz, salen con 3 sin anotar nada y mandan a EnterWorktree con un nombre libre (`<n>-2` si la carpeta o la rama de una sesión olvidada ya existen), con `cd` a la raíz si la sesión está parada en un repo de adentro. Un pedido nuevo ya no reemplaza el plan aprobado y sin entregar de otro, y una sesión nueva no hereda el de una olvidada. En el checkout solo con `start --en-checkout`, sin camino de worktree, o para re-planificar con un ajuste el plan propio; `--en-checkout` ya no va en approve ni en corto.
@@ -25,6 +25,8 @@ Worktree aislado: la raíz es la puerta y el worktree es la casa. Sale de ocho s
 - `ship.js deliver --commit` anota el commit de cada workspace: correrlo otra vez no lo repite ni lo toma por un HEAD movido.
 - El grafo de `start` consulta solo si el pedido nombra una clase, un archivo o una ruta, y deja los nodos que la nombran. Las referencias de MR de un issue en varios repos llevan el repo.
 - El `git init` que hace repo de carpeta la raíz ya no cuenta como configuración cambiada en el Stop de otra sesión.
+- El test-writer corre también el `lint` de su entrada sobre sus specs, y corrige a mano el formato y los imports sin usar antes de entregar.
+- `trivial` toma de la raíz solo el `/arnes:plan --trivial` de su propia sesión: la nota de respuesta lleva la sesión.
 
 ## [0.8.2] - 2026-11-03
 
