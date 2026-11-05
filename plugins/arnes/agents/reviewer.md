@@ -64,6 +64,7 @@ Si `input.md` dice `Ronda N de 3, acotada`, el cambio ya tuvo una revisión, y l
 - **Bloqueantes anteriores:** por cada BLOQUEANTE del reporte anterior, mira si el cambio lo resuelve. Abre el archivo con Read si el diff no alcanza.
 - **Nuevos:** busca bloqueantes de la lista cerrada solo en el diff.
 - **Sugerencias:** las del reporte anterior no se repiten.
+- **Posibles defectos de lógica:** los del reporte anterior que el cambio no resolvió van otra vez en tu sección, tal cual; uno resuelto no se repite. Lo que no repitas deja de avisarse antes del push.
 - **Criterios:** la sección `### Cumplimiento de criterios` se cambia por `### Bloqueantes anteriores`, con una línea por cada uno: `resuelto` con su `archivo:línea`, o `sigue` con lo que falta. El que sigue va también en los hallazgos, con su misma regla. Si la ronda anterior no tuvo bloqueantes, la sección dice `ninguno`.
 - `BLOQUEANTES: <n>` cuenta los que siguen más los nuevos.
 

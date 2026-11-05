@@ -208,6 +208,20 @@ test('rondas de corrección: la 2 y la 3 acotadas al diff de la corrección, con
   assert.match(review(dir, ['input', '--completa']).stdout, /ronda 1 de 3 · completa\n/);
 });
 
+test('un defecto de lógica que la ronda acotada no repite deja de avisarse; uno que repite, sigue', () => {
+  const dir = changed();
+  const defectos = () => JSON.parse(fs.readFileSync(harness(dir, 'review.json'), 'utf8')).defectos;
+  review(dir, ['input']);
+  report(dir, 1, '- BLOQUEANTE [línea 1] · 5 · a vale 2 a mano\n### Posibles defectos de lógica\n- `api/src/a.ts:1` · el 2 fijo falla con otra empresa\n- `api/src/a.ts:1` · carrera con el asiento\n\n');
+  review(dir, ['mark', '--blockers', '1']);
+  assert.equal(defectos().length, 2);
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const a = 3;\n');
+  review(dir, ['input']);
+  report(dir, 0, '### Posibles defectos de lógica\n- `api/src/a.ts:1` · carrera con el asiento\n\n');
+  assert.match(review(dir, ['mark', '--blockers', '0']).stdout, /ronda 2 de 3, acotada/);
+  assert.deepEqual(defectos(), ['`api/src/a.ts:1` · carrera con el asiento'], 'el resuelto ya no llega al aviso de ship');
+});
+
 test('tras una revisión sin bloqueantes, lo que cambió después es una ronda acotada, también si es más grande que lo revisado: ship repite solo ese diff', () => {
   const dir = changed();
   review(dir, ['input']);

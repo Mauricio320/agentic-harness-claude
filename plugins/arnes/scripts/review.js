@@ -498,8 +498,9 @@ function mark(project, blockers, clean = false) {
     }
   }
   const [round, mode] = [inp.round || 1, inp.mode || 'completa'];
-  const before = mode === 'acotada' ? (readJson(reviewFile(project)) || {}).defectos || [] : [];
-  const defectos = [...new Set([...before, ...defectsIn(fs.readFileSync(rep, 'utf8'))])];
+  // Los defectos son los de este reporte: en una ronda acotada, el reviewer repite los de la anterior
+  // que siguen (reviewer.md); uno que la corrección resolvió ya no llega al aviso de ship.
+  const defectos = defectsIn(fs.readFileSync(rep, 'utf8'));
   const convenciones = blockers > 0 ? conventionsIn(project, fs.readFileSync(rep, 'utf8'), Object.keys(inp.workspaces)) : [];
   for (const c of convenciones) console.log(`convención propuesta: ${c.ws} · ${c.regla.id} · hoy marca ${c.aciertos} línea(s) del repo`);
   fs.writeFileSync(reviewFile(project), JSON.stringify({ at: new Date().toISOString(), blockers, round, mode, workspaces: inp.workspaces, ...(defectos.length ? { defectos } : {}), ...(convenciones.length ? { convenciones } : {}) }, null, 2) + '\n');
