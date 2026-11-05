@@ -293,6 +293,12 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.match(r.stdout, /lleva el contenido que verificó la bandera/);
   assert.match(r.stdout, /^MR: api «Cobros»; los cuerpos están en el informe$/m);
   assert.equal(h.git(dir, 'log', '-1', '--format=%s%n%b'), 'feat: cobros\nPorque sí.');
+  const head = h.git(dir, 'rev-parse', 'HEAD');
+  r = run(dir, 'ship.js', ['deliver', '--commit']);
+  assert.equal(r.status, 0, `otra vez --commit después del commit propio: antes fallaba por HEAD movido\n${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /^api: ya commiteado en [0-9a-f]{10}; no lo repito$/m);
+  assert.equal(h.git(dir, 'rev-parse', 'HEAD'), head, 'no hay un segundo commit');
+  assert.ok(!events(dir).includes('end ship fail'));
   r = run(dir, 'ship.js', ['deliver', '--push']);
   assert.equal(r.status, 1, 'sin una respuesta de la persona después del commit no sube');
   assert.match(r.stderr, /necesitan el sí de la persona/);

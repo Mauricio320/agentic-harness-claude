@@ -611,10 +611,18 @@ function deliverCommit(project, say) {
   const msgs = readJsonFile(messagesFile(project));
   if (!msgs) die(`ship: falta ${posix(messagesFile(project))} con el mensaje de cada workspace`);
   const done = [];
+  // El commit propio de cada workspace queda anotado: correr --commit otra vez (o después de una falla
+  // a medias) no lo repite ni lo toma por un HEAD movido, y sigue a la pregunta del push.
+  const commits = d.commits || {};
   for (const name of d.order) {
     const ws = project.workspaces.find((w) => w.name === name);
     const m = msgs[name];
     if (!ws || !m || !m.asunto || !String(m.asunto).trim()) die(`ship: falta el asunto de ${name} en ${posix(messagesFile(project))}`);
+    if (commits[name] && commits[name] === git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim()) {
+      say(`${name}: ya commiteado en ${commits[name].slice(0, 10)}; no lo repito`);
+      done.push(name);
+      continue;
+    }
     const flag = checkFlag(project, ws);
     if (!flag.ok) {
       say(`FALLA ${name}: sin verificación vigente (${flag.reason || flag.error}); no commiteo`);
@@ -638,9 +646,11 @@ function deliverCommit(project, say) {
       finish(project, d, 'fail', 'el commit no es lo verificado', say);
       return 1;
     }
+    commits[name] = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
+    fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, commits }, null, 2) + '\n');
     done.push(name);
   }
-  fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, committedAt: new Date().toISOString() }, null, 2) + '\n');
+  fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, commits, committedAt: d.committedAt || new Date().toISOString() }, null, 2) + '\n');
   if (d.soloCommit) {
     finish(project, d, 'ok', `solo commit: ${done.join(', ')}`, say);
     return 0;
