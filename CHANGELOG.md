@@ -2,6 +2,16 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.4] - 2026-11-05
+
+Sale de dos sesiones de academico del mismo día con la 0.8.3, las dos en el checkout por pedido de la persona, sobre informes-front y api-informes, que no tienen remoto. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.973 a 14.004 líneas.
+
+### Corregido
+- Un repo sin remoto que está en otra rama se queda en ella: `issue-branch.js check` ya no recomienda crear la rama del issue desde un `main` local que va atrás, y `create` no la mueve, tampoco con `--desde-otra`. Lo mismo que ya hacía el worktree de un repo sin remoto. El registro del issue no anota esa rama, que es de la persona.
+- Sin `specPattern`, verify no arma la lista de código sin spec, que era todo lo tocado con los propios tests (api-informes, Maven); lo dice en una línea.
+- `start` no avisa del plan anterior cuando ese plan ya se entregó; el aviso queda para uno sin entregar.
+- El frontmatter de `arnes:worktree` vuelve a ser YAML válido: la 0.8.3 lo dejó con «: » sin comillas, y Claude Code cargaba la skill sin descripción ni `disable-model-invocation`. El test de skills falla con un valor así.
+
 ## [0.8.3] - 2026-11-05
 
 Worktree aislado: la raíz es la puerta y el worktree es la casa. Sale de ocho sesiones de renova365 que corrieron a la vez el 2026-11-04 con la 0.8.2 y de una de academico el 2026-11-05. Los arreglos de ruido de la 0.8.2 funcionaron; quedaron dos frentes. En los gates, que son el único control de calidad cuando casi nadie lee el código, había un falso verde y bloqueos injustos. En el aislamiento, lo que hacía una sesión se escapaba del worktree o lo heredaba otra. El criterio de la persona: los worktrees sueltos, las sesiones olvidadas y la configuración imperfecta del proyecto son el flujo natural, y el arnés convive con eso. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.939 a 13.973 líneas.
