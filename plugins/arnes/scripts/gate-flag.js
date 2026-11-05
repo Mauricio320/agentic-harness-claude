@@ -121,14 +121,16 @@ const ORIGIN_MS = 60 * 60 * 1000;
 
 // La configuración del arnés (la composición y el .claude/harness.json de cada repo) que difiere de
 // su HEAD: { ruta relativa a la raíz: sha256 del contenido, o "borrado" }. Lo que trae un checkout, un
-// pull o un merge llega igual al árbol y al HEAD, así que no cuenta; lo escrito a mano, sí.
+// pull o un merge llega igual al árbol y al HEAD, así que no cuenta; lo escrito a mano, sí. Fuera de un
+// repo (la raíz de una carpeta antes de hacerla repo de carpeta) cuenta su contenido: el git init que la
+// persona corre en su terminal deja el mismo archivo sin versionar, y eso no es un cambio de reglas.
 function manifestState(project) {
   // El de un repo que lo perdió también: la composición lo sigue listando, ya sin manifiesto.
   const files = [...new Set([project.file, ...project.workspaces.map((w) => w.manifest || (w.repo && path.join(w.repo, MANIFEST))).filter(Boolean)])];
   const out = {};
   for (const f of files) {
     const r = git(path.dirname(path.dirname(f)), ['status', '--porcelain', '--', MANIFEST]);
-    if (r.status !== 0 || !r.stdout.trim()) continue;
+    if (r.status === 0 && !r.stdout.trim()) continue;
     out[posix(path.relative(project.root, f)) || MANIFEST] = fs.existsSync(f) ? crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex') : 'borrado';
   }
   return out;

@@ -270,6 +270,19 @@ test('(c) con stop_hook_active deja pasar con aviso y anota el pendiente', () =>
 
 // ---------- (d) la configuración del arnés ----------
 
+test('(d) el git init de la raíz que la hace repo de carpeta no es un cambio de configuración; editarla además, sí', () => {
+  const { root, api } = folder();
+  promptAt(api);
+  h.git(root, 'init', '-q', '-b', 'main');
+  let r = stop(api);
+  assert.notEqual(r.out && r.out.decision, 'block', 'el mismo archivo, ahora sin versionar: antes bloqueaba a otra sesión');
+  promptAt(api);
+  fs.appendFileSync(path.join(root, '.claude', 'harness.json'), '\n');
+  r = stop(api);
+  assert.equal(r.out.decision, 'block');
+  assert.match(r.out.reason, /cambió la configuración del arnés/);
+});
+
 test('(d) la configuración cambiada por el shell en el turno bloquea una vez; lo de antes, un pull o init, no', () => {
   const root = h.tmp('stop-config');
   h.repo(root, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
