@@ -83,9 +83,12 @@ function selectSpecs(ws, files) {
   return { mode: 'specs', specs: [...specs].sort() };
 }
 
-// Código sin spec: en codeGlobs, existe, no es un spec y ningún patrón encuentra el suyo en disco.
+// Código sin spec: en codeGlobs, existe, no es un spec y ningún patrón encuentra el suyo en disco. Sin
+// specPattern no se sabe dónde va el spec de nada (Maven: src/main y src/test), y la lista sería todo lo
+// tocado, specs incluidos: queda vacía.
 function missingSpecs(ws, files) {
   const patterns = [].concat(ws.specPattern || []);
+  if (!patterns.length) return [];
   const res = patterns.map(patternRegExp);
   return files.filter(
     (f) =>

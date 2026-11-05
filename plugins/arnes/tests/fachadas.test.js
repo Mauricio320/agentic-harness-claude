@@ -198,6 +198,14 @@ test('build.js input abre la etapa del workspace una vez, y end la cierra, dice 
   assert.equal(run(dir, 'build.js', ['end', '--ws', 'api', '--result', 'quizá']).status, 2);
 });
 
+test('verify.js run sin specPattern: no pide specs nuevos y lo dice', () => {
+  const { dir } = approved({ specPattern: undefined });
+  h.write(dir, 'src/b.ts', 'nuevo\n');
+  const r = run(dir, 'verify.js', ['run']);
+  assert.match(r.stdout, /^api: sin specPattern en el manifiesto, no sé dónde va el spec de cada archivo; no pido specs nuevos$/m, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /^test-writer:/m);
+});
+
 test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests corre el gate, escribe la bandera y el informe', () => {
   const { dir } = approved();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');

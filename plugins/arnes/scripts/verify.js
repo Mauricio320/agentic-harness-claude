@@ -4,7 +4,8 @@
 //   run [--base <commit>] [--tras-tests]
 //     anota start verify y busca los workspaces con tocados respecto del base (HEAD, o el primer padre
 //     de un merge ya commiteado, que la skill pasa con --base). Sin --tras-tests, si algún workspace
-//     adoptable tiene código nuevo sin spec (test-select.js --missing), arma su entrada de
+//     adoptable tiene código nuevo sin spec (test-select.js --missing; sin specPattern no busca y lo
+//     dice), arma su entrada de
 //     test-writer (build.js input --para test-writer) y se detiene: la skill lanza un test-writer por
 //     cada entrada y vuelve con --tras-tests, que ya no se detiene y deja en el informe lo que siga
 //     sin spec. Después corre el gate de cada workspace adoptable (ci-gate.js --ws <ws> --base <base>),
@@ -114,6 +115,9 @@ function run(project, base, afterTests, integration = false) {
     return writers.length ? 3 : 0;
   }
   if (!afterTests) {
+    for (const { ws, files } of adoptable.filter((x) => !kept.has(x.ws.name) && ![].concat(x.ws.specPattern || []).length)) {
+      if (files.some((f) => matchAny(ws.codeGlobs, f))) say(`${ws.name}: sin specPattern en el manifiesto, no sé dónde va el spec de cada archivo; no pido specs nuevos`);
+    }
     const writers = [];
     for (const { ws } of adoptable) {
       const files = missing.get(ws.name);

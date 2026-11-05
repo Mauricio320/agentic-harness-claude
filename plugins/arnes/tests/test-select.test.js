@@ -107,6 +107,14 @@ test('sin specPattern, sin --ws o con un workspace desconocido → 2', () => {
   assert.equal(h.run('test-select.js', ['--ws', 'nadie'], { cwd: dir }).status, 2);
 });
 
+test('missingSpecs sin specPattern: lista vacía, no todo lo tocado con los propios tests (Maven)', () => {
+  const ws = { dir: h.tmp('select-maven'), codeGlobs: ['**/*.java'] };
+  const files = ['src/main/java/x/Pago.java', 'src/test/java/x/PagoTest.java'];
+  for (const f of files) h.write(ws.dir, f, 'x\n');
+  assert.deepEqual(ts.missingSpecs(ws, files), []);
+  assert.deepEqual(ts.missingSpecs({ ...ws, specPattern: '{dir}/{name}Test.java' }, files), ['src/main/java/x/Pago.java'], 'con patrón, lo de siempre');
+});
+
 test('--missing: solo el código nuevo (agregado o sin trackear) sin spec, sin specs ni no-código', () => {
   const dir = repo();
   fs.appendFileSync(path.join(dir, 'src/sin-spec.ts'), 'modificado, no es nuevo\n');
