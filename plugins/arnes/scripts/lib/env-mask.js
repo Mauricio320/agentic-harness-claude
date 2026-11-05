@@ -97,4 +97,25 @@ function maskEnv(text, reveal = []) {
   return { lines: out.length > MAX_LINES ? [...out.slice(0, MAX_LINES), `… y ${out.length - MAX_LINES} línea(s) más`] : out, env: true };
 }
 
-module.exports = { DEFAULT_REVEAL, maskEnv, maskValue, revealed, visible };
+// Un JSON de configuración con credenciales (.mcp.json): las claves enteras; enmascarados los valores
+// bajo env y headers, los de una clave que nombra usuario, clave, llave o token, y toda URL (de la que
+// quedan el host y el puerto). → { lines, json }: json es false si no parsea.
+function maskJson(text, reveal = []) {
+  let data;
+  try {
+    data = JSON.parse(String(text).replace(/^﻿/, ''));
+  } catch {
+    return { lines: [], json: false };
+  }
+  const walk = (v, key, inside) => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, key, inside));
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k, inside || /^(env|headers)$/i.test(k))]));
+    if (typeof v !== 'string' || !v) return v;
+    if (revealed(key, reveal) || (!SENSITIVE.test(key) && revealed(key, DEFAULT_REVEAL))) return v;
+    return inside || SENSITIVE.test(key) || SENSITIVE.test(v) || URL_RE.test(v) ? maskValue(v) : v;
+  };
+  const out = JSON.stringify(walk(data, '', false), null, 2).split('\n');
+  return { lines: out.length > MAX_LINES ? [...out.slice(0, MAX_LINES), `… y ${out.length - MAX_LINES} línea(s) más`] : out, json: true };
+}
+
+module.exports = { DEFAULT_REVEAL, maskEnv, maskJson, maskValue, revealed, visible };

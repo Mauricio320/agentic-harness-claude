@@ -55,6 +55,24 @@ test('un archivo sin forma de .env, como una llave privada, no trae nada', () =>
   assert.deepEqual(maskEnv('-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END RSA PRIVATE KEY-----'), { lines: [], env: false });
 });
 
+test('.mcp.json se niega por Read y por Bash, y muestra su estructura con las credenciales enmascaradas', () => {
+  const root = h.tmp('mcp-json');
+  h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api') });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
+  const mcp = { mcpServers: { postgres: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-postgres', 'postgresql://lector:clave9876@10.0.0.5:5455/qa'], env: { PG_PASSWORD: 'clave9876', PG_HOST: '10.0.0.5' } } } };
+  h.write(root, '.mcp.json', JSON.stringify(mcp, null, 2));
+  const reason = (out) => out.hookSpecificOutput.permissionDecisionReason;
+  const read = reason(h.hook('read-guard', { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: path.join(root, '.mcp.json') }, cwd: root }).out);
+  const cat = reason(h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'cat .mcp.json | sed "s/x/y/"' }, cwd: root }).out);
+  for (const r of [read, cat]) {
+    assert.match(r, /trae las credenciales de los servidores MCP/);
+    assert.match(r, /"command": "npx"/, 'la estructura se ve');
+    assert.match(r, /"PG_HOST": "10\.0\.0\.5"/, 'el host dice a qué base apunta');
+    assert.match(r, /postgresql:\/\/\*\*\*:\*\*\*@10\.0\.0\.5:5455\/qa/);
+    assert.doesNotMatch(r, /clave9876|lector/, 'ni la clave ni el usuario, ni en env ni en la URL de args');
+  }
+});
+
 test('read-guard y el guard niegan leer el .env con su contenido enmascarado, y envReveal del workspace se respeta', () => {
   const dir = h.tmp('env-mask');
   h.repo(dir, { '.gitignore': '.env\n', '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', envReveal: ['PORT', '*_HOST'] })) });

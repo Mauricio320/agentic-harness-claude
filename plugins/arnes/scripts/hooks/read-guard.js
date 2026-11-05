@@ -23,7 +23,7 @@ const path = require('path');
 const { run, deny } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { maskEnv } = require('../lib/env-mask.js');
+const { maskEnv, maskJson } = require('../lib/env-mask.js');
 
 const MAX_BYTES = 256 * 1024;
 
@@ -34,6 +34,7 @@ const NAMES = [
   [/^(\.netrc|\.pgpass|\.git-credentials|credentials(\.[a-z]+)?)$/i, 'es un archivo de credenciales'],
   [/^id_(rsa|dsa|ecdsa|ed25519)$|\.(pem|key|p12|pfx|keystore|jks)$/i, 'es una llave privada o un certificado'],
   [/\.token$|^token\.json$/i, 'es un token'],
+  [/^\.mcp\.json$/i, 'trae las credenciales de los servidores MCP'],
 ];
 
 function toPath(cwd, p) {
@@ -75,7 +76,11 @@ function maskedFile(abs, project) {
   const hit = project && resolveWorkspace(project, abs);
   const reveal = (hit && hit.ws.envReveal) || [];
   const { lines, env } = maskEnv(text, reveal);
-  if (!env) return 'No tiene forma de .env, así que no muestro nada de su contenido.';
+  if (!env) {
+    const j = maskJson(text, reveal);
+    if (j.json) return ['Su contenido, enmascarado (las claves completas; de los valores de env y headers, de los que nombran usuario, clave, llave o token y de las URL, su forma y a lo sumo sus tres primeros caracteres, o el host y el puerto):', ...j.lines].join('\n');
+    return 'No tiene forma de .env, así que no muestro nada de su contenido.';
+  }
   if (!lines.length) return 'Está vacío.';
   const whole = reveal.length ? `; enteras además ${reveal.join(', ')}, que declara envReveal` : '';
   return [`Su contenido, enmascarado (los nombres completos; enteros, el host, el puerto, la base y el ambiente, que dicen a qué base apunta; de los demás valores, su forma y a lo sumo sus tres primeros caracteres; de una URL, el host, el puerto y, si es de una base, su nombre${whole}):`, ...lines].join('\n');
