@@ -14,6 +14,8 @@ function frontmatter(file) {
   const fm = {};
   for (const l of m[1].split(/\r?\n/)) {
     const kv = l.match(/^([a-z-]+):\s*(.*)$/);
+    // Un valor sin comillas con «: » o « #» no es YAML válido, y Claude Code carga la skill sin metadatos.
+    if (kv && !/^["'[{>|]/.test(kv[2])) assert.doesNotMatch(kv[2], /: | #/, `${file}: ${kv[1]} sin comillas con «: » o « #»`);
     if (kv) fm[kv[1]] = kv[2].replace(/^["']|["']$/g, '');
   }
   return { fm, lines: text.split(/\r?\n/).length };

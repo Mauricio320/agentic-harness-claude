@@ -1,6 +1,6 @@
 ---
 name: worktree
-description: Ver e integrar los worktrees que el arnés tiene registrados para el issue, los de los devs que build lanzó aislados cuando dos tareas chocaban en los mismos archivos. Integrar es git merge --no-ff en la rama del issue, nunca squash. Para trabajar un issue no hace falta: eso es el worktree nativo de Claude Code.
+description: Ver e integrar los worktrees que el arnés tiene registrados para el issue, los de los devs que build lanzó aislados cuando dos tareas chocaban en los mismos archivos. Integrar es git merge --no-ff en la rama del issue, nunca squash. Para trabajar un issue no hace falta, porque para eso está el worktree nativo de Claude Code.
 argument-hint: "integrate <nombre> | close <nombre> | list [--all] | pending"
 disable-model-invocation: true
 ---
