@@ -94,6 +94,31 @@ test('en otra rama: check hace la pregunta con recomendación y create no la mue
   assert.deepEqual([ninguno.detail, ninguno.faltan], [`${NAME} en ningún workspace`, ['api', 'front']], 'sin rama en ninguno, la nota igual queda');
 });
 
+test('un repo sin remoto en otra rama se queda en ella sin preguntar, aun con --desde-otra: su main local va atrás', () => {
+  const root = folder();
+  at(root, 'front', 'remote', 'remove', 'origin');
+  at(root, 'front', 'switch', '-q', '-c', 'feature/x');
+  fs.appendFileSync(path.join(root, 'front', 'src/a.ts'), 'a medias\n');
+  const c = ib(root, 'check');
+  assert.equal(c.status, 0, c.stdout);
+  assert.match(c.stdout, /^front: en feature\/x · por defecto main · 1 archivo\(s\) sin commitear · sin remoto origin\n {2}se construye en feature\/x: el repo no tiene remoto, y main local no sirve de base$/m);
+  assert.doesNotMatch(c.stdout, /pregunta:/);
+  assert.match(c.stdout, new RegExp(`^rama del issue: ${NAME}, feature/x$`, 'm'));
+  for (const args of [['create'], ['create', '--desde-otra']]) {
+    const r = ib(root, ...args);
+    assert.equal(r.status, 0, r.stdout);
+    assert.match(r.stdout, /^front: se queda en feature\/x: el repo no tiene remoto, y main local no sirve de base$/m);
+    assert.equal(branch(root, 'front'), 'feature/x');
+    assert.match(at(root, 'front', 'status', '--porcelain'), /src\/a\.ts/, 'no toca lo que había');
+  }
+  assert.equal(branch(root, 'api'), NAME, 'el que tiene remoto sigue el camino de siempre');
+  const note = tl.read(root).filter((e) => e.result === 'rama').pop();
+  assert.deepEqual([note.detail, note.faltan], [`${NAME} en api, feature/x en front`, undefined]);
+  assert.match(plan(root), new RegExp(`^Rama: ${NAME}, creada al aprobar el plan en api; feature/x en front: el repo no tiene remoto, se queda en la rama del checkout$`, 'm'));
+  const rec = fs.readdirSync(path.join(root, '.tmp', 'harness', 'issues')).map((f) => JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'harness', 'issues', f), 'utf8')));
+  assert.deepEqual(rec.flatMap((r) => r.branches || []).map((b) => b.branch), [NAME], 'la rama que se queda es de la persona: el registro no la anota');
+});
+
 test('con el sí a la recomendación: desde otra rama limpia, rama nueva desde main al día; con cambios sin commitear, no sigue', () => {
   const root = folder();
   at(root, 'api', 'switch', '-q', '-c', 'feature/x');

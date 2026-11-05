@@ -12,7 +12,7 @@
 //   check   dentro de un worktree, la rama del issue. En el checkout: git fetch origin y, por repo, la
 //           rama actual, la por defecto, los cambios sin commitear y cuánto va atrás de origin; si
 //           alguno está en otra rama, imprime la pregunta con recomendación que plan pone en el
-//           mensaje de aprobación
+//           mensaje de aprobación, salvo en un repo sin remoto, que se queda en su rama sin preguntar
 //   create [--nombre <slug>] [--desde-otra]
 //           dentro de un worktree nativo: materializa los repos del plan si es el de una carpeta (worktree-carpeta.js),
 //           en un repo solo renombra worktree-<nombre> a la rama del issue si no se subió (renameNative,
@@ -23,7 +23,8 @@
 //           En otra rama, solo con --desde-otra (la persona aceptó la recomendación): con cambios
 //           sin commitear se niega, porque git se los llevaría a la rama nueva; si no, adelanta la
 //           por defecto local si es fast-forward y crea la rama desde origin/<defaultBranch>.
-//           Sin --desde-otra, un repo en otra rama no se mueve. Si la carpeta no es un repo, la negativa
+//           Sin --desde-otra, un repo en otra rama no se mueve; sin remoto, no se mueve nunca y su rama
+//           actual queda como la del issue. Si la carpeta no es un repo, la negativa
 //           por cambios sin commitear ofrece primero hacerla repo de carpeta (folderRepo).
 //           Una rama que ya existe se reutiliza si es la actual o está en el mismo commit; si no, se
 //           niega, como ship
@@ -111,8 +112,14 @@ function stateOf(ws) {
   const origin = `origin/${def}`;
   const hasOrigin = refExists(ws.gitRoot, origin);
   const count = (range) => Number(git(ws.gitRoot, ['rev-list', '--count', range]).stdout.trim()) || 0;
-  return { def, branch, dirty, origin, hasOrigin, behind: hasOrigin ? count(`HEAD..${origin}`) : 0, onDefault: branch === def };
+  const remote = Boolean(git(ws.gitRoot, ['remote']).stdout.trim());
+  return { def, branch, dirty, origin, hasOrigin, remote, behind: hasOrigin ? count(`HEAD..${origin}`) : 0, onDefault: branch === def };
 }
+
+// Un repo sin remoto en otra rama se queda en ella: ahí se acumula el trabajo local, y su rama por
+// defecto puede ir atrás (informes en academico: main sin el asistente). Lo mismo hace el worktree
+// (worktree-carpeta.js bring).
+const keeps = (s) => !s.onDefault && !s.remote;
 
 function fetch(ws) {
   if (!git(ws.gitRoot, ['remote']).stdout.trim()) return 'sin remoto origin';
@@ -166,16 +173,19 @@ function check(project) {
   const route = worktreeRoute(project);
   console.log(`en el checkout${route.ok ? ', como pidió la persona' : `: ${route.why}`}`);
   let other = 0;
+  const names = new Set();
   for (const ws of wss) {
     const f = fetch(ws);
     const s = stateOf(ws);
     console.log(`${ws.name}: en ${s.branch} · por defecto ${s.def}${s.dirty ? ` · ${s.dirty} archivo(s) sin commitear` : ''}${s.hasOrigin && s.behind ? ` · ${s.behind} commit(s) atrás de ${s.origin}` : ''}${f ? ` · ${f}` : ''}`);
-    if (!s.onDefault) {
+    names.add(keeps(s) ? s.branch : name);
+    if (keeps(s)) console.log(`  se construye en ${s.branch}: el repo no tiene remoto, y ${s.def} local no sirve de base`);
+    else if (!s.onDefault) {
       other++;
       console.log(`  pregunta: Estás en ${s.branch}. Recomiendo crear ${name} desde ${s.def} actualizado para este issue; la alternativa es construirlo aquí mismo, en ${s.branch}, si este pedido es continuación de ese trabajo.`);
     }
   }
-  console.log(`rama del issue: ${name}`);
+  console.log(`rama del issue: ${[...names].join(', ')}`);
   return other ? 1 : 0;
 }
 
@@ -226,6 +236,7 @@ function create(project, wanted, fromOther, route) {
   if (git(project.root, ['check-ref-format', '--branch', name]).status !== 0) die(`issue-branch: "${name}" no es un nombre de rama válido`);
   const faltan = [];
   const done = [];
+  const kept = [];
   for (const ws of workspaces(project, plan)) {
     const say = (m) => console.log(`${ws.name}: ${m}`);
     const nl = nativeLine(project, ws);
@@ -239,6 +250,11 @@ function create(project, wanted, fromOther, route) {
     if (s.branch === name) {
       say(`reutiliza ${name} (ya es la actual)`);
       done.push(ws.name);
+      continue;
+    }
+    if (keeps(s)) {
+      say(`se queda en ${s.branch}: el repo no tiene remoto, y ${s.def} local no sirve de base`);
+      kept.push({ ws, branch: s.branch });
       continue;
     }
     if (!s.onDefault && !fromOther) {
@@ -283,12 +299,16 @@ function create(project, wanted, fromOther, route) {
     say(`crea ${name} desde ${from === 'HEAD' ? s.def : from} (${git(ws.gitRoot, ['rev-parse', '--short', 'HEAD']).stdout.trim()})`);
     done.push(ws.name);
   }
-  if (done.length || faltan.length) append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `${name} en ${done.join(', ') || 'ningún workspace'}`, faltan: faltan.length ? faltan : undefined });
-  if (done.length) {
-    notePlan(project, `${name}, creada al aprobar el plan en ${done.join(', ')}`);
+  const here = kept.map((k) => `${k.branch} en ${k.ws.name}`);
+  const where = [...(done.length || !here.length ? [`${name} en ${done.join(', ') || 'ningún workspace'}`] : []), ...here];
+  if (done.length || faltan.length || kept.length) append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: where.join(', '), faltan: faltan.length ? faltan : undefined });
+  if (done.length || kept.length) {
+    notePlan(project, [done.length && `${name}, creada al aprobar el plan en ${done.join(', ')}`, here.length && `${here.join(', ')}: el repo no tiene remoto, se queda en la rama del checkout`].filter(Boolean).join('; '));
+    // La rama que se queda es de la persona, no del issue: el registro no la anota, como stay, para que
+    // /arnes:cerrar no la cuente como borrable.
     issues.record(project, { branches: workspaces(project, plan).filter((ws) => done.includes(ws.name)).map((ws) => ({ repo: posix(ws.gitRoot), branch: name })), files: [planPath(project)] });
   }
-  console.log(`rama: ${name}`);
+  console.log(`rama: ${[...new Set([...(done.length || !kept.length ? [name] : []), ...kept.map((k) => k.branch)])].join(', ')}`);
   return faltan.length ? 1 : 0;
 }
 
