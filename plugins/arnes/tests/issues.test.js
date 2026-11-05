@@ -183,3 +183,11 @@ test('un worktree con el lock de una sesión que ya terminó se desenlaza, se de
   assert.doesNotMatch(h.git(dir, 'worktree', 'list'), /cobros/);
   assert.ok(sentinel(dir), 'el node_modules del principal sigue: se desenlazó antes del remove --force');
 });
+
+test('las referencias de MR de un issue en dos repos llevan el repo: api!586 y client!586 no son el mismo', () => {
+  const { describe } = require('../scripts/lib/issues.js');
+  const at = new Date().toISOString();
+  const r = { slug: 'x', state: 'subido', states: [{ state: 'subido', at }], mr: [{ repo: 'C:/r/api', ref: '586' }, { repo: 'C:/r/client', ref: '586' }] };
+  assert.match(describe(r), /MR api!586, client!586 esperando aprobación/);
+  assert.match(describe({ ...r, mr: [{ repo: 'C:/r/api', ref: '586' }] }), /MR !586 esperando/, 'con un solo repo, como antes');
+});
