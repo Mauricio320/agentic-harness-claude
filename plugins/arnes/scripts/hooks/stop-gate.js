@@ -34,8 +34,8 @@
 // Code puede mandarlo a segundo plano y cerrar el turno con la línea base corriendo; lo dice, y los
 // cierra el primer Stop después de que el proceso termina. Si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea que la revisión la hace ship, sin bloquear. Con trabajo en
-// marcha (un build abierto en la timeline de la corrida, un start sin end, o un agente arnes:* que
-// registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
+// marcha (un build abierto en la timeline de la corrida, un verify vivo, que anota su PID como la
+// adopción, o un agente arnes:* que registró hooks/agents.js) tampoco bloquea: avisa en una línea, y el bloqueo queda para cuando no
 // hay nada en marcha. Esos tres avisos, que no bloquean, se dicen una vez por estado: el mismo texto
 // en la misma sesión calla hasta que cambie (avisos.json), para que una pregunta suelta no repita en
 // cada turno lo que la persona ya leyó.
@@ -141,7 +141,7 @@ function inProgress(project, now = Date.now()) {
   }
   const builds = [...open.values()].filter((e) => now - Date.parse(e.at) < OPEN_MAX_MS).map((e) => `build${e.ws ? ` de ${e.ws}` : ''} abierto`);
   const agents = running(project, now).map((a) => `${String(a.type).replace(/^arnes:/, '')} trabajando`);
-  return [...builds, ...agents];
+  return [...builds, ...(adopcion.running(project.root, 'verify') ? ['verify corriendo'] : []), ...agents];
 }
 
 function describe(items) {

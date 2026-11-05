@@ -39,6 +39,7 @@ const { missingSpecs, patternRegExp } = require('./test-select.js');
 const { matchAny } = require('./lib/glob.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
+const adopcion = require('./lib/adopcion.js');
 
 function node(script, args) {
   const r = spawnSync(process.execPath, [path.join(__dirname, script), ...args], { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 1 << 28 });
@@ -74,6 +75,7 @@ function fresh(project, ws, base) {
 }
 
 function run(project, base, afterTests, integration = false) {
+  adopcion.begin(project.root, 'verify');
   if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
   const found = [];
   for (const ws of project.workspaces) {

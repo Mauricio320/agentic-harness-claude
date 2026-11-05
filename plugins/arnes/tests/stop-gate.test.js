@@ -489,6 +489,20 @@ test('con un build abierto en la timeline o un agente del arnés corriendo, el S
   assert.equal(stop(api).out.decision, 'block', 'el agente terminó y el otro no es del arnés');
 });
 
+test('un verify vivo en segundo plano no deja bloquear por código sin verificar; uno muerto, sí', () => {
+  const { root, api } = folder();
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+  aprobado(root);
+  const pidFile = path.join(root, '.tmp', 'harness', 'verify.json');
+  fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), paso: null }));
+  const r = stop(api);
+  assert.equal(r.out.decision, undefined, 'el verify sigue corriendo: antes eran bloqueos injustos');
+  assert.match(r.out.systemMessage, /trabajo en marcha \(verify corriendo\)/);
+  fs.writeFileSync(pidFile, JSON.stringify({ pid: 999999, at: new Date().toISOString(), paso: null }));
+  assert.equal(stop(api).out.decision, 'block', 'un PID que ya no existe no cuenta');
+  assert.ok(!fs.existsSync(pidFile), 'y se borra');
+});
+
 test('un build abierto de una corrida ya entregada, o uno de hace más de dos horas, no frena el bloqueo', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');

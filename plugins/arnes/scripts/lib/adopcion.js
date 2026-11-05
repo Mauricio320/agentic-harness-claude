@@ -3,7 +3,8 @@
 // quedan en <raíz>/.tmp/harness/adopcion.json, y se borra al salir. El Stop no cierra un init o setup
 // abierto mientras ese proceso viva: Claude Code puede mandar adopt.js a segundo plano y cerrar el
 // turno con la línea base todavía corriendo. Un archivo de un proceso que ya no existe, o de más de dos
-// horas, no cuenta y se borra.
+// horas, no cuenta y se borra. verify.js usa lo mismo con el nombre verify: el Stop no pide verificar
+// mientras un verify vive, aunque Claude Code lo haya mandado a segundo plano.
 //   begin(root)          anota este proceso; al salir, por cualquier camino que pase por exit, se borra
 //   step(root, paso, fn) corre fn, anota el paso en el archivo y en la timeline (start y end de la
 //                        etapa "adopcion", con el paso en ws, para que arnes-ui lo pinte mientras dura,
@@ -16,19 +17,19 @@ const { alive } = require('./app.js');
 const { append } = require('./timeline.js');
 
 const MAX_MS = 2 * 60 * 60 * 1000;
-const fileOf = (root) => path.join(root, '.tmp', 'harness', 'adopcion.json');
+const fileOf = (root, name = 'adopcion') => path.join(root, '.tmp', 'harness', `${name}.json`);
 
-function write(root, paso) {
-  fs.mkdirSync(path.dirname(fileOf(root)), { recursive: true });
-  fs.writeFileSync(fileOf(root), `${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), paso })}\n`);
+function write(root, paso, name) {
+  fs.mkdirSync(path.dirname(fileOf(root, name)), { recursive: true });
+  fs.writeFileSync(fileOf(root, name), `${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), paso })}\n`);
 }
 
-function begin(root) {
-  write(root, null);
+function begin(root, name) {
+  write(root, null, name);
   process.on('exit', () => {
     try {
-      const d = JSON.parse(fs.readFileSync(fileOf(root), 'utf8'));
-      if (d.pid === process.pid) fs.rmSync(fileOf(root), { force: true });
+      const d = JSON.parse(fs.readFileSync(fileOf(root, name), 'utf8'));
+      if (d.pid === process.pid) fs.rmSync(fileOf(root, name), { force: true });
     } catch {}
   });
 }
@@ -45,15 +46,15 @@ function step(root, paso, fn) {
   return { code, ms };
 }
 
-function running(root) {
+function running(root, name) {
   let d;
   try {
-    d = JSON.parse(fs.readFileSync(fileOf(root), 'utf8'));
+    d = JSON.parse(fs.readFileSync(fileOf(root, name), 'utf8'));
   } catch {
     return null;
   }
   if (d.pid !== process.pid && alive(d.pid) && Date.now() - Date.parse(d.at) < MAX_MS) return { pid: d.pid, paso: d.paso };
-  fs.rmSync(fileOf(root), { force: true });
+  fs.rmSync(fileOf(root, name), { force: true });
   return null;
 }
 
