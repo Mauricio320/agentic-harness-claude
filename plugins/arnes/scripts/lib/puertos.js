@@ -43,15 +43,19 @@ const appPort = (l) => {
 // En las copias de .env, [{ ws, file }]: cada variable que termina en PORT con valor numérico suma el
 // desplazamiento, salvo la de una base (DB_PORT, MYSQL_PORT…), y cada localhost:<puerto> o
 // 127.0.0.1:<puerto> que apunta al puerto original de otro workspace pasa al nuevo, para que el front
-// del worktree hable con su back. Con 0 no se toca nada. → el mapa [{ ws, from, to }]
-function shiftPorts(files, offset) {
+// del worktree hable con su back. Con 0 no se toca nada. extra son puertos propios que no están en un
+// .env, [{ ws, port }]: el de ng serve, para que dos clients no choquen y el CORS de la api del worktree
+// apunte al suyo. → el mapa [{ ws, from, to }]
+function shiftPorts(files, offset, extra = []) {
   const own = new Map();
+  const add = (ws, port) => own.set(ws, [...new Set([...(own.get(ws) || []), port])]);
   for (const f of files) {
     for (const l of fs.readFileSync(f.file, 'utf8').split(/\r?\n/)) {
       const m = appPort(l);
-      if (m) own.set(f.ws, [...new Set([...(own.get(f.ws) || []), m.port])]);
+      if (m) add(f.ws, m.port);
     }
   }
+  for (const e of extra) add(e.ws, e.port);
   const map = [...own].flatMap(([ws, ports]) => ports.map((from) => ({ ws, from, to: from + offset })));
   if (!offset) return map;
   for (const f of files) {
@@ -89,4 +93,17 @@ function usedOffsets(w) {
 // desde aquí con ellos en el entorno del proceso.
 const portsLine = (ports) => `puertos de este worktree: ${ports.map.map((m) => `${m.ws} ${m.from} → ${m.to}`).join(', ')}; la app se levanta desde aquí con ellos: pide que la levanten y quedan en su entorno, por encima de cualquier .env`;
 
-module.exports = { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine };
+// El puerto de ng serve de una carpeta: el "port" de su angular.json, o 4200; null si no es Angular. ng
+// serve no lee PORT del .env, así que su puerto se corre aparte.
+function ngPort(dir) {
+  let text;
+  try {
+    text = fs.readFileSync(path.join(dir, 'angular.json'), 'utf8');
+  } catch {
+    return null;
+  }
+  const m = text.match(/"port"\s*:\s*(\d+)/);
+  return m ? Number(m[1]) : 4200;
+}
+
+module.exports = { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine, ngPort };

@@ -53,7 +53,7 @@ const { read, planState } = require('./lib/timeline.js');
 const rescate = require('./lib/rescate.js');
 const { fetchOrigin } = require('./lib/fetch.js');
 const issues = require('./lib/issues.js');
-const { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine } = require('./lib/puertos.js');
+const { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine, ngPort } = require('./lib/puertos.js');
 
 const FILE = 'materializado.json';
 
@@ -211,15 +211,17 @@ function ports(f, state) {
     const hit = f.main.workspaces.find((w) => key(w.repo) === key(r.main) && key(path.join(r.path, path.relative(w.repo, w.dir))) === key(path.dirname(c)));
     return hit ? hit.name : path.basename(r.repo);
   };
-  const fresh = state.repos.filter((r) => r.status === 'vivo').flatMap((r) => r.copies.filter((c) => !done.has(c) && fs.existsSync(c)).map((c) => ({ ws: wsOfCopy(r, c), file: c })));
-  if (fresh.length) {
+  const live = state.repos.filter((r) => r.status === 'vivo');
+  const fresh = live.flatMap((r) => r.copies.filter((c) => !done.has(c) && fs.existsSync(c)).map((c) => ({ ws: wsOfCopy(r, c), file: c })));
+  const ng = p ? [] : live.flatMap((r) => f.main.workspaces.filter((w) => key(w.repo) === key(r.main)).map((w) => ({ ws: w.name, port: ngPort(path.join(r.path, path.relative(w.repo, w.dir))) }))).filter((e) => e.port);
+  if (fresh.length || ng.length) {
     let offset = p && p.offset;
     if (!offset) {
       const used = usedOffsets(f.w);
       offset = 10;
       while (used.has(offset)) offset += 10;
     }
-    const map = shiftPorts(fresh, offset);
+    const map = shiftPorts(fresh, offset, ng);
     p = { offset, map: [...((p && p.map) || []), ...map], files: [...done, ...fresh.map((x) => x.file)], at: new Date().toISOString() };
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(p, null, 2) + '\n');
@@ -478,11 +480,12 @@ function equip(w) {
     ports = JSON.parse(fs.readFileSync(state, 'utf8'));
   } catch {
     const files = wss.flatMap((ws) => envFiles(ws.dir).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
-    if (files.length) {
+    const ng = wss.map((ws) => ({ ws: ws.name, port: ngPort(ws.dir) })).filter((e) => e.port);
+    if (files.length || ng.length) {
       const used = usedOffsets(w);
       let offset = 10;
       while (used.has(offset)) offset += 10;
-      ports = { offset, map: shiftPorts(files, offset), at: new Date().toISOString() };
+      ports = { offset, map: shiftPorts(files, offset, ng), at: new Date().toISOString() };
       fs.mkdirSync(path.dirname(state), { recursive: true });
       fs.writeFileSync(state, JSON.stringify(ports, null, 2) + '\n');
     }

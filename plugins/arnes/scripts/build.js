@@ -65,7 +65,7 @@ const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
-const { help, die } = require('./lib/exec.js');
+const { git, lines, help, die } = require('./lib/exec.js');
 const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
 const { spawn } = require('child_process');
 const apps = require('./lib/app.js');
@@ -76,7 +76,7 @@ const { append, read, tasks, personYes } = require('./lib/timeline.js');
 const { planWorkspaces } = require('./lib/plan.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
-const { envFiles, NATIVE_PORTS } = require('./lib/puertos.js');
+const { envFiles, ngPort, NATIVE_PORTS } = require('./lib/puertos.js');
 const { equipar } = require('./worktree-carpeta.js');
 const ledger = require('./worktree-ledger.js');
 
@@ -432,9 +432,18 @@ function remoteBlocked(project, ws) {
   return true;
 }
 
+// El mapa de puertos del worktree nativo (lib/puertos.js), o [] fuera de uno.
+function nativeMap(project) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(harnessDir(project), NATIVE_PORTS), 'utf8')).map || [];
+  } catch {
+    return [];
+  }
+}
+
 function app(project, wsName, dry) {
   const [ws] = selectWorkspaces(project, [wsName]);
-  const cmd = appCommand(ws);
+  let cmd = appCommand(ws);
   if (!cmd) {
     console.log(`${ws.name}: no sé cómo se levanta: su package.json no trae start:dev, dev ni start; decláralo en commands.app`);
     return 1;
@@ -445,6 +454,15 @@ function app(project, wsName, dry) {
   if (!dry && remoteBlocked(project, ws)) return 1;
   const env = portEnv(project, ws);
   const vars = Object.entries(env).map(([k, v]) => `${k}=${v}`).join(', ');
+  // ng serve no lee PORT: su puerto corrido va como argumento. Y un archivo versionado del workspace
+  // que fija el puerto de otra app (environment.ts con :3001) le habla a la del principal: se avisa,
+  // porque editarlo para probar terminaría en el commit.
+  const map = nativeMap(project);
+  const ng = map.find((m) => m.ws === ws.name && m.from === ngPort(ws.dir));
+  if (ng) cmd = `${cmd}${/^npm run /.test(cmd) ? ' --' : ''} --port ${ng.to}`;
+  const others = map.filter((m) => m.ws !== ws.name);
+  const fixed = others.length ? lines(git(ws.dir, ['grep', '-l', '-E', `:(${others.map((m) => m.from).join('|')})\\b`, '--', '.', ':!*.spec.*', ':!*.test.*', ':!*.md', ':!.env*']).stdout) : [];
+  for (const file of fixed) console.log(`${ws.name}: ${file} fija el puerto de ${others.map((m) => `${m.ws} (${m.from}, aquí ${m.to})`).join(', ')}: le hablará a la app del checkout principal, no a la de este worktree; no lo edites para probar, que terminaría en el commit`);
   const dir = path.join(harnessDir(project), 'app');
   const log = path.join(dir, `${ws.name}.log`);
   if (dry) {

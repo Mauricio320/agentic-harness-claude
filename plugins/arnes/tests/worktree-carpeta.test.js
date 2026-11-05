@@ -18,7 +18,7 @@ const APP = "require('fs').writeFileSync('app-entorno.txt', `PORT=${process.env.
 
 // La carpeta-repo con api y web, cada uno clonado de su origen bare, en main; en cada origen un commit
 // más que el clon todavía no tiene. Con node_modules (y un centinela) y .env en los checkouts principales.
-function folder({ deps = true, composition = {} } = {}) {
+function folder({ deps = true, composition = {}, web = {} } = {}) {
   const root = h.tmp('carpeta');
   const remotes = h.tmp('carpeta-origen');
   for (const name of ['api', 'web']) {
@@ -29,6 +29,7 @@ function folder({ deps = true, composition = {} } = {}) {
       'src/a.ts': 'a\n',
       'app.js': APP,
       'package.json': JSON.stringify({ name, scripts: { 'start:dev': 'node app.js' } }),
+      ...(name === 'web' ? web : {}),
     });
     const bare = path.join(remotes, `${name}.git`);
     h.git(remotes, 'clone', '-q', '--bare', seed, bare);
@@ -424,4 +425,18 @@ test('una edición en el worktree de carpeta también guarda el rescate, como mu
   edit('api/src/a.ts');
   assert.notEqual(ref(), first, 'pasado el minuto, sí');
   assert.equal(h.git(api, 'show', 'refs/arnes/rescate/talleres:src/a.ts'), 'segunda edición');
+});
+
+test('un client Angular en el worktree: ng serve con su puerto corrido, el CORS de la api apunta a él y se avisa del puerto fijo de la api', () => {
+  const env = 'export const environment = { api: `http://${location.hostname}:3003/api` };\n';
+  const root = folder({ web: { 'angular.json': '{"projects":{"web":{"architect":{"serve":{"options":{}}}}}}', 'src/environments/environment.ts': env, 'src/a.spec.ts': 'http://localhost:3003\n' } });
+  h.write(root, 'api/.env', 'PORT=3003\nCORS_ORIGIN=http://localhost:4200\n');
+  const wt = h.nativeWorktree(root, 'ng');
+  assert.match(start(wt), /web 4200 → 4210/);
+  assert.equal(fs.readFileSync(path.join(wt, 'api', '.env'), 'utf8'), 'PORT=3013\nCORS_ORIGIN=http://localhost:4210\n', 'la api de aquí acepta al client de aquí');
+  const r = h.run('build.js', ['app', '--ws', 'web', '--dry'], { cwd: wt });
+  assert.match(r.stdout, /^web: levantaría node app\.js --port 4210 desde /m, 'dos clients ya no chocan en 4200');
+  assert.match(r.stdout, /^web: src\/environments\/environment\.ts fija el puerto de api \(3003, aquí 3013\): le hablará a la app del checkout principal/m);
+  assert.doesNotMatch(r.stdout, /a\.spec\.ts/, 'los specs no cuentan');
+  assert.equal(fs.readFileSync(path.join(wt, 'web', 'src', 'environments', 'environment.ts'), 'utf8'), env, 'el archivo versionado no se toca');
 });
