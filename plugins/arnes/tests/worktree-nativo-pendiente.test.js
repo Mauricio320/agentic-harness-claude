@@ -42,7 +42,7 @@ test('pending lista los worktrees nativos con commits sin subir o cambios sin co
   const json = JSON.parse(pending(dir, '--json').stdout);
   assert.deepEqual(json.filter((n) => n.nativo).map((n) => [n.name, n.unpushed, n.dirty]), [['talleres', 1, 0]]);
   const ctx = h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 'p', cwd: dir }).out.hookSpecificOutput.additionalContext;
-  assert.match(ctx, /Worktrees con trabajo sin subir o sin commitear \(1\): nunca se borran solos[^\n]*\n- worktree talleres/);
+  assert.doesNotMatch(ctx, /Worktrees con trabajo sin subir|worktree talleres/, 'SessionStart no lo recuerda; pending sí lo lista');
   assert.ok(require('fs').existsSync(wt), 'nunca lo borra');
 });
 

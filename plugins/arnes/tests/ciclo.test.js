@@ -63,22 +63,23 @@ function shipped(dir) {
   assert.match(r.stdout, /cobros: subido/);
 }
 
-test('el ciclo de estados: cada etapa lo deja anotado, y SessionStart lista el issue abierto con su edad', () => {
+test('el ciclo de estados: cada etapa lo deja anotado, y issues.js merged lo da con su MR y su edad; SessionStart no lo recuerda', () => {
   const { dir } = repo();
   shipped(dir);
-  assert.match(start(dir), /^Issues abiertos \(1\):\n- cobros: MR !12 esperando aprobación desde hace \d+ min$/m);
+  assert.match(run(dir, 'issues.js', ['merged']).stdout, /^cobros: MR !12 esperando aprobación desde hace \d+ min$/m);
+  assert.doesNotMatch(start(dir), /Issues abiertos|MR !12/, 'olvidar un issue es parte del trabajo');
   assert.equal(run(dir, 'issues.js', ['close', 'cobros']).status, 1, 'con el MR abierto no se cierra');
   assert.match(run(dir, 'issues.js', ['close', 'cobros']).stdout, /el MR 12 no está mergeado \(open\); no lo cierro/);
 });
 
-test('con el MR mergeado: SessionStart ofrece cerrar, y cerrar trae main, borra la rama local y remota y lo registrado', () => {
+test('con el MR mergeado: issues.js merged ofrece cerrar, y cerrar trae main, borra la rama local y remota y lo registrado', () => {
   const { dir, bare, seed } = repo();
   shipped(dir);
   h.git(seed, 'fetch', '-q', bare, 'cobros:cobros');
   h.git(seed, 'merge', '-q', '--squash', 'cobros');
   h.git(seed, 'commit', '-q', '-m', 'feat: cobros (!12)');
   h.git(seed, 'push', '-q', bare, 'main');
-  assert.match(start(dir, 'merged'), /^- cobros: el MR !12 ya está mergeado: la persona lo cierra con \/arnes:cerrar cobros$/m);
+  assert.match(run(dir, 'issues.js', ['merged'], 'merged').stdout, /^cobros: el MR !12 ya está mergeado: la persona lo cierra con \/arnes:cerrar cobros$/m);
   assert.equal(state(dir), 'mergeado');
   let r = run(dir, 'issues.js', ['close', 'cobros'], 'merged');
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -91,7 +92,6 @@ test('con el MR mergeado: SessionStart ofrece cerrar, y cerrar trae main, borra 
   assert.equal(h.git(dir, 'branch', '--list', 'cobros'), '');
   assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '', 'la rama remota también');
   assert.equal(state(dir), 'cerrado');
-  assert.doesNotMatch(start(dir), /Issues abiertos/);
 });
 
 test('merge local: mergea con --no-ff sin mover main hasta verificar, y al terminar main avanza y la rama vuelve', () => {

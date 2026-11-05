@@ -134,18 +134,6 @@ test('un plan trivial dentro de un worktree nativo deja registrado el worktree y
   assert.match(issues(dir, 'clean', 'salud').stdout, /^- carpeta .*\/\.claude\/worktrees\/salud · .* · se borra$/m);
 });
 
-test('SessionStart avisa de los issues entregados hace más de siete días con algo en disco', () => {
-  const dir = repo();
-  const f = path.join(dir, '.tmp', 'harness', 'issues', 'cobros.json');
-  const r = JSON.parse(fs.readFileSync(f, 'utf8'));
-  fs.writeFileSync(f, JSON.stringify({ ...r, state: 'subido', shippedAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString() }));
-  const ctx = h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's2', cwd: dir }).out.hookSpecificOutput.additionalContext;
-  assert.match(ctx, /^Hay 1 issue\(s\) entregado\(s\) hace más de 7 días con carpetas o archivos todavía en disco \(cobros\): la persona los revisa y borra lo que marque con \/arnes:cerrar\.$/m);
-  fs.writeFileSync(f, JSON.stringify({ ...r, state: 'subido', shippedAt: new Date().toISOString() }));
-  assert.doesNotMatch(h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: 's3', cwd: dir }).out.hookSpecificOutput.additionalContext, /entregado\(s\) hace más de 7 días/);
-  tl.append(dir, { event: 'start', stage: 'plan' });
-});
-
 // Un pid sin proceso, probado como lo prueba lockOf.
 function deadPid() {
   for (let pid = 4194300; pid > 4096; pid -= 4) {

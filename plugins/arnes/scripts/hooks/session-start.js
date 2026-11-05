@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // SessionStart y SessionEnd (docs/PLAN.md §6.2, §7). Al arrancar, lee el manifiesto subiendo desde
-// el cwd del JSON de entrada e inyecta, en 40 líneas como máximo: el proyecto, el aviso de otra
-// sesión activa en el mismo proyecto, cada workspace con su rama y su árbol sucio (en una
-// composición, uno por repo), los worktrees sin integrar del registro (con aviso a los de más de 7
-// días sin commits nuevos), las últimas cinco decisiones de docs/decisions de los repos si existen,
-// y el protocolo del arnés. Sin manifiesto dice cómo crearlo y no inventa nada. Antes de todo, si la
+// el cwd del JSON de entrada e inyecta, en 40 líneas como máximo: el proyecto, cada workspace con su
+// rama y su árbol sucio (en una composición, uno por repo), dentro de un worktree el estado de su
+// issue, las últimas cinco decisiones de docs/decisions de los repos si existen, y el protocolo del
+// arnés. Nada de otras sesiones: ni las que siguen abiertas, ni los worktrees, issues o rescates que
+// quedaron. Olvidar una sesión es parte del trabajo; lo que dejó no se recuerda en cada arranque, y
+// /arnes:cerrar lo lista para quien lo pida. Sin manifiesto dice cómo crearlo y no inventa nada. Antes de todo, si la
 // sesión corre una versión de Claude Code más nueva que la probada (lib/compat.js), lo dice en una
 // línea, con o sin manifiesto: es donde el modelo tiene que atribuir una falla rara a la versión.
 // En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
@@ -14,12 +15,11 @@
 // PostToolUse, porque SessionStart no vuelve a correr al cambiar de carpeta; ahí también mueve el lock
 // de la sesión al worktree, que es por donde worktree-ledger.js sabe qué checkout lanzó a un agente
 // aislado.
-// En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco. Avisa de
-// los issues entregados hace más de 7 días que todavía tienen carpetas o archivos en disco
-// (lib/issues.js), y sugiere /arnes:cerrar.
-// Sesión concurrente: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
+// En los repos del proyecto limpia el registro de los worktrees que ya no existen en disco.
+// Lock de sesión: cada sesión escribe su lock en .tmp/harness/sessions/<session_id>.json con
 // pid (CLAUDE_PID, el proceso de Claude Code) y fecha, y lo borra en SessionEnd. Un lock cuyo pid ya
-// no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha.
+// no existe, o de más de 24 h, se borra al arrancar otra sesión. Sin pid, el lock vale por su fecha. Lo
+// leen lib/sesiones.js (quién es dueño del plan) y worktree-ledger.js; aquí no se avisa nada con él.
 // Salida: SessionStart, JSON con hookSpecificOutput.additionalContext; SessionEnd, nada. Siempre exit 0.
 
 'use strict';
@@ -30,7 +30,6 @@ const { run, context } = require('../lib/hook.js');
 const { loadProject, harnessDir, posix } = require('../lib/manifest.js');
 const { git, onPath } = require('../lib/exec.js');
 const { touched } = require('../touched-files.js');
-const ledger = require('../worktree-ledger.js');
 const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
 const issues = require('../lib/issues.js');
@@ -42,7 +41,6 @@ const compat = require('../lib/compat.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
-const WORKTREES = 5;
 
 // Qué pasa, qué sigue y qué le toca a la persona (principio 7 de docs/PLAN.md §2): sin rutas ni
 // nombres de scripts, y con el nombre de una skill solo cuando la persona tiene que escribirla.
@@ -142,61 +140,12 @@ function decisions(project) {
   return found.sort((a, b) => (a.key < b.key ? 1 : -1)).slice(0, DECISIONS).map((d) => d.line);
 }
 
-// Los abiertos del registro de este checkout: los worktrees de los devs aislados que lanzó, y los de
-// un set viejo, que una sesión dentro de él también ve.
-function worktreeLines(cwd, now) {
-  const project = ledger.projectFor(cwd);
-  if (!project) return [];
-  const pending = ledger.pendingEntries(project, ledger.readLedger(project));
-  if (!pending.length) return [];
-  const shown = pending.slice(0, WORKTREES).map((p) => `- ${ledger.describe(p, now)}`);
-  if (pending.length > WORKTREES) shown.push(`- … y ${pending.length - WORKTREES} más`);
-  return [`Worktrees sin integrar (${pending.length}): /arnes:worktree integrate <nombre>, o close si no tienen trabajo propio.`, ...shown];
-}
-
-// Los worktrees nativos de Claude Code del repo con trabajo sin subir, como los del registro.
-function nativeLines(cwd, now) {
-  const project = ledger.projectFor(cwd);
-  if (!project) return [];
-  const list = ledger.nativePending(project, now);
-  if (!list.length) return [];
-  const shown = list.slice(0, WORKTREES).map((n) => `- ${ledger.describeNative(n, now)}`);
-  if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
-  return [`Worktrees con trabajo sin subir o sin commitear (${list.length}): nunca se borran solos; se entregan con /arnes:ship desde su sesión.`, ...shown];
-}
-
-// Los rescates de los repos que quedaron sin su worktree: el worktree de una carpeta se borró sin pasar
-// por el arnés con trabajo sin commitear adentro (lib/rescate.js).
-function rescueLines(cwd, now) {
-  const project = ledger.projectFor(cwd);
-  if (!project) return [];
-  const list = ledger.rescuePending(project);
-  if (!list.length) return [];
-  const shown = list.slice(0, WORKTREES).map((x) => `- ${ledger.describeRescue(x, now)}`);
-  if (list.length > WORKTREES) shown.push(`- … y ${list.length - WORKTREES} más`);
-  return [`Trabajo sin commitear que quedó sin su worktree (${list.length}): está guardado en su repo y nunca se borra solo; /arnes:cerrar lo recupera o lo descarta.`, ...shown];
-}
-
-// Los issues entregados hace más de STALE_DAYS días que todavía ocupan disco.
-const STALE_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
-// Los issues abiertos con su estado y su edad; antes, los subidos cuyo MR se mergeó pasan a mergeado.
-function openIssues(project, now) {
-  try {
-    issues.refreshMerged(project, { now });
-  } catch {
-    /* sin red o sin glab ni gh: queda para la próxima */
-  }
-  const open = issues.list(project).filter((r) => r.state && r.state !== 'cerrado').map((r) => issues.describe(r, now)).filter(Boolean);
-  if (!open.length) return [];
-  return [`Issues abiertos (${open.length}):`, ...open.slice(0, 5).map((l) => `- ${l}`), ...(open.length > 5 ? [`- … y ${open.length - 5} más`] : [])];
-}
-
-function leftovers(project, now) {
-  const live = (r) => [...(r.sets || []).map((s) => s.path), ...(r.worktree ? [r.worktree.path] : []), ...(r.files || [])].filter((p) => fs.existsSync(p));
-  const old = issues.list(project).filter((r) => issues.DONE.includes(r.state) && r.shippedAt && now - new Date(r.shippedAt) > STALE_DAYS * DAY_MS && live(r).length);
-  if (!old.length) return [];
-  return [`Hay ${old.length} issue(s) entregado(s) hace más de ${STALE_DAYS} días con carpetas o archivos todavía en disco (${old.map((r) => r.slug).slice(0, 3).join(', ')}${old.length > 3 ? ', …' : ''}): la persona los revisa y borra lo que marque con /arnes:cerrar.`];
+// El estado del issue de este worktree, en una línea: lo único del ledger que le sirve a esta sesión.
+function issueLine(project) {
+  const c = issues.current(project);
+  const r = c && issues.readIssue(project, c.slug);
+  const text = r ? issues.describe(r) : c ? `${c.slug}: plan escrito, sin aprobar` : null;
+  return text ? [`- el issue de este worktree: ${text}`] : [];
 }
 
 // ---------- lock de sesión ----------
@@ -208,14 +157,13 @@ function lockFile(project, input) {
   return path.join(harnessDir(project), 'sessions', `${id}.json`);
 }
 
-// Escribe el lock de esta sesión y devuelve los de las otras que siguen vivas; borra los muertos.
-// Un lock con el mismo pid es de esta misma sesión (un /clear cambia el session_id): no avisa.
+// Escribe el lock de esta sesión y borra los muertos. Un lock con el mismo pid es de esta misma sesión
+// (un /clear cambia el session_id).
 function lockSession(project, input, cwd, now = new Date()) {
   const own = lockFile(project, input);
   const dir = path.dirname(own);
   fs.mkdirSync(dir, { recursive: true });
   const me = claudePid();
-  const others = [];
   for (const f of fs.readdirSync(dir)) {
     const file = path.join(dir, f);
     if (file === own || !f.endsWith('.json')) continue;
@@ -228,8 +176,7 @@ function lockSession(project, input, cwd, now = new Date()) {
     const age = lock ? now - new Date(lock.at) : NaN;
     const sameProcess = me != null && lock && lock.pid === me;
     const live = lock && age >= 0 && age < LOCK_MAX_MS && !sameProcess && (!lock.pid || alive(lock.pid));
-    if (live) others.push(lock);
-    else fs.rmSync(file, { force: true });
+    if (!live) fs.rmSync(file, { force: true });
   }
   let at = now.toISOString();
   try {
@@ -238,26 +185,11 @@ function lockSession(project, input, cwd, now = new Date()) {
     /* primera vez */
   }
   fs.writeFileSync(own, JSON.stringify({ pid: me, session: input.session_id || null, cwd: posix(cwd), at }, null, 2) + '\n');
-  return others;
 }
 
 function unlockSession(input) {
   const project = loadProject(path.resolve(input.cwd || process.cwd()));
   if (project && !project.errors.length) fs.rmSync(lockFile(project, input), { force: true });
-}
-
-const pad = (n) => String(n).padStart(2, '0');
-const stamp = (iso) => {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-function concurrentLines(others) {
-  if (!others.length) return [];
-  return [
-    `Aviso: hay ${others.length === 1 ? 'otra sesión' : `${others.length} sesiones más`} de Claude activa(s) en este proyecto. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: al aprobar el plan se mueve a uno, o la persona abre la sesión con claude --worktree <nombre>, también en una carpeta multi-repo.`,
-    ...others.slice(0, 3).map((o) => `- una en ${path.basename(String(o.cwd || '')) || 'esta carpeta'} desde ${stamp(o.at)}`),
-  ];
 }
 
 // ---------- contexto ----------
@@ -285,9 +217,10 @@ function sessionStart(input, now = new Date()) {
   // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
   if (native.length) project = loadProject(cwd);
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`, ...whereLines(w).map((l) => `- ${l}`)] : [];
-  const head = [`arnes · ${project.name} · ${kind}`, ...(newer ? [`- ${newer}`] : []), ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...concurrentLines(lockSession(project, input, cwd, now))];
+  const head = [`arnes · ${project.name} · ${kind}`, ...(newer ? [`- ${newer}`] : []), ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...(w ? issueLine(project) : [])];
+  lockSession(project, input, cwd, now);
   const notes = decisions(project);
-  const tailLines = [...worktreeLines(cwd, now), ...nativeLines(cwd, now), ...rescueLines(cwd, now), ...openIssues(project, now), ...leftovers(project, now), ...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
+  const tailLines = [...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
   const room = MAX_LINES - head.length - tailLines.length;
   const wsLines = project.workspaces.map((ws) => workspaceLine(project, ws));
   const shown = wsLines.length > room ? [...wsLines.slice(0, room - 1), `- … y ${wsLines.length - room + 1} workspace(s) más`] : wsLines;

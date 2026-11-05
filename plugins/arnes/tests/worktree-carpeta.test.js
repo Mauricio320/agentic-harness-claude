@@ -234,7 +234,7 @@ test('Stop guarda en el repo el rescate de lo que no está commiteado y pone el 
   assert.ok(!fs.existsSync(marker), 'commiteado y subido, el marcador se va');
 });
 
-test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate queda en el repo: SessionStart y pending lo avisan, y recover vuelve a crear la carpeta con los cambios intactos', () => {
+test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate queda en el repo: pending lo avisa, y recover vuelve a crear la carpeta con los cambios intactos', () => {
   const root = folder();
   const wt = h.nativeWorktree(root, 'talleres');
   start(wt);
@@ -249,9 +249,7 @@ test('si la carpeta se borra por fuera con trabajo sin commitear, el rescate que
   const api = path.join(root, 'api');
   assert.ok(h.git(api, 'rev-parse', 'refs/arnes/rescate/talleres'), 'el rescate sobrevive en el repo');
   const line = /^- rescate talleres de api: 3 archivo\(s\) sin commitear \(app\.js, src\/a\.ts, src\/nuevo-mio\.ts\) que quedaron sin su worktree \(rama feature\/talleres, guardado hoy\); nunca se borra solo: \/arnes:cerrar lo recupera o lo descarta$/m;
-  const ctx = start(root);
-  assert.match(ctx, /^Trabajo sin commitear que quedó sin su worktree \(1\): está guardado en su repo y nunca se borra solo; \/arnes:cerrar lo recupera o lo descarta\.$/m);
-  assert.match(ctx, line);
+  assert.doesNotMatch(start(root), /Trabajo sin commitear que quedó sin su worktree/, 'SessionStart no lo recuerda: lo guarda el repo, y pending y /arnes:cerrar lo listan');
   const p = h.run('worktree-ledger.js', ['pending'], { cwd: root });
   assert.equal(p.status, 1, 'pending lo cuenta');
   assert.match(`- ${p.stdout}`, line);
@@ -439,4 +437,13 @@ test('un client Angular en el worktree: ng serve con su puerto corrido, el CORS 
   assert.match(r.stdout, /^web: src\/environments\/environment\.ts fija el puerto de api \(3003, aquí 3013\): le hablará a la app del checkout principal/m);
   assert.doesNotMatch(r.stdout, /a\.spec\.ts/, 'los specs no cuentan');
   assert.equal(fs.readFileSync(path.join(wt, 'web', 'src', 'environments', 'environment.ts'), 'utf8'), env, 'el archivo versionado no se toca');
+});
+
+test('dentro de un worktree, SessionStart dice en una línea el estado de su issue; en la raíz, nada de issues', () => {
+  const root = folder();
+  const wt = h.nativeWorktree(root, 'cuotas');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Cuotas\n\n## Workspaces y orden\n1. api\n');
+  assert.match(start(wt), /^- el issue de este worktree: cuotas: plan escrito, sin aprobar$/m);
+  assert.doesNotMatch(start(root), /el issue de este worktree/);
 });

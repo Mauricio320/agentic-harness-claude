@@ -94,23 +94,14 @@ test('usa el cwd del evento, no el del proceso ni CLAUDE_PROJECT_DIR', () => {
 
 // ---------- worktrees del registro ----------
 
-test('lista los worktrees sin integrar del registro y avisa de los de más de 7 días sin actividad', () => {
+test('no recuerda lo que dejaron otras sesiones: ni worktrees sin integrar, ni otras sesiones abiertas', () => {
   const dir = h.tmp('start-wt');
   h.repo(dir, { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api'), 'a.ts': 'a\n' });
   h.git(dir, 'checkout', '-q', '-b', 'feature/x');
   h.isolatedDev(dir, 'viejo1');
-  const nuevo = h.isolatedDev(dir, 'nuevo2');
-  const file = path.join(dir, '.tmp', 'harness', 'worktrees.json');
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-  data.worktrees[0].openedAt = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(data));
-  h.write(nuevo, 'b.ts', 'b\n');
-  h.commitAll(nuevo, 'trabajo');
   const t = text(start(dir));
-  assert.match(t, /^Worktrees sin integrar \(2\): \/arnes:worktree integrate <nombre>, o close si no tienen trabajo propio\.$/m);
-  assert.match(t, /^- agent-viejo1 de arnes:dev → feature\/x · nada sin integrar · abierto el \d{4}-\d{2}-\d{2} · 10 días sin actividad: intégralo o ciérralo, nunca se borra solo$/m);
-  assert.match(t, /^- agent-nuevo2 de arnes:dev → feature\/x · 1 commit\(s\) sin integrar · abierto el \d{4}-\d{2}-\d{2}$/m);
-  assert.ok(t.split('\n').length <= 40);
+  assert.doesNotMatch(t, /Worktrees sin integrar|agent-viejo1|Issues abiertos|Aviso: hay/, 'olvidar una sesión es parte del trabajo');
+  assert.match(t, /^Protocolo del arnés:$/m);
 });
 
 // ---------- sesión concurrente ----------
@@ -119,7 +110,7 @@ const as = (cwd, session, pid, event = 'SessionStart') =>
   h.hook('session-start', { hook_event_name: event, source: 'startup', session_id: session, cwd }, { env: { CLAUDE_PID: pid == null ? '' : String(pid) } });
 const lockPath = (dir, session) => path.join(dir, '.tmp', 'harness', 'sessions', `${session}.json`);
 
-test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un worktree; SessionEnd suelta el lock', () => {
+test('otra sesión activa en el mismo proyecto: cada una deja su lock y no se avisa; SessionEnd suelta el lock', () => {
   const { root, api } = folder();
   const a = as(root, 'sesion-a', process.pid);
   assert.doesNotMatch(text(a), /Aviso: hay otra sesión/);
@@ -130,15 +121,13 @@ test('otra sesión activa en el mismo proyecto: avisa que esta trabaje en un wor
   assert.ok(!Number.isNaN(Date.parse(lock.at)));
 
   const b = text(as(api, 'sesion-b', process.ppid));
-  assert.match(b, /^Aviso: hay otra sesión de Claude activa\(s\) en este proyecto\. Esta sesión tiene que trabajar en su propio worktree, no en los mismos archivos: al aprobar el plan se mueve a uno, o la persona abre la sesión con claude --worktree <nombre>, también en una carpeta multi-repo\.$/m);
-  assert.match(b, new RegExp(`^- una en ${path.basename(root).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} desde \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$`, 'm'));
-  assert.ok(b.split('\n').length <= 40);
+  assert.doesNotMatch(b, /Aviso: hay otra sesión|claude --worktree/, 'la otra sesión no es asunto de esta: si pide código, el plan la lleva a su worktree');
+  assert.ok(fs.existsSync(lockPath(root, 'sesion-a')) && fs.existsSync(lockPath(root, 'sesion-b')), 'los dos locks, que lee lib/sesiones.js');
 
   const end = as(root, 'sesion-a', process.pid, 'SessionEnd');
   assert.equal(end.status, 0);
   assert.equal(end.out, null);
   assert.ok(!fs.existsSync(lockPath(root, 'sesion-a')));
-  assert.doesNotMatch(text(as(api, 'sesion-b', process.ppid)), /Aviso/, 'sin la otra sesión, sin aviso');
 });
 
 // Un pid sin proceso, probado como lo prueba SessionStart (process.kill(pid, 0) con ESRCH). El pid de
@@ -166,7 +155,8 @@ test('un lock de un proceso que ya no existe, o de más de 24 h, se borra sin av
   assert.doesNotMatch(text(as(dir, 'nueva', process.ppid)), /Aviso/);
   for (const s of ['muerta', 'vieja', 'rota']) assert.ok(!fs.existsSync(lockPath(dir, s)), `${s} borrado`);
   h.write(dir, '.tmp/harness/sessions/sin-pid.json', JSON.stringify({ pid: null, cwd: 'otra/carpeta', at }));
-  assert.match(text(as(dir, 'nueva', null)), /^- una en carpeta desde \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
+  as(dir, 'nueva', null);
+  assert.ok(fs.existsSync(lockPath(dir, 'sin-pid')), 'sin pid, el lock vale por su fecha y se queda');
 });
 
 test('un lock con el mismo pid es de esta misma sesión (un /clear cambia el session_id): no avisa', () => {
