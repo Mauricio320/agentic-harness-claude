@@ -110,7 +110,13 @@ test('la puerta: desde un repo de adentro pide cd a la raíz; un nombre ocupado 
   const menu = run(dir, 'plan-state.js', ['start', '--detail', 'agrega el design system al menú']);
   assert.equal(menu.status, 3, 'un pedido nuevo va a su propio worktree');
   assert.equal(tl.planState(tl.read(dir)).approved, true, 'el plan del login, aprobado y sin entregar, queda intacto');
-  assert.equal(run(dir, 'plan-state.js', ['start', '--detail', 'ajuste: otro texto']).status, 0, 'un ajuste del plan propio sí se re-planifica en el checkout');
+  const ajuste = run(dir, 'plan-state.js', ['start', '--detail', 'ajuste: otro texto']);
+  assert.equal(ajuste.status, 0, 'un ajuste del plan propio sí se re-planifica en el checkout');
+  assert.match(ajuste.stdout, /^plan anterior: «CRUD de talleres» en \S+; si es de otro issue, pregunta antes de pisarlo$/m, 'el plan sin entregar se avisa');
+  tl.append(dir, { event: 'end', stage: 'ship', result: 'ok' });
+  const next = run(dir, 'plan-state.js', ['start', '--detail', 'otro pedido', '--en-checkout']);
+  assert.equal(next.status, 0, next.stdout + next.stderr);
+  assert.doesNotMatch(next.stdout, /plan anterior/, 'el ya entregado no se avisa: se pisa');
 });
 
 test('approve en el checkout: crea la rama del issue ahí, y con otra rama exige el sí', () => {

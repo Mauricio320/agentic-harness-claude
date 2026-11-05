@@ -11,7 +11,7 @@
 //            --en-checkout, sin camino de worktree, o para re-planificar con un ajuste el plan propio,
 //            y nunca bajo el plan de otra sesión viva. Dentro de un worktree que ya entregó un issue,
 //            sugiere en una línea una sesión nueva. Dice el proyecto con cada workspace, sus riskPaths, su
-//            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior; si
+//            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior sin entregar; si
 //            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); las referencias de
 //            negocio y los ambientes de prueba; y, si hay grafo y graphify, lo consulta él mismo con el
 //            texto de --detail (graphify query), en paralelo en la carpeta y en cada repo que lo tiene,
@@ -171,15 +171,19 @@ function door(project, detail, checkout) {
 
 async function start(project, detail, checkout) {
   if (door(project, detail, checkout)) return 3;
+  const before = read(project.root);
+  // Un plan anterior ya entregado (o movido) no se avisa: su corrida está cerrada y se puede pisar, y
+  // el aviso llevaba al modelo a preguntar o a apartarlo a mano.
+  const closed = before.some((e) => e.stage === 'plan' && e.event === 'start') && !planState(before).open;
   const w = nativeRoot(project) || nativeWorktree(project.root);
-  if (w && read(project.root).some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')) {
+  if (w && before.some((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok')) {
     console.log('sesión nueva: este worktree ya entregó un issue; para uno nuevo conviene ExitWorktree y una sesión nueva, porque el contexto acumulado es lo que más cuesta');
   }
   append(project.root, { event: 'start', stage: 'plan', detail, session: fromEnv().session || undefined });
   console.log(`proyecto: ${project.name} · ${project.kind === 'folder' ? 'carpeta' : 'repo'} · raíz ${posix(project.root)}`);
   for (const ws of project.workspaces) console.log(workspaceLine(ws));
   const prev = readPlan(project);
-  if (prev) console.log(`plan anterior: «${(prev.match(/^# (?:Plan: )?(.+)$/m) || [, 'sin título'])[1].trim()}» en ${posix(planPath(project))}; si es de otro issue, pregunta antes de pisarlo`);
+  if (prev && !closed) console.log(`plan anterior: «${(prev.match(/^# (?:Plan: )?(.+)$/m) || [, 'sin título'])[1].trim()}» en ${posix(planPath(project))}; si es de otro issue, pregunta antes de pisarlo`);
   console.log('ramas:');
   branch.behind(project);
   console.log('negocio:');
