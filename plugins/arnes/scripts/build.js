@@ -69,10 +69,10 @@ const { help, die } = require('./lib/exec.js');
 const { rulesBlock, withoutFrontmatter, MAX_DIFF_LINES } = require('./review.js');
 const { spawn } = require('child_process');
 const apps = require('./lib/app.js');
-const { localDb, parseEnv, DB_VAR } = require('./lib/database.js');
+const { localDb, parseEnv, remoteDbs, DB_VAR } = require('./lib/database.js');
 const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
-const { append, read, tasks } = require('./lib/timeline.js');
+const { append, read, tasks, personYes } = require('./lib/timeline.js');
 const { planWorkspaces } = require('./lib/plan.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
@@ -413,6 +413,25 @@ function portEnv(project, ws) {
 // app stop puede comprobar que el PID anotado sigue siendo él.
 const LAUNCH = "const c = require('child_process').spawn(process.argv[1], { shell: true, stdio: 'inherit', windowsHide: true }); c.on('exit', (code) => process.exit(code == null ? 1 : code)); c.on('error', (e) => { console.error(e.message); process.exit(1); });";
 
+// Una app contra una base que no es local escribe fuera del worktree: lo que haga ahí no se olvida con
+// la sesión. La primera vez lo anota y frena para que el modelo le pregunte a la persona; con su sí
+// después de esa nota, lo acepta para lo que queda del plan y no vuelve a preguntar. → true si frena
+function remoteBlocked(project, ws) {
+  const remote = remoteDbs(ws, envFiles(ws.dir));
+  if (!remote.length) return false;
+  const all = read(project.root);
+  const run = all.slice(all.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true) + 1).filter((e) => !e.ws || e.ws === ws.name);
+  if (run.some((e) => e.stage === 'app' && e.result === 'base-aceptada')) return false;
+  const i = run.map((e) => e.stage === 'app' && e.result === 'base-remota').lastIndexOf(true);
+  if (i >= 0 && run.slice(i + 1).some(personYes)) {
+    append(project.root, { event: 'note', stage: 'app', result: 'base-aceptada', ws: ws.name, detail: remote.join(', ') });
+    return false;
+  }
+  append(project.root, { event: 'note', stage: 'app', result: 'base-remota', ws: ws.name, detail: remote.join(', ') });
+  console.log(`${ws.name}: no la levanto todavía: su .env apunta a ${remote.join(', ')}, que no es una base local, y lo que la app haga ahí (migraciones al arrancar, tareas programadas, los datos de la prueba) no se queda en este worktree. Pregúntale a la persona si la levanto contra esa base; con su sí en un mensaje suyo, vuelve a correr esto, y no vuelvo a preguntar en este plan.`);
+  return true;
+}
+
 function app(project, wsName, dry) {
   const [ws] = selectWorkspaces(project, [wsName]);
   const cmd = appCommand(ws);
@@ -423,6 +442,7 @@ function app(project, wsName, dry) {
   // Un worktree sin sus .env no arranca: el arnés se los copia del checkout principal sin mostrarlos,
   // lo que la persona hacía a mano (worktree-carpeta.js equipar).
   if (!dry && !envFiles(ws.dir).length) for (const l of equipar(ws.dir).lines) console.log(l);
+  if (!dry && remoteBlocked(project, ws)) return 1;
   const env = portEnv(project, ws);
   const vars = Object.entries(env).map(([k, v]) => `${k}=${v}`).join(', ');
   const dir = path.join(harnessDir(project), 'app');

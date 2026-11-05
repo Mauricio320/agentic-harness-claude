@@ -72,3 +72,31 @@ test('app stop nunca para un proceso que no lanzó el arnés: si el PID anotado 
 });
 
 module.exports = { LONG, until };
+
+test('con una base que no es local en el .env, app frena y pide el sí; con la respuesta de la persona la levanta y no vuelve a preguntar', async () => {
+  const dir = repo();
+  fs.appendFileSync(path.join(dir, '.gitignore'), '.env\n');
+  h.write(dir, '.env', 'PORT=3001\nDATABASE_URL=postgres://app:clave9876@100.64.87.88:5432/prod\n');
+  const say = (prompt) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt, cwd: dir });
+  let r = h.run('build.js', ['app', '--ws', 'api'], { cwd: dir });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: no la levanto todavía: su \.env apunta a 100\.64\.87\.88:5432, que no es una base local/m);
+  assert.doesNotMatch(r.stdout, /clave9876|app:/, 'nunca las credenciales');
+  assert.ok(!fs.existsSync(path.join(dir, '.tmp', 'harness', 'app', 'api.json')), 'no arrancó');
+  say('/arnes:ship');
+  assert.equal(h.run('build.js', ['app', '--ws', 'api'], { cwd: dir }).status, 1, 'un slash command no es el sí');
+  say('sí, contra esa');
+  r = h.run('build.js', ['app', '--ws', 'api'], { cwd: dir });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.ok(await until(() => fs.existsSync(path.join(dir, 'hijo.pid'))), 'la app arrancó');
+  r = h.run('build.js', ['app', '--ws', 'api'], { cwd: dir });
+  assert.equal(r.status, 0, 'aceptada: no vuelve a preguntar');
+  h.run('build.js', ['app', 'stop'], { cwd: dir });
+  h.write(dir, '.env', 'PORT=3001\nDATABASE_URL=postgres://app:x@localhost:5432/dev\n');
+  const local = h.tmp('app-local');
+  fs.cpSync(dir, local, { recursive: true });
+  fs.rmSync(path.join(local, '.tmp'), { recursive: true, force: true });
+  r = h.run('build.js', ['app', '--ws', 'api'], { cwd: local });
+  assert.equal(r.status, 0, 'una base local arranca directo');
+  h.run('build.js', ['app', 'stop'], { cwd: local });
+});

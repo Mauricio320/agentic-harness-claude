@@ -43,6 +43,10 @@ const issues = require('./issues.js');
 
 const FILE = 'timeline.jsonl';
 
+// La respuesta de la persona que vale como su sí (la nota que escribe prompt-context): de ella, no un
+// aviso de un agente ni de otra sesión, y no un slash command.
+const personYes = (e) => e.stage === 'turno' && e.result === 'respuesta' && /^[0-9a-f]{64}$/.test(e.hash || '') && !e.marcas && !e.comando;
+
 function append(root, entry, now = new Date()) {
   const dir = path.join(root, '.tmp', 'harness');
   fs.mkdirSync(dir, { recursive: true });
@@ -301,7 +305,7 @@ function bringBack(fromRoot, toRoot) {
   return back.length;
 }
 
-module.exports = { FILE, PREP, STAGES, RED_CAP, append, read, format, planState, prepOpen, stageOpen, redStreak, prepInTurn, tasks, corrida, summary, bringBack };
+module.exports = { FILE, PREP, STAGES, RED_CAP, personYes, append, read, format, planState, prepOpen, stageOpen, redStreak, prepInTurn, tasks, corrida, summary, bringBack };
 
 function main() {
   let args;

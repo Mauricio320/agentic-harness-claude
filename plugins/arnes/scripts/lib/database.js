@@ -113,6 +113,23 @@ function localDb(ws) {
   return { ok: false, host, why: `${cond.env} apunta a ${host || 'un host que no se lee'}, que no es la base local del patrón` };
 }
 
+// Las bases que no son locales en los .env de un workspace (files, de lib/puertos.js envFiles): su host
+// y su puerto, nunca credenciales. Local es localhost, 127.0.0.1, ::1 o host.docker.internal; con
+// onlyIfLocalDb declarado, también un host local que no cumple su patrón (un proxy a QA en 127.0.0.1).
+const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0|host\.docker\.internal)(:\d+)?$/i;
+function remoteDbs(ws, files) {
+  const out = new Set();
+  for (const name of files) {
+    for (const { key, value } of parseEnv(fs.readFileSync(path.join(ws.dir, name), 'utf8'))) {
+      const host = DB_URL.test(value) ? hostOf(value) : DB_VAR.test(key) && /HOST$/i.test(key) ? value : null;
+      if (host && !LOCAL_HOST.test(host)) out.add(host);
+    }
+  }
+  const proxy = ws.afterBuild && ws.afterBuild.onlyIfLocalDb ? localDb(ws) : { ok: true };
+  if (!proxy.ok && proxy.host) out.add(proxy.host);
+  return [...out];
+}
+
 // Lo que init-draft propone para un repo con scripts de sync (docs/PLAN.md §8): el build y los sync,
 // solo con la base del .env local. La variable sale de la primera conexión de .env.example (o
 // DATABASE_URL), y el puerto del patrón, de su url o del puerto por defecto de su motor.
@@ -129,4 +146,4 @@ function afterBuildDraft(pkg, pm, example) {
   };
 }
 
-module.exports = { typed, SCRIPT_NAME, TOOLS, DB_URL, DB_VAR, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, afterBuildDraft };
+module.exports = { typed, SCRIPT_NAME, TOOLS, DB_URL, DB_VAR, touchesDatabase, databaseForbidden, missingFromForbidden, parseEnv, hostOf, localDb, remoteDbs, afterBuildDraft };

@@ -82,7 +82,7 @@ const { parseArgs } = require('util');
 const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { planOwner, fromEnv } = require('./lib/sesiones.js');
-const { append, read, planState, tasks } = require('./lib/timeline.js');
+const { append, read, planState, tasks, personYes } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
 const { codeTerms, graphDirs, queryProject } = require('./lib/grafo.js');
@@ -93,7 +93,7 @@ const issues = require('./lib/issues.js');
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
-const isApproval = (e) => isAnswer(e) && /^[0-9a-f]{64}$/.test(e.hash || '') && !e.marcas && !e.comando;
+const isApproval = personYes;
 
 function status(project) {
   const p = planState(read(project.root));
