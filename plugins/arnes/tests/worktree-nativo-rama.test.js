@@ -81,11 +81,15 @@ test('al aprobar en el worktree nativo de un repo solo, worktree-<nombre> pasa a
 
 test('plan --trivial pasa por la puerta: en la raíz sale con 3, y en el worktree lee el pedido que la persona escribió en la raíz y le da a la rama el nombre del issue', () => {
   const { dir, wt } = nativeWithOrigin();
-  tl.append(dir, { ...h.answer('/arnes:plan --trivial un GET /salud'), trivial: true });
-  const door = h.run('plan-state.js', ['trivial', '--pedido', 'un GET /salud', '--criterio', 'responde 200'], { cwd: dir });
+  const as = (session) => ({ CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: '' });
+  const trivial = (cwd, session) => h.run('plan-state.js', ['trivial', '--pedido', 'un GET /salud', '--criterio', 'responde 200'], { cwd, env: as(session) });
+  tl.append(dir, { ...h.answer('/arnes:plan --trivial un GET /salud'), trivial: true, session: 'otra' });
+  assert.equal(trivial(wt, 'mia').status, 1, 'el --trivial que escribió la persona en otra sesión del checkout no vale para esta');
+  tl.append(dir, { ...h.answer('/arnes:plan --trivial un GET /salud'), trivial: true, session: 'mia' });
+  const door = trivial(dir, 'mia');
   assert.equal(door.status, 3, 'el cambio trivial también va a su worktree');
   assert.match(door.stdout, /^siguiente: este pedido se planifica en su propio worktree/m);
-  const r = h.run('plan-state.js', ['trivial', '--pedido', 'un GET /salud', '--criterio', 'responde 200'], { cwd: wt });
+  const r = trivial(wt, 'mia');
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^la rama del worktree pasa de worktree-talleres a feature\/talleres/m);
   assert.equal(branch(wt), 'feature/talleres');

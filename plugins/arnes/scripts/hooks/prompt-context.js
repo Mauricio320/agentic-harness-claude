@@ -113,6 +113,7 @@ function promptContext(input) {
       hash,
       marcas: marks || undefined,
       comando: COMMAND.test(text) || undefined,
+      session: input.session_id || undefined,
       trivial: TRIVIAL.test(text) || undefined,
       revisado: revisado ? revisado[1] || revisado[2] : undefined,
       modelos: modelos.length ? modelos : undefined,

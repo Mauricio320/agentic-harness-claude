@@ -247,9 +247,12 @@ function renamed(project) {
 function trivial(project, pedido, criterio, checkout) {
   if (door(project, pedido, checkout)) return 3;
   const entries = read(project.root);
-  // La persona escribió /arnes:plan --trivial en la raíz, antes de entrar al worktree: su nota está allá.
+  // La persona escribió /arnes:plan --trivial en la raíz, antes de entrar al worktree: su nota está allá,
+  // donde también escriben las otras sesiones del checkout. De allá vale solo la de esta sesión.
   const w = nativeRoot(project) || nativeWorktree(project.root);
-  const last = [...entries, ...(w ? read(w.main) : [])].filter(isAnswer).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).pop();
+  const me = fromEnv().session;
+  const root = w ? read(w.main).filter((e) => !me || e.session === me) : [];
+  const last = [...entries, ...root].filter(isAnswer).sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).pop();
   if (!last || !last.trivial) die('plan-state: --trivial lo pide la persona escribiendo /arnes:plan --trivial; nunca lo elige el modelo', 1);
   if (planState(entries).approved) die('plan-state: ya hay un plan aprobado en curso; --trivial no hace falta', 1);
   const title = [...pedido.replace(/\s+/g, ' ').trim()].slice(0, 60).join('');
