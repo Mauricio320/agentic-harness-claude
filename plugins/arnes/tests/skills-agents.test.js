@@ -117,7 +117,8 @@ test('un ajuste de la persona con el plan aprobado no reabre el plan: «pide cam
 test('el test-writer corre las convenciones del gate sobre sus specs antes de entregar, con el comando de verify, hasta que salgan limpias', () => {
   const text = fs.readFileSync(path.join(PLUGIN, 'agents', 'test-writer.md'), 'utf8');
   assert.match(text, /2\. Corre las convenciones del gate sobre tus specs y tus fixtures con la línea `convenciones` de tu entrada, tal cual: es el mismo chequeo que corre verify\./);
-  assert.match(text, /desde la carpeta que dice esa línea \(la raíz del proyecto, no la del workspace\)/);
+  assert.match(text, /desde la carpeta que dice esa línea, con las rutas de tus archivos tal como las ves desde ahí; una ruta que no encuentra sale con 2/);
+  assert.match(text, /manda la convención/, 'la contradicción con una regla del proyecto la resuelve el agente');
   assert.match(text, /un `as unknown as`.*vuelve a correrla hasta que salga sin hallazgos/);
   assert.doesNotMatch(text, /Si tu entrada trae el comando de convenciones/, 'ya no es opcional');
 });

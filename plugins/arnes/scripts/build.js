@@ -236,7 +236,7 @@ function input(project, wsName, { para = 'dev', contrato, files, integracion = f
     '## Comandos del manifiesto',
     '',
     ...['typecheck', 'typecheckFast', 'lint', 'test'].filter((k) => c[k]).map((k) => `- ${k}: ${list(c[k]).map((x) => `\`${x}\``).join(', ')}`),
-    ...(ws.conventions && ws.conventions.length ? [`- convenciones, antes de entregar: \`node "${scripts}/conventions.js" --ws ${ws.name} <tus archivos>\`, desde ${project.root}`] : []),
+    ...(ws.conventions && ws.conventions.length ? [`- convenciones, antes de entregar: \`node "${scripts}/conventions.js" --ws ${ws.name} <tus archivos>\`, desde ${project.root}; mandan sobre cualquier ejemplo de las reglas del proyecto que diga lo contrario`] : []),
     '',
     `riskPaths: ${ws.riskPaths && ws.riskPaths.length ? ws.riskPaths.join(', ') : 'ninguna declarada'}`,
     '',

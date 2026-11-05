@@ -45,7 +45,7 @@ Corre cada spec una vez con el `test` de tu entrada, sustituyendo `{specs}` por 
 
 Lo que escribiste pasa por el mismo gate que el código: un spec que no compila o que rompe una convención pone el gate en rojo, y vuelve a ti.
 1. Corre el typecheck de tu entrada (`typecheckFast` si lo trae, si no `typecheck`) desde la carpeta del workspace y corrige los errores que estén en tus specs o en tus fixtures. Los que no son tuyos no los toques.
-2. Corre las convenciones del gate sobre tus specs y tus fixtures con la línea `convenciones` de tu entrada, tal cual: es el mismo chequeo que corre verify. Córrela desde la carpeta que dice esa línea (la raíz del proyecto, no la del workspace), con las rutas de tus archivos. Corrige cada hallazgo (un `as unknown as`, un `any`, un comentario o un `console.` que el repo no admite) y vuelve a correrla hasta que salga sin hallazgos; su resultado va en `### Corrida`. Si tu entrada no trae esa línea, el workspace no declara convenciones.
+2. Corre las convenciones del gate sobre tus specs y tus fixtures con la línea `convenciones` de tu entrada, tal cual: es el mismo chequeo que corre verify. Córrela desde la carpeta que dice esa línea, con las rutas de tus archivos tal como las ves desde ahí; una ruta que no encuentra sale con 2, no con «sin hallazgos». Si una regla del proyecto te muestra un ejemplo que la convención marca (un `as unknown as` en un estándar de testing, por ejemplo), manda la convención. Corrige cada hallazgo (un `as unknown as`, un `any`, un comentario o un `console.` que el repo no admite) y vuelve a correrla hasta que salga sin hallazgos; su resultado va en `### Corrida`. Si tu entrada no trae esa línea, el workspace no declara convenciones.
 
 # Deuda que ves de paso
 

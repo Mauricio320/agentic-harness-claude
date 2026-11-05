@@ -9,10 +9,12 @@
 //
 // Uso: node conventions.js --ws <nombre> [--base <ref>] [archivo ...]
 //   sin archivos, los tocados de código del workspace respecto de --base (HEAD por defecto)
-//   archivos: relativos a la carpeta del workspace, o absolutos
+//   archivos: relativos a la carpeta del workspace, a la carpeta desde donde se corre, o absolutos.
+//   Uno que no está en el workspace es uso inválido: saltarlo daría «sin hallazgos» sin revisar nada
 // Salida: una línea por hallazgo, <archivo>:<línea> · <id> · <mensaje>, y una línea de resumen.
-// Exit: 0 sin hallazgos, o sin reglas · 1 hay hallazgos · 2 uso inválido, sin manifiesto, workspace
-//       desconocido o no adoptable, una regla con una expresión inválida, o git falló
+// Exit: 0 sin hallazgos, o sin reglas · 1 hay hallazgos · 2 uso inválido (también un archivo que no
+//       está en el workspace), sin manifiesto, workspace desconocido o no adoptable, una regla con una
+//       expresión inválida, o git falló
 
 'use strict';
 
@@ -129,7 +131,10 @@ function main() {
     console.log(`${ws.name}: sin conventions en el manifiesto; nada que comprobar`);
     return;
   }
-  let files = args.positionals.map((f) => posix(path.isAbsolute(f) ? path.relative(ws.dir, f) : f));
+  const inWs = (f) => fs.existsSync(path.join(ws.dir, f));
+  let files = args.positionals.map((f) => posix(path.relative(ws.dir, path.isAbsolute(f) || !inWs(f) ? path.resolve(f) : path.join(ws.dir, f))));
+  const lost = files.filter((f) => f.startsWith('..') || !inWs(f));
+  if (lost.length) die(`conventions: no están en ${ws.name} (${posix(ws.dir)}): ${lost.join(', ')}`);
   if (!files.length) {
     const t = touched(ws, o.base, project);
     if (t.error) die(`conventions: ${t.error}`);

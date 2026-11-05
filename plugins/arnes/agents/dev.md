@@ -37,7 +37,7 @@ Tu trabajo es escribir el código de producción que cumple esos criterios en es
 ## Al terminar
 
 1. Corre una vez el `typecheck` de tu entrada desde la carpeta del workspace. Corrige los errores que estén en tus archivos. Los que no son tuyos van en Pendiente, con el archivo.
-2. Si tu entrada trae el comando de convenciones, córrelo sobre los archivos que tocaste y corrige cada hallazgo antes de entregar. Son las convenciones mecánicas del manifiesto (comentarios, `as unknown as`, `console.`, TODO): el reviewer ya no se las marca a otro, verify las da en rojo.
+2. Si tu entrada trae el comando de convenciones, córrelo desde la carpeta que dice, sobre los archivos que tocaste, y corrige cada hallazgo antes de entregar; una ruta que no encuentra sale con 2. Son las convenciones mecánicas del manifiesto (comentarios, `as unknown as`, `console.`, TODO): el reviewer ya no se las marca a otro, verify las da en rojo.
 3. Corre el `lint` de tu entrada sobre los archivos que tocaste, sustituyendo `{files}` por sus rutas entre comillas. No lo corras sobre el repo entero.
 4. No corras la suite de tests: eso es de verify.
 

@@ -60,6 +60,21 @@ test('con archivos dados revisa esos; sin hallazgos sale en 0; sin reglas no hay
   assert.match(conv(sin).stdout, /sin conventions en el manifiesto/);
 });
 
+test('en una carpeta, la ruta vista desde la raíz encuentra el hallazgo; una que no está en el workspace sale en 2', () => {
+  const root = h.tmp('conv-carpeta');
+  const api = path.join(root, 'api');
+  h.repo(api, { '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', conventions: CONVENTIONS })) });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
+  h.write(api, 'src/x.spec.ts', 'const x = y as unknown as Z;\n');
+  const desdeRaiz = conv(root, ['api/src/x.spec.ts']);
+  assert.equal(desdeRaiz.status, 1, desdeRaiz.stdout + desdeRaiz.stderr);
+  assert.match(desdeRaiz.stdout, /src\/x\.spec\.ts:1 · sin-any/);
+  assert.equal(conv(api, ['src/x.spec.ts']).status, 1, 'relativa al workspace, como antes');
+  const perdida = conv(root, ['api/src/no-existe.spec.ts']);
+  assert.equal(perdida.status, 2, 'antes salía 0, «sin hallazgos», sin revisar nada');
+  assert.match(perdida.stderr, /no están en api/);
+});
+
 test('una regla que no compila sale en 2; el schema valida las convenciones', () => {
   assert.equal(conv(repo([{ id: 'rota', pattern: '(', message: 'x' }])).status, 2);
   const manifest = (c) => JSON.parse(h.repoManifest('api', h.workspace({ name: 'api', conventions: c })));
