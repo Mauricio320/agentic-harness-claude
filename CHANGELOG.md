@@ -2,6 +2,30 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.3] - 2026-11-05
+
+Worktree aislado: la raíz es la puerta y el worktree es la casa. Sale de ocho sesiones de renova365 que corrieron a la vez el 2026-11-04 con la 0.8.2 y de una de academico el 2026-11-05. Los arreglos de ruido de la 0.8.2 funcionaron; quedaron dos frentes. En los gates, que son el único control de calidad cuando casi nadie lee el código, había un falso verde y bloqueos injustos. En el aislamiento, lo que hacía una sesión se escapaba del worktree o lo heredaba otra. El criterio de la persona: los worktrees sueltos, las sesiones olvidadas y la configuración imperfecta del proyecto son el flujo natural, y el arnés convive con eso. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.939 a 13.969 líneas.
+
+### Cambiado
+- La raíz es la puerta. `plan-state.js start` y `trivial`, corridos desde la raíz, salen con 3 sin anotar nada y mandan a EnterWorktree con un nombre libre (`<n>-2` si la carpeta o la rama de una sesión olvidada ya existen), con `cd` a la raíz si la sesión está parada en un repo de adentro. Un pedido nuevo ya no reemplaza el plan aprobado y sin entregar de otro, y una sesión nueva no hereda el de una olvidada. En el checkout solo con `start --en-checkout`, sin camino de worktree, o para re-planificar con un ajuste el plan propio; `--en-checkout` ya no va en approve ni en corto.
+- Al entrar al worktree no se trae nada del principal: se van el traslado del plan (la nota `movido` se sigue leyendo en las timelines viejas) y la vuelta de la timeline del worktree a la raíz al borrarlo. El estado del issue queda en el ledger. Sin plan, el worktree de una carpeta trae todos los repos, y un repo sin remoto nace de la rama del checkout, donde está el trabajo local, no del `main` que va atrás.
+- SessionStart no recuerda lo que dejaron otras sesiones: ni worktrees sin integrar o sin subir, ni rescates, ni issues abiertos o entregados, ni otras sesiones abiertas. Dentro de un worktree dice en una línea el estado de su issue. `pending`, `issues.js merged` y `/arnes:cerrar` siguen listando todo.
+- Dentro de un worktree que ya entregó un issue, `start` sugiere en una línea una sesión nueva: el contexto acumulado es lo que más cuesta.
+
+### Agregado
+- `build.js app` con una base que no es local en el `.env` (host y puerto, nunca credenciales) frena y pide el sí de la persona; con su respuesta la levanta y no vuelve a preguntar en el plan.
+- El puerto de `ng serve` (de `angular.json`, o 4200) entra al corrimiento de puertos del worktree: `build.js app` le pasa `--port`, y un `localhost:4200` en el `.env` de otro workspace pasa al puerto nuevo. Un archivo versionado que fija el puerto de otra app no se reescribe: se avisa.
+
+### Corregido
+- `conventions.js` resuelve las rutas también contra la carpeta desde donde se corre, y una ruta que no está en el workspace sale con 2. Antes la saltaba y daba «sin hallazgos»: el test-writer corría desde la raíz de una carpeta con rutas `api/...` y verify encontraba después los `as unknown as`. La línea del input dice que las convenciones mandan sobre los ejemplos de las reglas del proyecto.
+- `.mcp.json` es un secreto por nombre, en Read y en Bash: la negativa trae su JSON con `env`, `headers`, las claves sensibles y las URL enmascarados.
+- Un verify vivo en segundo plano cuenta como trabajo en marcha: el Stop avisa en una línea en vez de bloquear por código sin verificar.
+- Un slash command no aprueba el plan ni un ajuste: prompt-context lo marca en la respuesta.
+- La ronda acotada de la revisión no arrastra los posibles defectos de lógica que la corrección resolvió; el reviewer repite los que siguen.
+- `ship.js deliver --commit` anota el commit de cada workspace: correrlo otra vez no lo repite ni lo toma por un HEAD movido.
+- El grafo de `start` consulta solo si el pedido nombra una clase, un archivo o una ruta, y deja los nodos que la nombran. Las referencias de MR de un issue en varios repos llevan el repo.
+- El `git init` que hace repo de carpeta la raíz ya no cuenta como configuración cambiada en el Stop de otra sesión.
+
 ## [0.8.2] - 2026-11-03
 
 Ronda correctiva con lo que se vio usando la 0.8.1 el 2026-11-03 en renova365 y academico. Una sesión sin código recibía el estado y los avisos de otra. El grafo se disparaba con palabras comunes. El Stop pedía construir con la rama a medias. Un ajuste después de verify reabría el plan. En una carpeta sin repo se ofrecían caminos que fallan. La banda arrastraba el gate del checkout al worktree. El motivo de `.ssh` no decía lo que protege. El test-writer volvía por convenciones. Sin funciones, subcomandos ni flags nuevos. Probada en local con Claude Code 2.1.317 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`.

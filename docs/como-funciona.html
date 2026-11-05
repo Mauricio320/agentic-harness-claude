@@ -450,7 +450,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
       </div>
       <p>Qué hace cada una, en el orden en que aparecen en un issue:</p>
       <div class="grid">
-        <div class="card"><h4><code>plan</code> <span class="badge b-claude">Claude solo</span></h4><p>Lee el issue (con <code>glab</code> o <code>gh</code>, o el texto que escribiste), revisa las reglas del repo y le pregunta al mapa del código antes de abrir archivos. Escribe <code>.tmp/harness/plan.md</code> con los criterios de aceptación, el contrato de la API, los datos y migraciones, los archivos previstos, las zonas de riesgo y preguntas cerradas con su recomendación. Te lo muestra y espera tu aprobación sin tocar código.</p></div>
+        <div class="card"><h4><code>plan</code> <span class="badge b-claude">Claude solo</span></h4><p>Lee el issue (con <code>glab</code> o <code>gh</code>, o el texto que escribiste), revisa las reglas del repo y le pregunta al mapa del código antes de abrir archivos. Escribe <code>.tmp/harness/plan.md</code> con los criterios de aceptación, el contrato de la API, los datos y migraciones, los archivos previstos, las zonas de riesgo y preguntas cerradas con su recomendación. Te lo muestra y espera tu aprobación sin tocar código. Cada pedido se planifica en su propio worktree: si la sesión está en la raíz, primero entra a uno con un nombre libre, y la raíz no guarda nada del issue. Así olvidar una sesión no deja nada que otra herede.</p></div>
         <div class="card"><h4><code>build</code> <span class="badge b-claude">Claude solo</span></h4><p>Construye el plan aprobado, y sin <code>Aprobado:</code> no arranca. Lanza un ayudante dev por workspace, primero el back y después el front, y le pasa al front el contrato del back tal cual. Revisa que cada dev reporte la cobertura de cada criterio y abre algunas de las líneas que cita. Termina con "Construido, sin verificar".</p></div>
         <div class="card"><h4><code>verify</code> <span class="badge b-claude">Claude solo</span></h4><p>Por cada workspace tocado: si hay código nuevo sin test, llama al test-writer. Después corre el gate (<code>ci-gate.js</code>: typecheck contra la foto, lint de los tocados, tests contra la línea base) y escribe la bandera solo si el gate salió con 0.</p></div>
         <div class="card"><h4><code>review</code> <span class="badge b-claude">Claude solo</span></h4><p>La carga <code>ship</code> antes de commitear, una sola vez sobre el diff completo (o tú antes, con <code>/arnes:review</code>): build termina en verify y no la carga, porque el revisor en opus es el gasto grande. Prepara con <code>review.js</code> lo que el revisor necesita, lanza al reviewer una sola vez y marca la revisión con su número de bloqueantes; si ship la repite por cambios posteriores, revisa solo lo que cambió. Si se tocó una zona de riesgo, el reporte empieza con <code>REVISIÓN HUMANA OBLIGATORIA</code>.</p></div>
@@ -729,8 +729,8 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
           <p class="ev-name"><code>SessionStart</code> · <code>session-start.js</code></p>
           <dl>
             <dt>Cuándo</dt><dd>Al abrir la sesión, y después de un <code>/clear</code>.</dd>
-            <dt>Qué mira</dt><dd>El manifiesto; la rama y los archivos sin commitear de cada workspace; los worktrees sin integrar del registro (cinco como máximo, con aviso a los de más de 7 días sin commits nuevos); las cinco decisiones más recientes; y si hay otra sesión de Claude viva en el mismo proyecto, con un "candado" propio en <code>.tmp/harness/sessions/</code>.</dd>
-            <dt>Qué hace</dt><dd>Le inyecta a Claude, en 40 líneas como máximo, todo eso más el protocolo del arnés. Si ve otra sesión, avisa que esta debe abrir su propio worktree. Sin manifiesto, dice cómo crearlo con <code>/arnes:init</code> y no inventa nada.</dd>
+            <dt>Qué mira</dt><dd>El manifiesto; la rama y los archivos sin commitear de cada workspace; dentro de un worktree, el estado de su issue; y las cinco decisiones más recientes. Deja el "candado" de la sesión en <code>.tmp/harness/sessions/</code>. No mira lo que dejaron otras sesiones: los worktrees, issues y rescates que quedaron los lista <code>/arnes:cerrar</code> cuando lo pidas.</dd>
+            <dt>Qué hace</dt><dd>Le inyecta a Claude, en 40 líneas como máximo, todo eso más el protocolo del arnés. Sin manifiesto, dice cómo crearlo con <code>/arnes:init</code> y no inventa nada.</dd>
             <dt>Qué bloquea</dt><dd class="never">Nada: solo informa.</dd>
           </dl>
         </div>
@@ -896,7 +896,7 @@ footer { max-width: 760px; color: var(--muted); font-size: .85rem; padding: 30px
         <li><strong>Ship</strong> se niega a commitear o abrir el merge request si hay worktrees del issue abiertos.</li>
         <li><strong>Borrar un worktree</strong> con commits sin integrar se niega, tanto por la herramienta <code>ExitWorktree</code> como por <code>git worktree remove</code> en la terminal.</li>
       </ol>
-      <p>Antes del primer cerco está el aviso de sesión concurrente: si otra sesión ya trabaja en el mismo proyecto, la nueva recibe "esta sesión debe trabajar en su propio worktree".</p>
+      <p>Antes del primer cerco está la puerta: cada pedido se planifica en su propio worktree, así que dos sesiones no comparten plan ni archivos, y una sesión olvidada no deja nada en la raíz que otra herede.</p>
       <div class="callout quiet">Limitación de esta versión: los worktrees que abre el registro no copian <code>.env</code> ni enlazan <code>node_modules</code>. Para verificar dentro de uno hay que instalar dependencias. Queda para los templates de la fase 6.</div>
     </section>
 
@@ -1408,7 +1408,7 @@ claude plugin install arnes-mod@agentic-harness</code></pre>
       who: ['script'],
       time: 'al abrir la sesión',
       title: 'La sesión arranca y el arnés se presenta',
-      body: '<p>Antes de que escribas nada, corre el guardia de arranque (<code>session-start.js</code>). Sube desde la carpeta hasta encontrar <code>.claude/harness.json</code>, lo valida y le inyecta a Claude un contexto de 40 líneas como máximo: el proyecto, cada workspace con su rama y si tiene cambios, los worktrees sin integrar, las decisiones recientes y el protocolo del arnés. Escribe además el candado de esta sesión en <code>.tmp/harness/sessions/</code>.</p>',
+      body: '<p>Antes de que escribas nada, corre el guardia de arranque (<code>session-start.js</code>). Sube desde la carpeta hasta encontrar <code>.claude/harness.json</code>, lo valida y le inyecta a Claude un contexto de 40 líneas como máximo: el proyecto, cada workspace con su rama y si tiene cambios, dentro de un worktree el estado de su issue, las decisiones recientes y el protocolo del arnés. Nada de lo que dejaron otras sesiones. Escribe además el candado de esta sesión en <code>.tmp/harness/sessions/</code>.</p>',
       out: 'arnes · api-academico · repo · raíz &lt;PDV&gt;\\agentic-harness\\.tmp\\api-academico\n- api-academico (.) · rama feature/crud-talleres · limpio · nestjs-prisma\nProtocolo del arnés:\n1. Manda el manifiesto de cada repo: sus comandos, riskPaths y forbidden. …'
     },
     {
