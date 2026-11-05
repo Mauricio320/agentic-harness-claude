@@ -48,7 +48,7 @@ function aprueba(project) {
   const after = entries.slice(i + 1);
   if (after.some((e) => e.stage === 'ajuste' && e.result === 'aprobado')) die('ajuste: esa propuesta ya se aprobó y se cerró; un cambio nuevo es otra propuesta', 1);
   const last = entries.filter(isAnswer).pop();
-  const fromPerson = last && after.includes(last) && last.origen === 'composer' && /^[0-9a-f]{64}$/.test(last.hash || '') && !last.marcas;
+  const fromPerson = last && after.includes(last) && last.origen === 'composer' && /^[0-9a-f]{64}$/.test(last.hash || '') && !last.marcas && !last.comando;
   if (!fromPerson) {
     die('ajuste: la aprobación tiene que venir de la persona, escrita en el chat después de la propuesta. Un agente, un mensaje remoto o del host (bridge, sdk) no aprueban; ella también puede escribir /arnes:init --ajustar.', 1);
   }

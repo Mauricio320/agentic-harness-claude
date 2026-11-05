@@ -66,6 +66,10 @@ test('plan en tres llamadas: start dice todo lo que había que juntar, finish-dr
   assert.match(f.stdout, /^alternativa: crear feature\/crud-talleres aquí mismo/m);
   let a = run(dir, 'plan-state.js', ['approve']);
   assert.equal(a.status, 1, 'sin una respuesta de la persona no aprueba');
+  person(dir, '/arnes:ship');
+  assert.equal(run(dir, 'plan-state.js', ['approve']).status, 1, 'un slash command es de la persona, pero no aprueba el plan');
+  person(dir, '<command-name>/arnes:ship</command-name>\n<command-args></command-args>');
+  assert.equal(run(dir, 'plan-state.js', ['approve']).status, 1, 'tampoco expandido por el CLI');
   person(dir);
   a = run(dir, 'plan-state.js', ['approve']);
   assert.equal(a.status, 0, a.stdout + a.stderr);

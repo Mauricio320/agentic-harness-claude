@@ -55,6 +55,9 @@ const TRIVIAL = /^\s*\/arnes:plan\s+--trivial\b|<command-name>\/arnes:plan<\/com
 const PREP = /^\s*\/arnes:(init|setup)\b|<command-name>\/arnes:(init|setup)<\/command-name>/;
 // /arnes:ship --revisado <nombre> como lo escribió la persona, o como lo expande el CLI.
 const REVISADO = /^\s*\/arnes:ship\b[^\n]*?--revisado\s+([^\s<]+)|<command-name>\/arnes:ship<\/command-name>[\s\S]*?<command-args>[^<]*?--revisado\s+([^\s<]+)/;
+// Un slash command, escrito o expandido por el CLI: es de la persona, pero no es una respuesta a lo que
+// se le preguntó. Un «/arnes:ship» después del plan no lo aprueba.
+const COMMAND = /^\s*\/[a-z][\w:-]*(\s|$)|<command-name>/i;
 const PLAN_FIRST = 'arnes: si este mensaje pide cambiar código, la primera acción es cargar arnes:plan.';
 // El plan en curso es de otra sesión viva (lib/sesiones.js): esta no escribe bajo él.
 const OTHER_PLAN = 'arnes: el plan en curso en este checkout es de otra sesión de Claude que sigue abierta. Si este mensaje pide cambiar código, carga arnes:plan, que lo planifica en tu propio worktree; no escribas código bajo el plan de la otra.';
@@ -109,6 +112,7 @@ function promptContext(input) {
       origen: origin,
       hash,
       marcas: marks || undefined,
+      comando: COMMAND.test(text) || undefined,
       trivial: TRIVIAL.test(text) || undefined,
       revisado: revisado ? revisado[1] || revisado[2] : undefined,
       modelos: modelos.length ? modelos : undefined,

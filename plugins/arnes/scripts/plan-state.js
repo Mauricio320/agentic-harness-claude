@@ -93,7 +93,7 @@ const issues = require('./lib/issues.js');
 const pad = (n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
-const isApproval = (e) => isAnswer(e) && /^[0-9a-f]{64}$/.test(e.hash || '') && !e.marcas;
+const isApproval = (e) => isAnswer(e) && /^[0-9a-f]{64}$/.test(e.hash || '') && !e.marcas && !e.comando;
 
 function status(project) {
   const p = planState(read(project.root));
