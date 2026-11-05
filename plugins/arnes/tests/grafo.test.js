@@ -65,13 +65,17 @@ test('plan-state start consulta el grafo él mismo, en la carpeta y en cada repo
   h.write(ventas, 'graphify-out/nodos.txt', 'NODE CuotaService [src=src/cuotas/cuota.service.ts loc=L12 community=Cuota]\nNODE plan [src=docs/plan.md loc=L1 community=x]\n');
   h.write(tienda, 'graphify-out/nodos.txt', 'NODE AvisoComponent [src=src/app/cuotas/aviso.component.ts loc=L8 community=Aviso]\n');
   h.write(root, 'graphify-out/nodos.txt', 'NODE CuotaService [src=src/cuotas/cuota.service.ts loc=L12 community=Cuota]\nNODE AvisoComponent [src=src/app/cuotas/aviso.component.ts loc=L8 community=Aviso]\n');
-  const r = h.run('plan-state.js', ['start', '--detail', 'en lugar del aviso "sin cuota", muestra la cuota'], { cwd: root, env: h.withPath(GRAPHIFY) });
+  const llano = h.run('plan-state.js', ['start', '--detail', 'en lugar del aviso "sin cuota", muestra la cuota'], { cwd: root, env: h.withPath(GRAPHIFY) });
+  assert.match(llano.stdout, /^grafo: el pedido no nombra una clase, un archivo ni una ruta/m, 'un pedido en lenguaje llano no trae nodos');
+  assert.ok(!fs.existsSync(path.join(ventas, 'graphify-out', 'consultas.txt')), 'ni consulta');
+  h.write(ventas, 'graphify-out/nodos.txt', 'NODE CuotaService [src=src/cuotas/cuota.service.ts loc=L12 community=Cuota]\nNODE plan [src=docs/plan.md loc=L1 community=x]\nNODE PagoService [src=src/pagos/pago.service.ts loc=L3 community=Pago]\n');
+  const r = h.run('plan-state.js', ['start', '--detail', 'en AvisoComponent, en lugar de "sin cuota", muestra la de CuotaService'], { cwd: root, env: h.withPath(GRAPHIFY) });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^grafo: start lo consultó con «en lugar del aviso sin cuota , muestra la cuota» en \., ventas, tienda, en paralelo \([\d,]+ s\); los nodos que encontró, con su archivo y su línea, son el punto de partida:$/m);
+  assert.match(r.stdout, /^grafo: start lo consultó con «en AvisoComponent, en lugar de sin cuota , muestra la de CuotaService» en \., ventas, tienda, en paralelo \([\d,]+ s\); los nodos que nombran avisocomponent, cuotaservice, con su archivo y su línea, son el punto de partida:$/m);
   const nodes = r.stdout.split(/\r?\n/).filter((l) => l.startsWith('- ') && l.includes(' · ') && /:\d+$/.test(l));
-  assert.deepEqual(nodes, ['- CuotaService · ventas/src/cuotas/cuota.service.ts:12', '- AvisoComponent · tienda/src/app/cuotas/aviso.component.ts:8'], 'sin repetir y sin docs ni .md');
+  assert.deepEqual(nodes, ['- CuotaService · ventas/src/cuotas/cuota.service.ts:12', '- AvisoComponent · tienda/src/app/cuotas/aviso.component.ts:8'], 'sin repetir, sin docs ni .md, y sin el nodo que no nombra un término');
   assert.match(r.stdout, /^grafo: si te falta algo, pregúntale más/m);
-  assert.equal(fs.readFileSync(path.join(ventas, 'graphify-out', 'consultas.txt'), 'utf8').trim(), 'en lugar del aviso sin cuota , muestra la cuota');
+  assert.equal(fs.readFileSync(path.join(ventas, 'graphify-out', 'consultas.txt'), 'utf8').trim(), 'en AvisoComponent, en lugar de sin cuota , muestra la de CuotaService');
   const notes = tl.read(root).filter((e) => e.stage === 'grafo');
   assert.equal(notes.length, 3, 'cada consulta de start queda en la timeline, como las del modelo');
   assert.equal(h.run('plan-state.js', ['grafo'], { cwd: root }).stdout, 'grafo: 3 consulta(s), grafo presente\n');
@@ -85,7 +89,7 @@ test('sin graphify o sin grafo, start lo dice en una línea y no consulta nada',
   const noGraphify = { [key]: process.env[key].split(path.delimiter).filter((d) => !['graphify', 'graphify.exe', 'graphify.cmd'].some((f) => fs.existsSync(path.join(d, f)))).join(path.delimiter) };
   assert.match(h.run('plan-state.js', ['start', '--detail', 'x'], { cwd: dir, env: noGraphify }).stdout, /^grafo: no hay; ubica el código con Grep/m);
   h.write(dir, 'graphify-out/graph.json', '{}');
-  assert.match(h.run('plan-state.js', ['start', '--detail', 'x'], { cwd: dir, env: noGraphify }).stdout, /^grafo: hay en \., pero el comando graphify no está/m);
+  assert.match(h.run('plan-state.js', ['start', '--detail', 'en CuotaService'], { cwd: dir, env: noGraphify }).stdout, /^grafo: hay en \., pero el comando graphify no está/m);
   assert.equal(tl.read(dir).filter((e) => e.stage === 'grafo').length, 0);
 });
 

@@ -180,7 +180,8 @@ function refreshMerged(project, { force = false, max = 3, now = new Date() } = {
 }
 
 const ago = (ms) => (ms < 3600000 ? `${Math.max(1, Math.round(ms / 60000))} min` : ms < 172800000 ? `${Math.round(ms / 3600000)} h` : `${Math.round(ms / 86400000)} días`);
-const refs = (r) => (r.mr || []).map((m) => (/^\d+$/.test(String(m.ref)) ? `!${m.ref}` : m.ref)).join(', ');
+// Con el repo delante cuando hay más de uno: api!586 y client!586 son MR distintos.
+const refs = (r) => (r.mr || []).map((m) => `${new Set((r.mr || []).map((x) => x.repo)).size > 1 && m.repo ? path.basename(m.repo) : ''}${/^\d+$/.test(String(m.ref)) ? `!${m.ref}` : m.ref}`).join(', ');
 
 // Una línea por issue abierto, con su estado en palabras y desde cuándo.
 function describe(r, now = new Date()) {

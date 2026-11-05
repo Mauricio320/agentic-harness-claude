@@ -85,7 +85,7 @@ const { planOwner, fromEnv } = require('./lib/sesiones.js');
 const { append, read, planState, tasks } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
-const { graphDirs, queryProject } = require('./lib/grafo.js');
+const { codeTerms, graphDirs, queryProject } = require('./lib/grafo.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
@@ -115,15 +115,20 @@ function workspaceLine(ws) {
   return `- ${where} · ${ws.stack || 'sin stack'} · riskPaths: ${(ws.riskPaths || []).join(', ') || 'ninguna declarada'} · ${contract}${docs ? ` · lee ${docs}` : ''}`;
 }
 
-// Las consultas que start le hace al grafo con el texto del pedido (lib/grafo.js). → líneas para la salida
+// Las consultas que start le hace al grafo con el texto del pedido (lib/grafo.js), solo si nombra un
+// término de código, y solo los nodos que lo nombran: con un pedido en lenguaje llano el grafo trae
+// nodos que nada tienen que ver (36 en una sesión de renova365). → líneas para la salida
 async function graphStart(project, detail) {
   const dirs = graphDirs(project);
   if (!dirs.length) return ['grafo: no hay; ubica el código con Grep por los nombres del pedido y abre un módulo parecido'];
+  const terms = codeTerms(detail);
+  if (!terms.length) return ['grafo: el pedido no nombra una clase, un archivo ni una ruta; ubica el código con Grep por sus nombres, o pregúntale al grafo con uno de ellos (graphify query)'];
   const q = await queryProject(project, detail, 'start');
   if (!q) return [`grafo: hay en ${dirs.map((d) => posix(path.relative(project.root, d)) || '.').join(', ')}, pero el comando graphify no está; ubica el código con Grep`];
   const head = `grafo: start lo consultó con «${q.text}» en ${q.dirs.join(', ')}, en paralelo (${q.took}${q.late ? ', alguno pasó del tope' : ''})`;
-  if (!q.nodes.length) return [`${head}; no encontró nodos para el pedido: ubica el código con Grep por sus nombres`];
-  return [`${head}; los nodos que encontró, con su archivo y su línea, son el punto de partida:`, ...q.nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
+  const nodes = q.nodes.filter((n) => terms.some((t) => n.toLowerCase().includes(t)));
+  if (!nodes.length) return [`${head}; no encontró nodos que nombren ${terms.join(', ')}: ubica el código con Grep`];
+  return [`${head}; los nodos que nombran ${terms.join(', ')}, con su archivo y su línea, son el punto de partida:`, ...nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
 }
 
 // El plan en curso es de otra sesión viva (lib/sesiones.js): no se pisa. Esta planifica en su propio

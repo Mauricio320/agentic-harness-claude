@@ -96,15 +96,17 @@ async function queryProject(project, texto, para) {
 
 // Los nodos de una pregunta que nombran alguno de sus términos de código (de una ruta o un archivo, su
 // último tramo sin extensión), en el nombre o en el archivo; si ninguno, nada.
+const codeTerms = (texto) => (String(texto).match(CODE) || []).map((t) => t.split('/').pop().replace(/\.\w+$/, '').toLowerCase()).filter((t) => t.length > 2);
+
 async function questionContext(project, texto) {
-  const terms = (String(texto).match(CODE) || []).map((t) => t.split('/').pop().replace(/\.\w+$/, '').toLowerCase()).filter((t) => t.length > 2);
+  const terms = codeTerms(texto);
   const q = await queryProject(project, texto, 'pregunta');
   const nodes = q ? q.nodes.filter((n) => terms.some((t) => n.toLowerCase().includes(t))) : [];
   if (!nodes.length) return [];
   return [`arnes · grafo: para esta pregunta, el grafo de código (${q.dirs.join(', ')}) trae estos nodos, con su archivo y su línea; empieza por ahí antes de buscar con Grep:`, ...nodes];
 }
 
-module.exports = { GRAPH_TIMEOUT_MS, GRAPH_BUDGET, graphDirs, queryProject, questionContext, isQuestion, worthGraph };
+module.exports = { GRAPH_TIMEOUT_MS, GRAPH_BUDGET, codeTerms, graphDirs, queryProject, questionContext, isQuestion, worthGraph };
 
 if (require.main === module) {
   let args;
