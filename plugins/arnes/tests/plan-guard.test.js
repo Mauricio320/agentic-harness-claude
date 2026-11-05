@@ -137,17 +137,17 @@ test('plan-state approve: solo con el plan escrito y una respuesta de la persona
 test('plan-state trivial: solo si el último mensaje de la persona fue /arnes:plan --trivial; escribe el plan y lo aprueba', () => {
   const dir = repo();
   person(dir, 'cambia el título del botón');
-  let r = planState(dir, ['trivial', '--pedido', 'Cambiar el título del botón', '--criterio', 'el botón dice Guardar']);
+  let r = planState(dir, ['trivial', '--pedido', 'Cambiar el título del botón', '--criterio', 'el botón dice Guardar', '--en-checkout']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--trivial lo pide la persona escribiendo \/arnes:plan --trivial; nunca lo elige el modelo/);
   person(dir, '/arnes:plan --trivial cambia el título del botón');
-  r = planState(dir, ['trivial', '--pedido', 'Cambiar el título del botón', '--criterio', 'el botón dice Guardar']);
+  r = planState(dir, ['trivial', '--pedido', 'Cambiar el título del botón', '--criterio', 'el botón dice Guardar', '--en-checkout']);
   assert.equal(r.status, 0, r.stderr);
   const plan = fs.readFileSync(path.join(dir, '.tmp', 'harness', 'plan.md'), 'utf8');
   assert.match(plan, /^# Plan: Cambiar el título del botón\nAprobado: \d{4}-\d{2}-\d{2} por la persona, como cambio trivial/);
   assert.match(plan, /- C1 \[literal\] el botón dice Guardar/);
   assert.equal(edit(dir, 'src/a.ts').out, null, 'con el plan trivial aprobado se puede escribir');
-  assert.equal(planState(dir, ['trivial', '--pedido', 'otro', '--criterio', 'x']).status, 1, 'ya hay plan aprobado');
+  assert.equal(planState(dir, ['trivial', '--pedido', 'otro', '--criterio', 'x', '--en-checkout']).status, 1, 'ya hay plan aprobado');
   for (const args of [[], ['otra'], ['trivial'], ['trivial', '--pedido', 'x'], ['status', '--pedido', 'x']]) assert.equal(planState(dir, args).status, 2, args.join(' '));
 });
 

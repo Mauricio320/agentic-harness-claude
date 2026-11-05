@@ -29,11 +29,11 @@ function live(dir, session, pid = process.pid) {
 
 // La sesión A empezó un plan, lo escribió y la persona lo aprobó.
 function approvedBy(dir, session) {
-  assert.equal(run(dir, ['start', '--detail', 'etapa 1 del editor'], session).status, 0);
+  assert.equal(run(dir, ['start', '--detail', 'etapa 1 del editor', '--en-checkout'], session).status, 0);
   h.write(dir, '.tmp/harness/plan.md', PLAN);
   assert.equal(run(dir, ['finish-draft'], session).status, 0);
   tl.append(dir, h.answer('sí a todo'));
-  assert.equal(run(dir, ['approve', '--en-checkout'], session).status, 0);
+  assert.equal(run(dir, ['approve'], session).status, 0);
 }
 
 test('start no pisa el plan de otra sesión viva: sale con 3 y manda a planificar en un worktree propio', () => {
@@ -54,7 +54,7 @@ test('en una carpeta que no es repo, start con el plan de otra sesión viva no m
   const root = h.tmp('sesiones-carpeta');
   h.repo(path.join(root, 'api'), { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api', h.workspace({ name: 'api', defaultBranch: 'main' })), 'src/a.ts': 'a\n' });
   h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
-  assert.equal(run(root, ['start', '--detail', 'etapa 1 del editor'], 'A').status, 0);
+  assert.equal(run(root, ['start', '--detail', 'etapa 1 del editor', '--en-checkout'], 'A').status, 0);
   live(root, 'A');
   const r = run(root, ['start', '--detail', 'design system de informes'], 'B');
   assert.equal(r.status, 3, r.stdout + r.stderr);
@@ -62,14 +62,17 @@ test('en una carpeta que no es repo, start con el plan de otra sesión viva no m
   assert.doesNotMatch(r.stdout, /claude --worktree|EnterWorktree/, 'los dos fallan sin repo');
 });
 
-test('un plan de una sesión que ya terminó, o sin sesión anotada, se puede pisar como siempre', () => {
+test('el plan de una sesión que ya terminó, o sin sesión anotada, no frena a otra: la puerta la manda a su worktree, o lo pisa con --en-checkout', () => {
   const dir = repo();
   approvedBy(dir, 'A');
   live(dir, 'A', 999999);
-  assert.equal(run(dir, ['start', '--detail', 'otro pedido'], 'B').status, 0, 'el pid de A ya no existe');
+  const b = run(dir, ['start', '--detail', 'otro pedido'], 'B');
+  assert.equal(b.status, 3, 'la puerta, como a cualquier pedido nuevo');
+  assert.doesNotMatch(b.stdout, /otra sesión/, 'el pid de A ya no existe: no es de nadie');
+  assert.equal(run(dir, ['start', '--detail', 'otro pedido', '--en-checkout'], 'B').status, 0);
   const sin = repo();
   approvedBy(sin, '');
-  assert.equal(run(sin, ['start', '--detail', 'otro pedido'], 'B').status, 0, 'sin sesión anotada no hay dueña');
+  assert.equal(run(sin, ['start', '--detail', 'otro pedido', '--en-checkout'], 'B').status, 0, 'sin sesión anotada no hay dueña');
 });
 
 test('al entrar a su worktree, la otra sesión no se lleva el plan aprobado de la primera', () => {
@@ -84,13 +87,16 @@ test('al entrar a su worktree, la otra sesión no se lleva el plan aprobado de l
   assert.equal(run(wt, ['start', '--detail', 'design system de informes'], 'B').status, 0, 'y B planifica en su worktree');
 });
 
-test('la dueña del plan sí se lo lleva al entrar a su worktree, como siempre', () => {
+test('EnterWorktree no trae nada del principal ni le anota nada, tampoco a la dueña del plan: se entra antes de planificar', () => {
   const dir = repo();
   approvedBy(dir, 'A');
   live(dir, 'A');
+  const before = tl.read(dir).length;
   const wt = h.nativeWorktree(dir, 'etapa-1');
   const r = h.hook('session-start', { hook_event_name: 'PostToolUse', tool_name: 'EnterWorktree', session_id: 'A', cwd: wt }, { env: as('A') });
-  assert.match(r.out.hookSpecificOutput.additionalContext, /traje el plan aprobado del checkout principal/);
+  assert.doesNotMatch(r.out.hookSpecificOutput.additionalContext, /traje el plan/);
+  assert.equal(fs.existsSync(path.join(wt, '.tmp', 'harness', 'plan.md')), false);
+  assert.equal(tl.read(dir).length, before, 'ni una nota «movido» en la raíz');
 });
 
 test('un mensaje de otra sesión con el plan de la primera en curso trae el aviso de planificar en su worktree', () => {

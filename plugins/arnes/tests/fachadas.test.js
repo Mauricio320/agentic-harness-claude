@@ -49,56 +49,76 @@ function cloned(over, extra, files = {}) {
   return { dir, bare };
 }
 
-test('plan en tres llamadas: start dice todo lo que había que juntar, finish-draft cierra y dice dónde, approve aprueba y deja las tareas', () => {
+test('la raíz es la puerta: start en la raíz manda al worktree sin anotar nada; adentro, start, finish-draft y approve, y la rama pasa a la del issue', () => {
   const { dir } = cloned();
-  const s = run(dir, 'plan-state.js', ['start', '--detail', 'CRUD de talleres']);
+  const door = run(dir, 'plan-state.js', ['start', '--detail', 'CRUD de talleres']);
+  assert.equal(door.status, 3, door.stdout + door.stderr);
+  assert.match(door.stdout, /^worktree: crud-talleres\nsiguiente: este pedido se planifica en su propio worktree: llama a EnterWorktree con name "crud-talleres", y vuelve a correr esto mismo desde ahí\. Si EnterWorktree falla o la persona pide el checkout, start --en-checkout$/m);
+  assert.deepEqual(events(dir), [], 'la raíz no guarda nada del issue');
+
+  const wt = h.nativeWorktree(dir, 'crud-talleres');
+  const entered = h.hook('session-start', { hook_event_name: 'PostToolUse', tool_name: 'EnterWorktree', session_id: 's1', cwd: wt });
+  assert.doesNotMatch(entered.out.hookSpecificOutput.additionalContext, /traje el plan/, 'no trae nada del principal');
+  const s = run(wt, 'plan-state.js', ['start', '--detail', 'CRUD de talleres']);
   assert.equal(s.status, 0, s.stdout + s.stderr);
   assert.match(s.stdout, /^proyecto: api · repo · raíz /m);
   assert.match(s.stdout, /^- api \(\.\) · sin stack · riskPaths: src\/auth\/\*\* · sin contrato · lee \S+\/CLAUDE\.md y 1 regla\(s\) en \S+\/\.claude\/rules$/m);
-  assert.match(s.stdout, /^ramas:\nel issue irá a un worktree nuevo que sale de origin al día/m);
   assert.match(s.stdout, /^negocio:\ndecide: preguntar/m);
   assert.match(s.stdout, /^grafo: no hay; ubica el código con Grep/m);
-  h.write(dir, '.tmp/harness/plan.md', PLAN);
-  const f = run(dir, 'plan-state.js', ['finish-draft']);
+  assert.doesNotMatch(s.stdout, /sesión nueva/, 'el worktree todavía no entregó nada');
+  h.write(wt, '.tmp/harness/plan.md', PLAN);
+  const f = run(wt, 'plan-state.js', ['finish-draft']);
   assert.equal(f.status, 0, f.stdout + f.stderr);
   assert.match(f.stdout, /^grafo: 0 consulta\(s\), sin grafo$/m);
-  assert.match(f.stdout, /^worktree: crud-talleres$/m);
-  assert.match(f.stdout, /^alternativa: crear feature\/crud-talleres aquí mismo/m);
-  let a = run(dir, 'plan-state.js', ['approve']);
+  let a = run(wt, 'plan-state.js', ['approve']);
   assert.equal(a.status, 1, 'sin una respuesta de la persona no aprueba');
-  person(dir, '/arnes:ship');
-  assert.equal(run(dir, 'plan-state.js', ['approve']).status, 1, 'un slash command es de la persona, pero no aprueba el plan');
-  person(dir, '<command-name>/arnes:ship</command-name>\n<command-args></command-args>');
-  assert.equal(run(dir, 'plan-state.js', ['approve']).status, 1, 'tampoco expandido por el CLI');
-  person(dir);
-  a = run(dir, 'plan-state.js', ['approve']);
+  person(wt, '/arnes:ship');
+  assert.equal(run(wt, 'plan-state.js', ['approve']).status, 1, 'un slash command es de la persona, pero no aprueba el plan');
+  person(wt, '<command-name>/arnes:ship</command-name>\n<command-args></command-args>');
+  assert.equal(run(wt, 'plan-state.js', ['approve']).status, 1, 'tampoco expandido por el CLI');
+  person(wt);
+  a = run(wt, 'plan-state.js', ['approve']);
   assert.equal(a.status, 0, a.stdout + a.stderr);
   assert.match(a.stdout, /^plan aprobado por la persona$/m);
-  assert.match(a.stdout, /^worktree: crud-talleres\nsiguiente: llama a EnterWorktree con name "crud-talleres"/m);
+  assert.match(a.stdout, /la rama del worktree pasa de worktree-crud-talleres a feature\/crud-talleres/);
+  assert.match(a.stdout, /rama: feature\/crud-talleres en api/);
   assert.deepEqual(tareas(a.stdout).map((t) => t.content), ['Construir api', 'Verificar', 'Revisar', 'Entregar']);
-  assert.deepEqual(events(dir), ['start plan', 'note plan grafo', 'end plan ok', 'note plan aprobado', 'note plan tareas']);
-
-  const wt = h.nativeWorktree(dir, 'crud-talleres');
-  const r = h.hook('session-start', { hook_event_name: 'PostToolUse', tool_name: 'EnterWorktree', session_id: 's1', cwd: wt });
-  const ctx = r.out.hookSpecificOutput.additionalContext;
-  assert.match(ctx, /traje el plan aprobado del checkout principal/);
-  assert.match(ctx, /la rama del worktree pasa de worktree-crud-talleres a feature\/crud-talleres/);
-  assert.match(ctx, /rama: feature\/crud-talleres en api/);
-  assert.deepEqual(JSON.parse(/^tareas: (.+)$/m.exec(ctx)[1]).map((t) => t.content), ['Construir api', 'Verificar', 'Revisar', 'Entregar']);
   assert.equal(h.git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/crud-talleres');
   assert.match(fs.readFileSync(path.join(wt, '.tmp', 'harness', 'plan.md'), 'utf8'), /^Rama: feature\/crud-talleres en api: la del worktree nativo de Claude Code$/m);
-  assert.equal(tl.planState(tl.read(dir)).open, false, 'el plan se movió: el principal no escribe código de este issue');
   assert.equal(tl.planState(tl.read(wt)).approved, true);
-  const again = h.hook('session-start', { hook_event_name: 'PostToolUse', tool_name: 'EnterWorktree', session_id: 's1', cwd: wt });
-  assert.doesNotMatch(again.out.hookSpecificOutput.additionalContext, /traje el plan/, 'con el plan ya adentro no lo vuelve a traer');
+  assert.deepEqual(events(dir), [], 'tampoco después: el issue entero vive en el worktree');
+
+  tl.append(wt, { event: 'end', stage: 'ship', result: 'ok' });
+  assert.match(run(wt, 'plan-state.js', ['start', '--detail', 'otro pedido']).stdout, /^sesión nueva: este worktree ya entregó un issue; para uno nuevo conviene ExitWorktree y una sesión nueva/m);
 });
 
-test('approve en el checkout: con --en-checkout crea la rama del issue ahí, y con otra rama exige el sí', () => {
+test('la puerta: desde un repo de adentro pide cd a la raíz; un nombre ocupado por una sesión olvidada pasa a -2; un pedido nuevo no pisa el plan sin entregar del checkout', () => {
+  const { dir } = cloned();
+  h.write(dir, 'src/sub/x.ts', 'x\n');
+  const sub = run(path.join(dir, 'src'), 'plan-state.js', ['start', '--detail', 'CRUD de talleres']);
+  assert.equal(sub.status, 3);
+  assert.match(sub.stdout, /siguiente: este pedido se planifica en su propio worktree: cd "[^"]+" \(EnterWorktree crea el worktree del repo donde está parada la sesión\) y llama a EnterWorktree/);
+  h.nativeWorktree(dir, 'crud-talleres');
+  assert.match(run(dir, 'plan-state.js', ['start', '--detail', 'CRUD de talleres']).stdout, /^worktree: crud-talleres-2$/m, 'no retoma la carpeta ni la rama de otra sesión');
+
+  assert.equal(run(dir, 'plan-state.js', ['start', '--detail', 'el login', '--en-checkout']).status, 0);
+  h.write(dir, '.tmp/harness/plan.md', PLAN);
+  run(dir, 'plan-state.js', ['finish-draft']);
+  person(dir);
+  run(dir, 'plan-state.js', ['approve']);
+  assert.equal(tl.planState(tl.read(dir)).approved, true);
+  const menu = run(dir, 'plan-state.js', ['start', '--detail', 'agrega el design system al menú']);
+  assert.equal(menu.status, 3, 'un pedido nuevo va a su propio worktree');
+  assert.equal(tl.planState(tl.read(dir)).approved, true, 'el plan del login, aprobado y sin entregar, queda intacto');
+  assert.equal(run(dir, 'plan-state.js', ['start', '--detail', 'ajuste: otro texto']).status, 0, 'un ajuste del plan propio sí se re-planifica en el checkout');
+});
+
+test('approve en el checkout: crea la rama del issue ahí, y con otra rama exige el sí', () => {
   const { dir } = cloned();
   for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }]) tl.append(dir, e);
   h.write(dir, '.tmp/harness/plan.md', PLAN);
   person(dir);
-  const a = run(dir, 'plan-state.js', ['approve', '--en-checkout']);
+  const a = run(dir, 'plan-state.js', ['approve']);
   assert.equal(a.status, 0, a.stdout + a.stderr);
   assert.match(a.stdout, /^api: crea feature\/crud-talleres desde main/m);
   assert.match(a.stdout, /^tareas: /m);
@@ -108,7 +128,7 @@ test('approve en el checkout: con --en-checkout crea la rama del issue ahí, y c
   for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }]) tl.append(other, e);
   h.write(other, '.tmp/harness/plan.md', PLAN);
   person(other);
-  let b = run(other, 'plan-state.js', ['approve', '--en-checkout']);
+  let b = run(other, 'plan-state.js', ['approve']);
   assert.equal(b.status, 1, 'en otra rama no la mueve sin el sí');
   assert.match(b.stdout, /no la muevo sin el sí de la persona/);
   b = run(other, 'plan-state.js', ['approve', '--desde-otra']);
@@ -123,9 +143,9 @@ const CORTO = (archivos, extra = '') =>
 
 test('carril corto: un plan trivial se aprueba por reglas, sin la persona; si no cumple alguna, dice por qué y sigue por la aprobación', () => {
   const { dir } = cloned();
-  run(dir, 'plan-state.js', ['start', '--detail', 'mensaje de cuota vencida']);
+  run(dir, 'plan-state.js', ['start', '--detail', 'mensaje de cuota vencida', '--en-checkout']);
   h.write(dir, '.tmp/harness/plan.md', CORTO(['src/a.ts', 'src/cuotas/cuota.ts']));
-  const c = run(dir, 'plan-state.js', ['corto', '--en-checkout']);
+  const c = run(dir, 'plan-state.js', ['corto']);
   assert.equal(c.status, 0, c.stdout + c.stderr);
   assert.match(c.stdout, /^carril corto: sí · api · 2 archivo\(s\), sin zonas de riesgo ni preguntas; el plan quedó aprobado por reglas$/m);
   assert.match(c.stdout, /^siguiente: sigue con la skill build en este mismo turno, carril corto/m);
@@ -138,7 +158,7 @@ test('carril corto: un plan trivial se aprueba por reglas, sin la persona; si no
 
   const no = (plan, motivo) => {
     const d = cloned().dir;
-    run(d, 'plan-state.js', ['start', '--detail', 'x']);
+    run(d, 'plan-state.js', ['start', '--detail', 'x', '--en-checkout']);
     h.write(d, '.tmp/harness/plan.md', plan);
     const r = run(d, 'plan-state.js', ['corto']);
     assert.equal(r.status, 1, r.stdout);

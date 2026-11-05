@@ -15,7 +15,7 @@ Antes de nada, anota `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start
 
 ## Cuál worktree
 
-- **Para trabajar un issue**, en un repo solo y en una carpeta multi-repo: el worktree nativo de Claude Code. Plan mueve la sesión a uno al aprobar, o la persona abre la sesión con `claude --worktree <nombre>`, o el escritorio en modo worktree. No hace falta esta skill.
+- **Para trabajar un issue**, en un repo solo y en una carpeta multi-repo: el worktree nativo de Claude Code. Plan manda la sesión a uno antes de planificar (la raíz es la puerta), o la persona abre la sesión con `claude --worktree <nombre>`, o el escritorio en modo worktree. No hace falta esta skill.
 - **Para dos tareas que chocan en los mismos archivos**, build lanza al dev con el aislamiento de Claude Code (`isolation: worktree`), que le da un worktree `agent-<id>` en la rama `worktree-agent-<id>`. El arnés lo anota en el registro al arrancar el dev, le enlaza las dependencias, y build lo integra al cerrar su workspace. Esta skill sirve cuando eso quedó a medias: un conflicto, una sesión cortada, o un pendiente que avisan el Stop, ship o SessionStart.
 
 ## integrate <nombre>

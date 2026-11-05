@@ -79,9 +79,12 @@ test('al aprobar en el worktree nativo de un repo solo, worktree-<nombre> pasa a
   assert.match(fs.readFileSync(path.join(wt, '.tmp', 'harness', 'plan.md'), 'utf8'), /^Rama: feature\/talleres en api: la del worktree nativo de Claude Code$/m);
 });
 
-test('plan --trivial en el worktree nativo también le da a la rama el nombre del issue', () => {
-  const { wt } = nativeWithOrigin();
-  tl.append(wt, { event: 'note', stage: 'turno', result: 'respuesta', trivial: true });
+test('plan --trivial pasa por la puerta: en la raíz sale con 3, y en el worktree lee el pedido que la persona escribió en la raíz y le da a la rama el nombre del issue', () => {
+  const { dir, wt } = nativeWithOrigin();
+  tl.append(dir, { ...h.answer('/arnes:plan --trivial un GET /salud'), trivial: true });
+  const door = h.run('plan-state.js', ['trivial', '--pedido', 'un GET /salud', '--criterio', 'responde 200'], { cwd: dir });
+  assert.equal(door.status, 3, 'el cambio trivial también va a su worktree');
+  assert.match(door.stdout, /^siguiente: este pedido se planifica en su propio worktree/m);
   const r = h.run('plan-state.js', ['trivial', '--pedido', 'un GET /salud', '--criterio', 'responde 200'], { cwd: wt });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^la rama del worktree pasa de worktree-talleres a feature\/talleres/m);

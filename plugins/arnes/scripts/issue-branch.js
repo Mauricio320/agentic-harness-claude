@@ -3,18 +3,18 @@
 // §7). Actúa sobre los workspaces del plan (los que nombra "## Workspaces y orden"; si no nombra
 // ninguno, todos los adoptables), uno por repo, y les da a todos el mismo nombre: el prefijo de
 // integration.branchPrefix y un nombre corto sacado del título del plan.
-// El camino por defecto es el worktree nativo de Claude Code: al aprobar, plan mueve la sesión a uno
-// con EnterWorktree y el nombre corto, y los checkouts de la persona no se tocan, tengan cambios o
-// vayan atrás. La rama en el checkout queda como alternativa que pide la persona, o como camino por
-// defecto si el manifiesto declara integration.workInPlace, o si no se puede abrir un worktree (la raíz
-// no es un repo, o su configuración no está commiteada en la rama de la que nacería).
-//   check   sin worktree: dice el worktree que abrirá al aprobar (líneas "worktree:" y "al aprobar:") y
-//           la alternativa. En el checkout: git fetch origin y, por repo, la rama actual, la por
-//           defecto, los cambios sin commitear y cuánto va atrás de origin; si alguno está en otra
-//           rama, imprime la pregunta con recomendación que plan pone en el mensaje de aprobación
+// El camino por defecto es el worktree nativo de Claude Code: la raíz es la puerta, y plan-state.js
+// start manda a la sesión a uno con EnterWorktree antes de planificar (freeName da el nombre), así
+// que el plan, la corrida y la rama del issue viven ahí y los checkouts de la persona no se tocan. La
+// rama en el checkout queda para cuando la persona lo pide (start --en-checkout), si el manifiesto
+// declara integration.workInPlace, o si no se puede abrir un worktree (la raíz no es un repo, o su
+// configuración no está commiteada en la rama de la que nacería).
+//   check   dentro de un worktree, la rama del issue. En el checkout: git fetch origin y, por repo, la
+//           rama actual, la por defecto, los cambios sin commitear y cuánto va atrás de origin; si
+//           alguno está en otra rama, imprime la pregunta con recomendación que plan pone en el
+//           mensaje de aprobación
 //   create [--nombre <slug>] [--desde-otra]
-//           dentro de un worktree nativo: trae el plan aprobado del checkout principal si el worktree
-//           no tiene uno, materializa los repos del plan si es el de una carpeta (worktree-carpeta.js),
+//           dentro de un worktree nativo: materializa los repos del plan si es el de una carpeta (worktree-carpeta.js),
 //           en un repo solo renombra worktree-<nombre> a la rama del issue si no se subió (renameNative,
 //           que también corre plan-state.js al aprobar) y anota la rama del worktree; no crea otra.
 //           En el checkout, en la rama por defecto: la adelanta a origin/<defaultBranch> solo con el
@@ -31,8 +31,7 @@
 //           origin/<defaultBranch> y ofrece /arnes:sync
 //   behind  al empezar plan, antes de que haya plan: git fetch de cada repo adoptable y, por cada uno
 //           cuya rama actual va atrás de origin/<defaultBranch>, una línea con cuántos commits y
-//           /arnes:sync para traerlos; si el issue irá a un worktree, una sola línea: no importa,
-//           porque el worktree sale de origin. Nunca hace pull
+//           /arnes:sync para traerlos. Nunca hace pull
 // create y stay anotan la rama en el plan (la línea "Rama:" bajo el título) y en la timeline (nota
 // "rama" de plan). Los workspaces del plan donde no quedó van en su campo faltan, y create la anota aunque
 // no quede en ninguno: el Stop no pide construir con la rama a medias.
@@ -47,7 +46,7 @@ const { parseArgs } = require('util');
 const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists } = require('./lib/branches.js');
-const { append, read, planState } = require('./lib/timeline.js');
+const { append } = require('./lib/timeline.js');
 const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
 const issues = require('./lib/issues.js');
@@ -143,7 +142,16 @@ function worktreeRoute(project) {
 // lleva la configuración del arnés, que el guard no deja commitear.
 const folderRepo = (project) => `hazla repo de carpeta, que deja el checkout intacto y lleva el issue a un worktree nuevo: la persona, en una terminal en ${posix(project.root)}, corre git init y commitea .gitignore (que ignore los repos de adentro, /.tmp/ y /.claude/worktrees/), CLAUDE.md, .claude/harness.json y .claude/settings.json`;
 
-const repoList = (wss) => (wss.length > 1 ? `${wss.slice(0, -1).map((w) => w.name).join(', ')} y ${wss[wss.length - 1].name}` : wss.map((w) => w.name).join(''));
+// Un nombre de worktree libre para un pedido nuevo: si ya hay una carpeta en .claude/worktrees o una
+// rama con ese nombre en algún repo (de una sesión olvidada), <n>-2, <n>-3…, para no retomar lo suyo.
+function freeName(project, n) {
+  const prefix = (project.integration && project.integration.branchPrefix) || '';
+  const repos = [project.root, ...new Set(project.workspaces.map((w) => w.repo))];
+  const used = (x) => fs.existsSync(path.join(project.root, DIR, x)) || repos.some((r) => refExists(r, `refs/heads/worktree-${x}`) || refExists(r, `refs/heads/${prefix}${x}`));
+  let name = n;
+  for (let i = 2; used(name); i++) name = `${n}-${i}`;
+  return name;
+}
 
 function check(project) {
   const plan = readPlan(project);
@@ -156,17 +164,7 @@ function check(project) {
     return 0;
   }
   const route = worktreeRoute(project);
-  if (route.ok) {
-    const slug = slugOf(plan);
-    const existing = path.join(project.root, DIR, slug);
-    const where = project.kind === 'folder' ? `con ${repoList(wss)} en ${name}` : `en la rama ${name}`;
-    console.log(`worktree: ${slug}${fs.existsSync(existing) ? ` (ya existe en ${existing}: entro a él)` : ''}`);
-    console.log(`al aprobar: muevo esta sesión a un worktree nuevo, ${slug}, ${where}, desde ${route.base} al día; tus checkouts no se tocan, tengan cambios o vayan atrás.`);
-    console.log(`alternativa: crear ${name} aquí mismo, en el checkout de cada repo.`);
-    console.log(`rama del issue: ${name}`);
-    return 0;
-  }
-  console.log(`en el checkout: ${route.why}`);
+  console.log(`en el checkout${route.ok ? ', como pidió la persona' : `: ${route.why}`}`);
   let other = 0;
   for (const ws of wss) {
     const f = fetch(ws);
@@ -190,26 +188,7 @@ function notePlan(project, text) {
   fs.writeFileSync(file, ls.join('\n'));
 }
 
-// Al entrar con EnterWorktree, el worktree no tiene plan: el aprobado está en el checkout principal.
-// Se trae el plan y la corrida de la timeline desde su último start de plan, y el principal anota que
-// el plan se movió, para que allí no quede un plan aprobado abierto con que escribir código.
-function carry(project, w) {
-  if (fs.existsSync(planPath(project))) return null;
-  const main = loadProject(w.main);
-  if (!main || main.errors.length || !fs.existsSync(planPath(main))) return null;
-  const entries = read(main.root);
-  if (!planState(entries).open) return null;
-  fs.mkdirSync(path.dirname(planPath(project)), { recursive: true });
-  fs.copyFileSync(planPath(main), planPath(project));
-  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
-  for (const e of entries.slice(i)) append(project.root, e);
-  append(main.root, { event: 'note', stage: 'plan', result: 'movido', detail: `al worktree ${w.name}` });
-  return `traje el plan aprobado del checkout principal; allí ya no se escribe código para este issue`;
-}
-
 function enterNative(project, w, say = console.log) {
-  const carried = carry(project, w);
-  if (carried) say(carried);
   const renamed = renameNative(project, w);
   if (renamed) say(renamed);
   let missing = [];
@@ -331,10 +310,6 @@ function stay(project) {
 
 // Un workspace por repo, de todos los adoptables: al empezar plan todavía no hay plan que los nombre.
 function behind(project) {
-  if (!nativeRoot(project) && worktreeRoute(project).ok) {
-    console.log('el issue irá a un worktree nuevo que sale de origin al día: que tu checkout vaya atrás o tenga cambios no importa');
-    return 0;
-  }
   const seen = new Set();
   let late = 0;
   for (const ws of project.workspaces.filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
@@ -351,7 +326,7 @@ function behind(project) {
   return late ? 1 : 0;
 }
 
-module.exports = { slugOf, worktreeRoute, folderRepo, renameNative, check, create, stay, behind, enterNative, carry };
+module.exports = { slugOf, worktreeRoute, folderRepo, freeName, renameNative, check, create, stay, behind, enterNative };
 
 function main() {
   let args;

@@ -49,7 +49,6 @@ const { refExists, mergeTargets } = require('./lib/branches.js');
 const { link, unlink, isLink, linksUnder, real } = require('./lib/links.js');
 const { nativeWorktree, nativeRoot, key, list, DIR } = require('./lib/worktree-nativo.js');
 const { readPlan, planWorkspaces } = require('./lib/plan.js');
-const { read, planState } = require('./lib/timeline.js');
 const rescate = require('./lib/rescate.js');
 const { fetchOrigin } = require('./lib/fetch.js');
 const issues = require('./lib/issues.js');
@@ -92,16 +91,12 @@ function perRepo(workspaces) {
   return [...byRoot.values()];
 }
 
-// Los repos que se traen: los del plan del worktree o, al entrar desde el checkout principal, los del
-// plan aprobado de ahí; sin plan, todos los adoptables.
+// Los repos que se traen: los del plan del worktree; sin plan (se entra antes de planificar), todos
+// los adoptables, porque el plan tiene que leer el código de cada uno desde aquí.
 function wantedRepos(f, only) {
   const all = perRepo(f.main.workspaces.filter((w) => w.adoptable));
   if (only && only.length) return all.filter((ws) => only.some((r) => key(path.resolve(f.main.root, r)) === key(ws.repo) || r === ws.name));
-  let plan = readPlan(f.project);
-  if (!plan) {
-    const st = planState(read(f.main.root));
-    if (st.open && st.approved) plan = readPlan(f.main);
-  }
+  const plan = readPlan(f.project);
   return plan ? planWorkspaces(f.main.workspaces, plan) : all;
 }
 
@@ -128,11 +123,14 @@ function bring(f, state, ws, branch) {
   if (list(ws.repo).some((x) => key(x.path) === key(dst))) return { line: `${ws.name}: ya era un worktree de su repo; no lo toco`, entry: null };
   if (present(dst)) return { line: `${ws.name}: hay una carpeta ${repoRel} que no es un worktree de su repo; no la toco`, entry: null };
   const def = ws.defaultBranch || 'main';
-  if (git(ws.repo, ['remote']).stdout.trim()) {
+  const remote = git(ws.repo, ['remote']).stdout.trim();
+  if (remote) {
     const r = fetchOrigin(ws.repo);
     if (r.status !== 0) state.notes = [...(state.notes || []), `${ws.name}: no pude traer origin (${firstLine(r.stderr)}); salgo de lo que hay en local`];
   }
-  const from = refExists(ws.repo, `origin/${def}`) ? `origin/${def}` : def;
+  // Sin remoto, el trabajo local se junta en la rama del checkout y la por defecto puede ir atrás (un
+  // design system que vive en una rama de feature): el worktree nace de la rama del checkout.
+  const from = !remote ? git(ws.repo, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() || def : refExists(ws.repo, `origin/${def}`) ? `origin/${def}` : def;
   let args;
   let how;
   if (refExists(ws.repo, `refs/heads/${branch}`)) {
@@ -144,7 +142,7 @@ function bring(f, state, ws, branch) {
   } else {
     if (!refExists(ws.repo, from)) return { line: `${ws.name}: no encuentro ${from}; no lo traigo`, entry: null };
     args = ['worktree', 'add', '-q', '--no-track', '-b', branch, dst, from];
-    how = `desde ${from} al día (${git(ws.repo, ['rev-parse', '--short', from]).stdout.trim()})`;
+    how = `desde ${from}${remote ? ' al día' : ', la rama del checkout, porque el repo no tiene remoto'} (${git(ws.repo, ['rev-parse', '--short', from]).stdout.trim()})`;
   }
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   const r = git(ws.repo, args);

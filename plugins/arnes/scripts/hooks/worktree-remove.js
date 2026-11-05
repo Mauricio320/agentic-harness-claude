@@ -31,7 +31,6 @@ const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
-const { bringBack } = require('../lib/timeline.js');
 const apps = require('../lib/app.js');
 
 // La app que levantó el arnés en el worktree de dir, parada antes de borrarlo. → null, o el motivo
@@ -77,17 +76,12 @@ function judgeFolder(dir) {
   return r.refused.length ? lost(r.refused) : null;
 }
 
-// Un worktree nativo que se va a borrar devuelve su timeline al checkout principal.
-function keepTimeline(dir, why) {
-  const w = nativeWorktree(dir);
-  if (!why && w) bringBack(w.path, w.main);
-  return why;
-}
-
+// La timeline de un worktree se va con él: el issue vivió ahí, y su estado queda en el ledger
+// (lib/issues.js), no en la timeline de la raíz, que no guarda nada de un issue.
 function judge(dir) {
   if (!linkedWorktree(dir)) return null;
-  if (carpeta.folderWorktree(dir)) return keepTimeline(dir, judgeFolder(dir));
-  if (nativeWorktree(dir)) return keepTimeline(dir, judgeNative(dir) || stopApps(dir));
+  if (carpeta.folderWorktree(dir)) return judgeFolder(dir);
+  if (nativeWorktree(dir)) return judgeNative(dir) || stopApps(dir);
   return judgeOther(dir) || stopApps(dir);
 }
 

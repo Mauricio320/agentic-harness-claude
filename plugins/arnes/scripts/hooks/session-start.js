@@ -33,10 +33,8 @@ const { touched } = require('../touched-files.js');
 const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
 const issues = require('../lib/issues.js');
-const { append, read, planState, tasks } = require('../lib/timeline.js');
-const { planPath } = require('../lib/plan.js');
-const branchFlow = require('../issue-branch.js');
-const { LOCK_MAX_MS, claudePid, alive, planOwner } = require('../lib/sesiones.js');
+const { append } = require('../lib/timeline.js');
+const { LOCK_MAX_MS, claudePid, alive } = require('../lib/sesiones.js');
 const compat = require('../lib/compat.js');
 
 const MAX_LINES = 40;
@@ -227,21 +225,10 @@ function sessionStart(input, now = new Date()) {
   return [...head, ...shown, ...tailLines].join('\n');
 }
 
-// ¿El checkout principal tiene un plan aprobado en curso? Es el que se trae al worktree al entrar.
-// El plan aprobado del checkout principal que esta sesión se lleva al worktree: solo el suyo. El de
-// otra sesión viva se queda donde está (lib/sesiones.js): si no, una segunda sesión que entra a su
-// worktree para planificar lo suyo se llevaba el plan de la primera y se lo cerraba.
-function approvedIn(dir, input) {
-  const main = loadProject(dir);
-  if (!main || main.errors.length || !fs.existsSync(planPath(main)) || !planState(read(main.root)).approved) return false;
-  return !planOwner(main, { session: input.session_id || null, pid: claudePid() });
-}
-
 // PostToolUse de EnterWorktree: la sesión ya está en el worktree (el cwd de la entrada es su raíz) y
-// SessionStart no vuelve a correr. Lo deja usable como al arrancar y lo dice. Si la sesión viene de
-// aprobar el plan en el checkout principal, termina la transición ahí mismo (issue-branch.js
-// enterNative): trae el plan y la corrida, trae los repos en una carpeta, anota la rama y devuelve la
-// lista de tareas, sin que el modelo corra nada más.
+// SessionStart no vuelve a correr. Lo deja usable como al arrancar (en una carpeta, con todos los
+// repos, que el plan tiene que leer) y lo dice. No trae nada del checkout principal: se entra antes
+// de planificar, y el plan nace aquí.
 function entered(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
   const project = loadProject(cwd);
@@ -252,11 +239,7 @@ function entered(input) {
   const main = loadProject(w.main);
   if (main && !main.errors.length) fs.rmSync(lockFile(main, input), { force: true });
   lockSession(project, input, cwd);
-  const moved = [];
-  if (!fs.existsSync(planPath(project)) && approvedIn(w.main, input)) branchFlow.enterNative(loadProject(cwd), w, (l) => moved.push(l));
-  const list = moved.length ? tasks(read(loadProject(cwd).root)) : null;
-  const lines = [...new Set([...native, ...moved])];
-  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...lines.map((l) => `- ${l}`), ...(list ? [`tareas: ${JSON.stringify(list)}`] : [])].join('\n');
+  return [`arnes: esta sesión ahora trabaja en el worktree ${w.name}; el checkout principal no se toca.`, ...whereLines(w).map((l) => `- ${l}`), ...[...new Set(native)].map((l) => `- ${l}`)].join('\n');
 }
 
 module.exports = { MAX_LINES, PROTOCOL, sessionStart, entered, lockSession, unlockSession };

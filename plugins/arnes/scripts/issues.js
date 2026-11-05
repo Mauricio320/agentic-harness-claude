@@ -48,7 +48,6 @@ const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy, DIR } 
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
 const apps = require('./lib/app.js');
-const { bringBack } = require('./lib/timeline.js');
 
 const ledger = require('./worktree-ledger.js');
 const carpeta = require('./worktree-carpeta.js');
@@ -207,7 +206,6 @@ function removeNative(w, isIssueBranch, conCambios = false) {
     const u = git(w.main, ['worktree', 'unlock', w.path]);
     if (u.status !== 0) return { status: 1, stderr: `no pude desbloquearlo: ${firstLine(u.stderr)}` };
   }
-  bringBack(w.path, w.main);
   fs.rmSync(path.join(w.path, '.tmp', 'harness'), { recursive: true, force: true });
   const rm = git(w.main, ['worktree', 'remove', '--force', w.path]);
   if (rm.status === 0 && w.branch && !isIssueBranch && refExists(w.main, `refs/heads/${w.branch}`)) {

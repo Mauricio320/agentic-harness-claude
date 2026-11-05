@@ -113,32 +113,23 @@ test('la app del worktree arranca con los puertos en el entorno del proceso, que
   assert.match(h.run('build.js', ['app', '--ws', 'web', '--dry'], { cwd: root }).stdout, /web: levantaría node app\.js desde .*\/web$/m, 'en el principal no hay puertos que poner');
 });
 
-test('al entrar con EnterWorktree trae solo los repos del plan aprobado y se lleva el plan del principal; create después no repite nada', () => {
+test('al entrar con EnterWorktree antes de planificar trae todos los repos y nada del principal; con el plan aprobado adentro, create anota la rama', () => {
   const root = folder();
-  h.write(root, '.tmp/harness/plan.md', '# Plan: Talleres\n\n## Workspaces y orden\n1. api: endpoints\n');
-  tl.append(root, { event: 'start', stage: 'plan' });
-  tl.append(root, { event: 'end', stage: 'plan', result: 'ok' });
-  tl.append(root, { event: 'note', stage: 'turno', result: 'respuesta' });
-  tl.append(root, { event: 'note', stage: 'plan', result: 'aprobado' });
-  const c = h.run('issue-branch.js', ['check'], { cwd: root });
-  assert.equal(c.status, 0, c.stdout + c.stderr);
-  assert.match(c.stdout, /^worktree: talleres$/m);
-  assert.match(c.stdout, /^al aprobar: muevo esta sesión a un worktree nuevo, talleres, con api en feature\/talleres, desde main al día; tus checkouts no se tocan, tengan cambios o vayan atrás\.$/m);
-  assert.match(c.stdout, /^alternativa: crear feature\/talleres aquí mismo, en el checkout de cada repo\.$/m);
   const wt = h.nativeWorktree(root, 'talleres');
   const ctx = start(wt, 'PostToolUse');
   assert.match(ctx, /^arnes: esta sesión ahora trabaja en el worktree talleres/);
   assert.match(ctx, /^- api: lo traje/m);
-  assert.match(ctx, /^- traje el plan aprobado del checkout principal/m);
-  assert.match(ctx, /^- rama: feature\/talleres en api$/m);
-  assert.ok(!fs.existsSync(path.join(wt, 'web')), 'web no está en el plan');
+  assert.match(ctx, /^- web: lo traje/m, 'sin plan, todos: el plan tiene que leer el código de cada repo desde aquí');
+  assert.doesNotMatch(ctx, /traje el plan/);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Talleres\n\n## Workspaces y orden\n1. api: endpoints\n');
+  for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }, h.answer(), { event: 'note', stage: 'plan', result: 'aprobado' }]) tl.append(wt, e);
   const r = h.run('issue-branch.js', ['create'], { cwd: wt });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.doesNotMatch(r.stdout, /traje el plan/, 'el plan ya está adentro');
+  assert.match(r.stdout, /^rama: feature\/talleres en api$/m);
   assert.match(fs.readFileSync(path.join(wt, '.tmp', 'harness', 'plan.md'), 'utf8'), /^Rama: feature\/talleres en api: la del worktree nativo de Claude Code$/m);
-  assert.equal(h.run('plan-state.js', ['status'], { cwd: wt }).status, 0, 'en el worktree el plan sigue aprobado');
-  assert.equal(h.run('plan-state.js', ['status'], { cwd: root }).status, 1, 'en el principal ya no hay plan con que escribir código');
-  assert.equal(tl.read(root).pop().result, 'movido');
+  assert.equal(h.run('plan-state.js', ['status'], { cwd: wt }).status, 0, 'en el worktree el plan está aprobado');
+  assert.equal(h.run('plan-state.js', ['status'], { cwd: root }).status, 1, 'en el principal nunca hubo plan');
+  assert.equal(tl.read(root).filter((e) => e.stage === 'plan').length, 0, 'la raíz no guarda nada del issue');
   h.write(wt, 'api/src/a.ts', 'b\n');
   assert.match(h.run('ship.js', ['branch', 'talleres'], { cwd: wt }).stdout, /api: reutiliza feature\/talleres, la rama del worktree talleres: ahí va el commit/);
 });
@@ -175,9 +166,8 @@ test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nad
   tl.append(wt, { event: 'end', stage: 'ship', result: 'ok', detail: 'commit' });
   r = exit(wt);
   assert.equal(r.out, null, JSON.stringify(r.out));
-  assert.deepEqual(tl.read(root).slice(-2).map((e) => e.result), ['tareas', 'ok'], 'la timeline del worktree vuelve al principal antes de borrarlo');
+  assert.equal(tl.read(root).filter((e) => e.result === 'tareas').length, 0, 'la timeline del worktree se va con él: la raíz no guarda nada del issue');
   assert.equal(exit(wt).out, null);
-  assert.equal(tl.read(root).filter((e) => e.result === 'tareas').length, 1, 'sin duplicar');
   for (const name of ['api', 'web']) {
     assert.ok(!fs.existsSync(path.join(wt, name)), `${name}: su worktree se fue`);
     assert.doesNotMatch(worktrees(path.join(root, name)), /talleres/);
@@ -446,4 +436,18 @@ test('dentro de un worktree, SessionStart dice en una línea el estado de su iss
   h.write(wt, '.tmp/harness/plan.md', '# Plan: Cuotas\n\n## Workspaces y orden\n1. api\n');
   assert.match(start(wt), /^- el issue de este worktree: cuotas: plan escrito, sin aprobar$/m);
   assert.doesNotMatch(start(root), /el issue de este worktree/);
+});
+
+test('un repo sin remoto nace en el worktree de la rama del checkout, donde está el trabajo local, no del main que va atrás', () => {
+  const root = h.tmp('carpeta-sin-remoto');
+  const front = path.join(root, 'front');
+  h.repo(front, { '.claude/harness.json': h.repoManifest('front', h.workspace({ name: 'front', defaultBranch: 'main' })), '.gitignore': '.tmp/\n', 'src/a.ts': 'a\n' });
+  h.git(front, 'switch', '-q', '-c', 'feature/crear-informe');
+  h.write(front, 'src/sistema-diseno.tsx', 'design system\n');
+  h.commitAll(front, 'design system');
+  h.repo(root, { '.gitignore': '/front/\n/.tmp/\n/.claude/worktrees/\n', '.claude/harness.json': h.manifestJson({ version: 1, name: 'informes', repos: [{ path: 'front' }], integration: { branchPrefix: 'feature/' } }) });
+  const wt = h.nativeWorktree(root, 'menu');
+  const ctx = start(wt);
+  assert.match(ctx, /^- front: lo traje a este worktree en la rama feature\/menu, desde feature\/crear-informe, la rama del checkout, porque el repo no tiene remoto/m);
+  assert.ok(fs.existsSync(path.join(wt, 'front', 'src', 'sistema-diseno.tsx')), 'trae el design system que main no tiene');
 });
