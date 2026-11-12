@@ -506,6 +506,9 @@ function checkTests(ws, p) {
     if (k) notes.push(`preexistente (${k.date}): ${f.file} › ${f.name}`);
     else reds.push(`falla nueva: ${f.file} › ${f.name}`);
   }
+  // Specs elegidos y ningún test corrido no es verde: el corredor no los encontró (jest ignora una ruta
+  // con .claude, la de todo worktree) y un 0 de 0 pasaba como «sin fallas».
+  if (p.specs && p.specs.length && !res.tests.length) reds.push(`no corrió ningún test de los ${p.specs.length} spec(s) elegido(s): el corredor no los encontró o no los cargó; con 0 tests no hay verde`);
   const cut = res.run && res.run.estado !== 'completa';
   const baseRun = base.data && base.data.run;
   if (cut) {

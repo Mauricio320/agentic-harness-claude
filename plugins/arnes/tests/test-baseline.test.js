@@ -396,6 +396,14 @@ test('sin base no compara conteos: juzga solo las fallas, y lo dice', () => {
   assert.match(r.stdout, /sin línea base \(tests\/baseline\.json\)/);
 });
 
+test('specs elegidos y cero tests corridos es rojo, no un verde de 0 de 0', () => {
+  const dir = repo({}, { 'src/b.spec.ts': '' });
+  fs.appendFileSync(path.join(dir, 'src/b.ts'), 'cambio\n');
+  const r = run(dir, ['check', 'api']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /no corrió ningún test de los 1 spec\(s\) elegido\(s\)/);
+});
+
 test('specs pedidos a mano; testBaseline cambia la ruta; una base inválida es falla', () => {
   const dir = adopted({ testBaseline: 'qa/base.json' });
   assert.ok(fs.existsSync(path.join(dir, 'qa', 'base.json')));
