@@ -19,7 +19,9 @@
 //            sin repetir, sin docs ni .md), relativos a la raíz; cada consulta queda en la timeline
 //            como las del modelo (nota "consulta" de grafo), así que grafo y el panel la cuentan
 //   finish-draft
-//            con el plan escrito: la nota "grafo" (como grafo, abajo), end plan ok, y dónde se va a
+//            con el plan escrito: si no trae «## Ejemplos» (E1…, o «sin ejemplos: <por qué>»,
+//            lib/ejemplos.js) lo dice y sale con 1 sin cerrar la etapa; si los trae, la nota "grafo"
+//            (como grafo, abajo), end plan ok, y dónde se va a
 //            construir (issue-branch.js check): la rama del worktree, o la del checkout con su pregunta
 //            si un repo está en otra rama
 //   approve [--detail <texto>] [--desde-otra | --quedarse]
@@ -91,8 +93,9 @@ const { codeTerms, graphDirs, queryProject } = require('./lib/grafo.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree, key } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
+const { declarados } = require('./lib/ejemplos.js');
 
-const pad = (n) => String(n).padStart(2, '0');
+const pad =(n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
 const isApproval = personYes;
@@ -196,6 +199,12 @@ function finishDraft(project) {
   if (!readPlan(project)) die(`plan-state: el plan no está escrito en ${posix(planPath(project))}`);
   const p = planState(read(project.root));
   if (!p.open) die('plan-state: no hay plan en curso; empieza con plan-state.js start', 1);
+  // Un criterio sin un caso real se cumple en el papel: «filtra por NIT» pasaba, y el NIT con su
+  // dígito, como sale en la pantalla, no encontraba nada.
+  if (!declarados(readPlan(project))) {
+    console.log('plan: faltan los ejemplos. Agrega «## Ejemplos» después de los criterios: E1, E2…, cada uno con el criterio que prueba, el dato real tal como lo ve quien usa la pantalla y lo que tiene que salir. Si el cambio no tiene un caso que correr, escribe «sin ejemplos: <por qué>». Después corre finish-draft otra vez.');
+    return 1;
+  }
   grafo(project);
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan escrito' });
   console.log('plan: escrito; desde aquí espera la respuesta de la persona');

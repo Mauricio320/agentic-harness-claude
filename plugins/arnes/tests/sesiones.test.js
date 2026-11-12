@@ -14,7 +14,7 @@ const h = require('./helpers.js');
 // en el entorno.
 const as = (session) => ({ CLAUDE_CODE_SESSION_ID: session, CLAUDE_PID: '' });
 const run = (dir, args, session) => h.run('plan-state.js', args, { cwd: dir, env: as(session) });
-const PLAN = '# Plan: Etapa 1 del editor\n\n## Criterios de aceptación\n- C1 [literal] se configura la página\n\n## Workspaces y orden\n1. api\n';
+const PLAN = '# Plan: Etapa 1 del editor\n\n## Criterios de aceptación\n- C1 [literal] se configura la página\n\n## Ejemplos\nsin ejemplos: no hay un caso que correr\n\n## Workspaces y orden\n1. api\n';
 
 function repo() {
   const dir = h.tmp('sesiones');

@@ -94,6 +94,7 @@ const { configRoot } = require('./lib/configuracion.js');
 const ledger = require('./worktree-ledger.js');
 const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
 const { readPlan, section, slugOf, unconfirmed, DEV } = require('./lib/plan.js');
+const { estado } = require('./lib/ejemplos.js');
 
 // La configuración del proyecto (lib/configuracion.js) no entra al commit de un issue: la commitea la
 // persona, que decide si queda. ship corre git en su propio proceso y el guard no lo ve.
@@ -196,6 +197,19 @@ function shortOverflow(project, list) {
   return why.length ? why.join(', ') : null;
 }
 
+// Los ejemplos del plan con su comprobación (lib/ejemplos.js). Una comprobación anterior a la última
+// verificación en verde de lo que se entrega corrió sobre otro código: no cuenta.
+function ejemplosDe(project, wss) {
+  const since = Math.max(0, ...wss.map((ws) => {
+    try {
+      return Date.parse(JSON.parse(fs.readFileSync(flagPath(project, ws), 'utf8')).at) || 0;
+    } catch {
+      return 0;
+    }
+  }));
+  return estado(project, readPlan(project) || '', since);
+}
+
 function check(project) {
   const left = [];
   const list = shipping(project, left);
@@ -277,6 +291,9 @@ function check(project) {
   }
   const manual = section(readPlan(project) || '', /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
   console.log(`prueba manual: ${manual.length ? `${manual.length} paso(s) en el plan; van textuales al cuerpo del MR` : 'el plan no trae'}`);
+  const ej = ejemplosDe(project, list.map((x) => x.ws));
+  if (ej.length) console.log(`ejemplos: ${ej.filter((e) => e.ok).length} de ${ej.length} del plan se comprobaron corriéndolos`);
+  for (const e of ej.filter((x) => !x.ok)) console.log(`aviso: el ejemplo ${e.id} no está comprobado (${e.note}): ${e.text}; va en la pregunta del push, para que la persona lo pruebe o lo acepte antes de subir`);
   const corto = shortOverflow(project, list);
   if (corto) console.log(`aviso: el plan se aprobó por reglas, en el carril corto, pero el cambio ${corto}; va en la pregunta del push, para que la persona lo sepa antes de subir`);
   console.log(`entrega: ${local ? `merge local en la rama por defecto, sin MR (integration.merge)` : 'push y MR'}`);
@@ -678,7 +695,8 @@ function mrBodies(project, d, msgs, links) {
   const criteria = section(plan, /^criterios/i).split('\n').filter((l) => /^\s*(?:[-*]|\d+[.)]|C\d+)/.test(l));
   const manual = section(plan, /^prueba manual/i).split('\n').filter((l) => /^\s*\d+[.)]\s/.test(l));
   const devs = unconfirmed(plan).map((l) => `- ${l.replace(DEV, '').trim()}`);
-  const rv = readJsonFile(path.join(harnessDir(project), 'review.json')) || {};
+  const ej = ejemplosDe(project, project.workspaces.filter((w) => d.order.includes(w.name))).map((e) => `- ${e.id} ${e.text} · ${e.ok ? `comprobado: ${e.note}` : `SIN COMPROBAR: ${e.note}`}`);
+  const rv =readJsonFile(path.join(harnessDir(project), 'review.json')) || {};
   const out = {};
   for (const name of d.order) {
     const m = msgs[name] || {};
@@ -691,6 +709,7 @@ function mrBodies(project, d, msgs, links) {
         ...(risk.length ? [`${RISK}: ${risk.join(', ')}`, ''] : []),
         String(mr.descripcion || m.cuerpo || m.asunto || '').trim(),
         ...(criteria.length ? ['', '## Criterios', ...criteria] : []),
+        ...(ej.length ? ['', '## Ejemplos', ...ej] : []),
         ...(manual.length ? ['', '## Prueba manual', ...manual] : []),
         ...(devs.length ? ['', '## Decisiones del dev, por confirmar', ...devs] : []),
         '',

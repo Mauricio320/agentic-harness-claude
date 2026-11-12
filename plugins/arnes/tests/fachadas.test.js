@@ -26,7 +26,7 @@ const MANIFEST = (over = {}, extra = {}) =>
     ...extra,
   });
 
-const PLAN = '# Plan: CRUD de talleres\n\n## Criterios de aceptación\n- C1 [literal] un coordinador crea un taller\n\n## Workspaces y orden\n1. api\n\n## Prueba manual\n1. (C1) Entra como coordinador y crea un taller.\n';
+const PLAN = '# Plan: CRUD de talleres\n\n## Criterios de aceptación\n- C1 [literal] un coordinador crea un taller\n\n## Ejemplos\n- E1 (C1) el coordinador crea «Robótica» y lo ve en la lista\n\n## Workspaces y orden\n1. api\n\n## Prueba manual\n1. (C1) Entra como coordinador y crea un taller.\n';
 
 function cloned(over, extra, files = {}) {
   const remotes = h.tmp('fachadas-origen');
@@ -66,6 +66,11 @@ test('la raíz es la puerta: start en la raíz manda al worktree sin anotar nada
   assert.match(s.stdout, /^negocio:\ndecide: preguntar/m);
   assert.match(s.stdout, /^grafo: no hay; ubica el código con Grep/m);
   assert.doesNotMatch(s.stdout, /sesión nueva/, 'el worktree todavía no entregó nada');
+  h.write(wt, '.tmp/harness/plan.md', PLAN.replace(/## Ejemplos\n[^\n]*\n\n/, ''));
+  const sinEjemplos = run(wt, 'plan-state.js', ['finish-draft']);
+  assert.equal(sinEjemplos.status, 1, 'un plan sin ejemplos no se cierra');
+  assert.match(sinEjemplos.stdout, /^plan: faltan los ejemplos\. Agrega «## Ejemplos»/);
+  assert.equal(tl.planState(tl.read(wt)).written, false, 'la etapa sigue abierta');
   h.write(wt, '.tmp/harness/plan.md', PLAN);
   const f = run(wt, 'plan-state.js', ['finish-draft']);
   assert.equal(f.status, 0, f.stdout + f.stderr);
@@ -345,7 +350,7 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.match(r.stdout, /^pregunta: ¿Borro lo que creé para este issue, o lo dejo\?/m);
   assert.equal(h.git(bare, 'rev-parse', 'feature/cobros'), h.git(dir, 'rev-parse', 'HEAD'));
   const informe = fs.readFileSync(/^informe: (\S+)$/m.exec(r.stdout)[1], 'utf8');
-  assert.match(informe, /## MR de api, para pegar: Cobros\n\n```\nAgrega los cobros\.\n\n## Criterios\n- C1 \[literal\] un coordinador crea un taller\n\n## Prueba manual\n1\. \(C1\)/);
+  assert.match(informe, /## MR de api, para pegar: Cobros\n\n```\nAgrega los cobros\.\n\n## Criterios\n- C1 \[literal\] un coordinador crea un taller\n\n## Ejemplos\n- E1 \(C1\) el coordinador crea «Robótica» y lo ve en la lista · SIN COMPROBAR: nadie lo corrió\n\n## Prueba manual\n1\. \(C1\)/);
   assert.match(informe, /Verde significa que cumple convenciones y compila\/testea; nunca que sea correcto en el negocio\./);
   assert.equal(events(dir).pop(), 'end ship ok');
 });
