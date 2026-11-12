@@ -175,6 +175,13 @@ function writeTurn(project, workspaces, now = Date.now()) {
   saveTurn(project, snap);
 }
 
+// La foto del turno toma la configuración de ahora: verify la trajo del checkout principal (alDia), y
+// eso no es un cambio de reglas de este turno.
+function acceptManifests(project) {
+  const snap = readTurn(project);
+  if (snap[MANIFESTS] && typeof snap[MANIFESTS] === 'object') saveTurn(project, { ...snap, [MANIFESTS]: manifestState(project) });
+}
+
 // Inicio del turno: cuándo prompt-context dejó la foto; null sin foto. Una foto de antes de SINCE
 // vale por la fecha del archivo.
 function turnStart(project) {
@@ -273,7 +280,7 @@ function status(project) {
   return { root: posix(project.root), workspaces, worktrees };
 }
 
-module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, readTurn, writeTurn, turnStart, takeOrigin, codeChangedSince, manifestsChanged, status };
+module.exports = { stateOf, flagPath, writeFlag, checkFlag, eolOf, lastPath, writeLast, readLast, turnPath, readTurn, writeTurn, turnStart, takeOrigin, codeChangedSince, manifestsChanged, acceptManifests, status };
 
 function main() {
   let args;

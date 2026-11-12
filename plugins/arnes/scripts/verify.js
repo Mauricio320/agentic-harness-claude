@@ -16,6 +16,9 @@
 //     ruta del informe, si toca decir la frase del verde y la lista de tareas de la corrida.
 //     Un workspace que ya quedó verde con este mismo contenido no se vuelve a correr (fresh): al
 //     corregir el rojo de otro, verify repetía el gate y el test-writer de todos.
+//     Antes de todo, en un worktree, el manifiesto de cada repo toma el del checkout principal si allá
+//     tiene un cambio sin commitear y aquí nadie lo tocó (alDia): un ajuste de configuración que la
+//     persona aprobó después de crear el worktree no llegaba, y verify seguía con el comando viejo.
 //   run --integracion
 //     el plan pide pruebas de integración que el test-writer no escribió: arma su entrada de
 //     integración (build.js input --integracion) con el código tocado de cada workspace, fuera de sus
@@ -33,7 +36,8 @@ const { spawnSync } = require('child_process');
 const { parseArgs } = require('util');
 const { requireProject, harnessDir, posix, MANIFEST } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
-const { checkFlag, flagPath } = require('./gate-flag.js');
+const { checkFlag, flagPath, acceptManifests } = require('./gate-flag.js');
+const { mainCheckout } = require('./worktree-ledger.js');
 const { append, read, tasks, redStreak, RED_CAP } = require('./lib/timeline.js');
 const { touched } = require('./touched-files.js');
 const { missingSpecs, patternRegExp } = require('./test-select.js');
@@ -75,7 +79,34 @@ function fresh(project, ws, base) {
   return Date.parse(flag.at) > Math.max(0, ...rules);
 }
 
+// → los repos cuyo manifiesto quedó igual al del checkout principal. Solo lo que allá difiere de su
+// HEAD (lo que trae una rama llega por git) y aquí está como vino: limpio, o la copia sin versionar
+// que dejó el arnés, más vieja que la de allá.
+function alDia(project) {
+  const rel = posix(MANIFEST);
+  const changed = (dir) => git(dir, ['status', '--porcelain', '--', rel]).stdout.trim();
+  const out = [];
+  for (const file of [...new Set(project.workspaces.map((w) => w.manifest).filter(Boolean))]) {
+    const repo = path.dirname(path.dirname(file));
+    const main = mainCheckout(repo);
+    const src = path.join(main, MANIFEST);
+    if (!path.relative(main, repo) || !fs.existsSync(src) || !changed(main)) continue;
+    if (fs.readFileSync(src, 'utf8') === fs.readFileSync(file, 'utf8')) continue;
+    const here = changed(repo);
+    if (here && !(here.startsWith('??') && fs.statSync(src).mtimeMs > fs.statSync(file).mtimeMs)) continue;
+    fs.copyFileSync(src, file);
+    out.push(path.basename(repo));
+  }
+  if (out.length) acceptManifests(project);
+  return out;
+}
+
 function run(project, base, afterTests, integration = false) {
+  const synced = alDia(project);
+  if (synced.length) {
+    project = requireProject();
+    console.log(`configuración: ${synced.join(', ')} tomó la del checkout principal, que tiene un ajuste sin commitear`);
+  }
   adopcion.begin(project.root, 'verify');
   if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
   const found = [];
@@ -174,7 +205,7 @@ function run(project, base, afterTests, integration = false) {
   return ok ? 0 : 1;
 }
 
-module.exports = { run };
+module.exports = { run, alDia };
 
 function main() {
   let args;
