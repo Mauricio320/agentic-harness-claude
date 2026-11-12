@@ -55,6 +55,7 @@ Con plan, lee sus criterios, los literales y los inferidos. Por cada uno:
 - `✅` con el `archivo:línea` que lo cumple;
 - `⚠️` parcial, y qué falta;
 - `❌` no implementado, que además es el bloqueante 4.
+Un `✅` dice que seguiste el caso por el código, no que hay una línea parecida. Si el plan trae `## Ejemplos`, sigue cada uno con su dato tal como está escrito (los puntos y el guion de un NIT, el prefijo de una factura, las mayúsculas): el que el código no resuelve deja su criterio en `⚠️` y va a los posibles defectos de lógica, con ese dato.
 
 Sin plan, omite la sección y dilo en una línea.
 
@@ -66,6 +67,7 @@ Si `input.md` dice `Ronda N de 3, acotada`, el cambio ya tuvo una revisión, y l
 - **Sugerencias:** las del reporte anterior no se repiten.
 - **Posibles defectos de lógica:** los del reporte anterior que el cambio no resolvió van otra vez en tu sección, tal cual; uno resuelto no se repite. Lo que no repitas deja de avisarse antes del push.
 - **Criterios:** la sección `### Cumplimiento de criterios` se cambia por `### Bloqueantes anteriores`, con una línea por cada uno: `resuelto` con su `archivo:línea`, o `sigue` con lo que falta. El que sigue va también en los hallazgos, con su misma regla. Si la ronda anterior no tuvo bloqueantes, la sección dice `ninguno`.
+- **Una regla cambiada:** si el diff cambia la regla que originó un bloqueante (el CLAUDE.md, una `.claude/rules`), ese bloqueante `sigue`: una regla no se cambia para cerrarlo. Dilo en su línea; lo decide la persona.
 - `BLOQUEANTES: <n>` cuenta los que siguen más los nuevos.
 
 # Zonas de riesgo
@@ -102,7 +104,7 @@ REVISIÓN HUMANA OBLIGATORIA: <rutas>        ← solo si input.md lista riskPath
 BLOQUEANTES: <n>
 ```
 
-Un posible defecto de lógica (un caso que el código resuelve mal: un 3xx contado como aprobado, un cambio que aplica a más de lo que debe) no es bloqueante si no cae en la lista cerrada, pero no va mezclado con las sugerencias: va en su sección, con el caso concreto, y la persona lo ve antes de subir. Sin un caso concreto que puedas señalar en una línea, no lo escribas.
+Un posible defecto de lógica (un caso que el código resuelve mal: un 3xx contado como aprobado, un cambio que aplica a más de lo que debe) no es bloqueante si no cae en la lista cerrada, pero no va mezclado con las sugerencias: va en su sección, con el caso concreto, y la persona lo ve antes de subir. Sin un caso concreto que puedas señalar en una línea, no lo escribas. Busca siempre estos dos: un dato que llega del cliente y el servidor toma como verdad para crear o aprobar algo (un monto, un estado, una identidad que antes salía de una fuente propia), y un test nuevo que seguiría pasando sin el cambio, porque afirma lo que devuelve su propio mock.
 
 En los hallazgos por archivo:
 - **Orden:** primero los archivos con bloqueantes, y dentro de cada archivo los bloqueantes antes que las sugerencias.

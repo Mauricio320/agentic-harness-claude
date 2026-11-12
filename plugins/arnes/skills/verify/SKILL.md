@@ -26,11 +26,19 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 - **Una falla `preexistente (<fecha>)`:** no pone rojo. Va al informe con su fecha.
 - **Sin bandera vigente:** el commit se niega y el Stop bloquea una vez. No los rodees.
 
+## Los ejemplos del plan
+
+En verde, y antes de cerrar, corre de verdad cada ejemplo de `## Ejemplos` del plan (E1, E2…): verde dice que compila y testea, no que el caso de la persona funciona. Sin plan, o si dice `sin ejemplos`, sáltalo.
+- **Cómo:** por el camino real y con el dato tal como está escrito: la app levantada (la skill build dice cómo) y la llamada o la pantalla; una prueba de integración del repo que pase por la consulta o el endpoint de verdad; o la consulta en solo lectura contra la base local. Un test con mocks de lo que se prueba no cuenta: eso ya lo midió el gate.
+- **Lo que no puedas correr** (pide una base que no es la local, un dato o un rol que no tienes, un servicio externo): no lo fuerces ni lo des por bueno. Queda `sin comprobar`, con el porqué.
+- **Anótalo** con Write en `.tmp/harness/evidencia.md`, entero cada vez, una línea por ejemplo: `- E1: comprobado · <qué corriste> → <qué salió>` o `- E1: sin comprobar · <por qué>`. Un ejemplo que falla es un rojo: corrige como en «Si algo falla», verifica y córrelos otra vez; una comprobación anterior al último cambio no cuenta.
+- **En el chat:** una línea con cuántos pasaron y, uno por uno, los que quedaron sin comprobar, como paso de la persona. Ship los repite antes del push.
+
 ## Al terminar en verde
 
 Verify es el final de build: no cargues review. La revisión es el gasto grande (un reviewer en opus leyendo el diff), y se paga una vez, en `/arnes:ship`, sobre el diff completo antes de commitear. Cierra con `Listo para /arnes:ship`, y en una línea que si la persona quiere la revisión antes, la pide con `/arnes:review`. Si ship te cargó para verificar, sigue con lo que ship pida.
 
-**Un ajuste que pide la persona con el plan aprobado**, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state.js start`, que reabre el plan y le quita la aprobación: anótalo en `## Decisiones` de `.tmp/harness/plan.md` como ajuste de la persona, corrígelo y verifica. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea como siempre, con la skill plan.
+**Un ajuste que pide la persona con el plan aprobado**, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state.js start`, que reabre el plan y le quita la aprobación: anótalo en `## Decisiones` de `.tmp/harness/plan.md` como ajuste de la persona, corrígelo y verifica. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea como siempre, con la skill plan. Un pedido distinto (otra pantalla, otro repo, otro tema) tampoco es un ajuste, aunque sea chico: es un plan nuevo, corto si cabe en el carril. El plan aprobado no es permiso para lo que no describe.
 
 ## Reporte
 

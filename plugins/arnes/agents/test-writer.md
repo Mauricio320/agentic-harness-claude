@@ -27,6 +27,7 @@ Lee tu entrada entera antes de nada. No abras `.claude/harness.json`, las `.clau
 
 - **Dónde:** un spec por archivo, en la ruta que trae tu entrada para cada uno, para que test-select lo encuentre.
 - **Qué probar:** el comportamiento observable de lo nuevo o lo cambiado: caso feliz, errores y bordes que el código maneja.
+- **Un test que pasaría sin el cambio no prueba nada:** afirma lo que el código devuelve, guarda o consulta (con qué argumentos arma la consulta o el filtro), no que se llamó a un mock que tú programaste. Si el plan trae `## Ejemplos`, cada uno que toque tus archivos es un caso, con su dato tal cual. Para un arreglo, escribe el caso que antes fallaba.
 - **Lo que no se testea:** si el estándar dice que un tipo de archivo no lleva test (DTO, módulo, constantes, tipos), no escribas spec. Dilo con la regla citada.
 - **Infraestructura:** puedes crear lo que tu spec necesita para compilar, como un mock o un fixture de test, en la carpeta de test que use el repo. Nunca cambies código de producción para que un test pase.
 - **Lo prohibido:**

@@ -35,6 +35,7 @@ La revisión va después de verify, sobre el árbol que se va a entregar, y se p
 Con bloqueantes, se corrigen (los de specs con test-writer, los de código con dev), se corre verify entero, porque la bandera exige el contenido actual, y se vuelve a esta skill. Lo mismo si se aplican las sugerencias de una revisión sin bloqueantes. `review.js round` decide la ronda:
 - **Ronda 1, completa:** el árbol entero, con el reviewer en opus.
 - **Rondas 2 y 3, acotadas:** todo el diff desde lo revisado en la ronda anterior, con los archivos nuevos (como los specs que escribió test-writer), su reporte como entrada, y el reviewer en sonnet. Si el cambio toca riskPaths, la ronda es completa y va en opus. Lo mismo cuando ship la repite tras una revisión sin bloqueantes: solo el diff desde la última ronda, no todo otra vez.
+- **Un bloqueante se corrige en el código.** Si la salida que ves es cambiar la regla que lo origina (el CLAUDE.md o una regla del repo), eso no es corregir: pregúntale a la persona con las dos opciones nombradas, y cambia la regla solo si su respuesta nombra esa opción. Un «corrige» a secas es el código.
 - **Tope: dos rondas de corrección.** Si la marca dice `tope`, no corrijas más: reporta a la persona los bloqueantes que siguen y espera su decisión. `review.js round --completa` vuelve a la ronda 1; córrelo solo si la persona lo pide.
 
 ## Al terminar

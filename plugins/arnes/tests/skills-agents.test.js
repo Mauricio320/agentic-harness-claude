@@ -107,6 +107,35 @@ test('la revisión se paga una vez, en ship: build termina en verify, y verify n
   assert.match(read('ship'), /`revisar`: carga la skill review/);
 });
 
+// 0.8.5, de seis sesiones con la 0.8.4: el código cumplía sus criterios en el papel y fallaba con el
+// dato real; el plan aprobado servía de permiso general; un bloqueante se cerró cambiando la regla.
+test('los ejemplos del plan recorren el flujo: plan los escribe, dev y reviewer los siguen, verify los corre y ship avisa', () => {
+  const skill = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+  const agent = (a) => fs.readFileSync(path.join(PLUGIN, 'agents', `${a}.md`), 'utf8');
+  assert.match(skill('plan'), /- `## Ejemplos`: numerados E1, E2…, al menos uno por criterio que tenga un dato/);
+  assert.match(skill('plan'), /tal como lo ve quien usa la pantalla, con sus puntos, su guion o su prefijo/);
+  assert.match(skill('plan'), /Si sale con 1, faltan los ejemplos: agrégalos y córrelo otra vez\./);
+  assert.match(skill('verify'), /^## Los ejemplos del plan$/m);
+  assert.match(skill('verify'), /Un test con mocks de lo que se prueba no cuenta/);
+  assert.match(skill('verify'), /`\.tmp\/harness\/evidencia\.md`.*`- E1: comprobado · <qué corriste> → <qué salió>` o `- E1: sin comprobar · <por qué>`/);
+  assert.match(skill('ship'), /los ejemplos sin comprobar van uno por uno/);
+  for (const a of ['dev', 'reviewer', 'test-writer']) assert.match(agent(a), /`## Ejemplos`/, `${a} sigue los ejemplos`);
+  assert.match(agent('reviewer'), /Un `✅` dice que seguiste el caso por el código, no que hay una línea parecida\./);
+});
+
+test('lo que el modelo rodeaba queda dicho: el dev no escribe por el shell, un test afirma el resultado, un pedido distinto no es un ajuste y una regla no se cambia para cerrar un bloqueante', () => {
+  const skill = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
+  const agent = (a) => fs.readFileSync(path.join(PLUGIN, 'agents', `${a}.md`), 'utf8');
+  assert.match(agent('dev'), /Escribe y edita solo con Write y Edit, nunca por el shell/);
+  assert.match(agent('test-writer'), /\*\*Un test que pasaría sin el cambio no prueba nada:\*\*/);
+  assert.match(agent('reviewer'), /un dato que llega del cliente y el servidor toma como verdad para crear o aprobar algo/);
+  assert.match(agent('reviewer'), /un test nuevo que seguiría pasando sin el cambio/);
+  assert.match(agent('reviewer'), /ese bloqueante `sigue`: una regla no se cambia para cerrarlo/);
+  assert.match(skill('review'), /\*\*Un bloqueante se corrige en el código\.\*\*.*Un «corrige» a secas es el código\./);
+  for (const s of ['build', 'verify']) assert.match(skill(s), /Un pedido distinto \(otra pantalla, otro repo, otro tema\) tampoco es un ajuste, aunque sea chico: es un plan nuevo/);
+  assert.match(skill('plan'), /corre start con `--en-checkout`; nunca por tu cuenta, y dilo en la primera línea del mensaje del plan/);
+});
+
 test('un ajuste de la persona con el plan aprobado no reabre el plan: «pide cambios» es antes de aprobar, y build y verify dicen qué hacer después', () => {
   const read = (s) => fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8');
   assert.match(read('plan'), /\*\*Si pide cambios antes de aprobar:\*\* `node "S\/plan-state\.js" start --detail "ajuste"`/);
