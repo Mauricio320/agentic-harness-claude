@@ -1,6 +1,6 @@
 {
   "name": "arnes-mod",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "Comportamiento opcional del arnés: deja de dónde vino cada prompt, para que solo la persona apruebe un plan, sin plan en curso un pedido de código empieza por arnes:plan, un agente del arnés corre con el modelo de su definición, y una pregunta llega con los nodos del grafo.",
   "author": { "name": "Mauricio Triana" },
   "dependencies": ["arnes"]

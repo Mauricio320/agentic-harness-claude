@@ -2,6 +2,31 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.5] - 2026-11-12
+
+Ejemplos y gate. Sale de revisar seis sesiones con la 0.8.4 en academico y renova365, del 2026-11-09 al 2026-11-12, leyendo también el código que produjeron. El arnés frenaba y planificaba bien, pero el código salió con defectos que ni verify ni la revisión vieron: cumplía cada criterio en el papel y fallaba con el dato real (un buscador que no encuentra el NIT con su dígito, como lo muestra la pantalla), y llegó a main un SQL que nadie había ejecutado. Del lado de las trabas, un worktree corrió tres veces una suite de 30 minutos que la persona había bajado en el checkout cinco minutos antes. Probada en local con Claude Code 2.1.322 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 14.004 a 14.144 líneas.
+
+### Agregado
+- Los ejemplos del plan. `## Ejemplos` lleva E1, E2…: el criterio que prueba, el dato real tal como lo ve quien usa la pantalla y lo que tiene que salir; o `sin ejemplos: <por qué>`. `plan-state.js finish-draft` no cierra el plan sin ellos, y la persona los ve al aprobar. El plan corto del carril no los pide.
+- Verify, en verde, corre cada ejemplo por el camino real (la app levantada, una prueba de integración o la consulta en solo lectura contra la base local) y lo anota en `.tmp/harness/evidencia.md` como `comprobado` o `sin comprobar`, con el porqué. Un test con mocks de lo que se prueba no cuenta.
+- `ship.js` cruza los ejemplos con esa evidencia: el que nadie corrió, o que se corrió antes de la última verificación, sale como `aviso:` en la pregunta del push y como `SIN COMPROBAR` en el cuerpo del MR. No frena la entrega: lo decide la persona con el dato a la vista.
+
+### Cambiado
+- El reviewer marca un criterio como cumplido solo si siguió el caso por el código, y sigue cada ejemplo con su dato tal como está escrito. Busca siempre dos posibles defectos de lógica: un dato que llega del cliente y el servidor toma como verdad para crear o aprobar algo, y un test nuevo que seguiría pasando sin el cambio.
+- En una ronda acotada, si el diff cambia la regla que originó un bloqueante, el bloqueante sigue. La skill review dice que un bloqueante se corrige en el código, y que cambiar la regla pide que la respuesta de la persona nombre esa opción.
+- El dev escribe y edita solo con Write y Edit, nunca por el shell, y sigue los ejemplos por su código antes de entregar. El test-writer afirma lo que el código devuelve, guarda o consulta, no lo que devuelve su propio mock.
+- Un pedido distinto (otra pantalla, otro repo, otro tema) no es un ajuste del plan aprobado, aunque sea chico: es un plan nuevo. Lo dicen build y verify.
+- `start --en-checkout` nunca por cuenta del modelo, y el mensaje del plan lo dice en su primera línea.
+
+### Corregido
+- En un worktree, verify toma primero el manifiesto del checkout principal cuando allá tiene un cambio sin commitear y aquí nadie lo tocó: un ajuste de configuración aprobado después de crear el worktree no llegaba. Lo dice en una línea, y no cuenta como configuración cambiada por el turno.
+- Specs elegidos y ningún test corrido es rojo. En el worktree de un repo con jest, el corredor no encontraba los specs porque la ruta lleva `.claude`, y el gate daba verde con 0 de 0.
+
+### Pendiente, visto en la misma revisión
+- La revisión de un cambio grande sigue siendo una sola pasada; partirla por repo queda para otra versión.
+- Las pruebas lentas de un repo (las de integración de api-informes) no tienen un lugar propio al entregar: hoy corren en cada verify o no corren.
+- La verificación de un merge cuenta como del cambio las convenciones que trae la otra rama.
+
 ## [0.8.4] - 2026-11-05
 
 Sale de dos sesiones de academico del mismo día con la 0.8.3, las dos en el checkout por pedido de la persona, sobre informes-front y api-informes, que no tienen remoto. Probada en local con Claude Code 2.1.318 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test`, `claude plugin test` de los dos mods y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 13.973 a 14.004 líneas.
