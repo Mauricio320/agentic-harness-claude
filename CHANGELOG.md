@@ -2,6 +2,23 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.7] - 2026-11-19
+
+Entrega y cierre en un solo sí. Después de subir quedaban dos pasos: la pregunta de si borrar lo que el arnés creó para el issue y, cuando el MR se mergeaba, volver a otra sesión a escribir `/arnes:cerrar`. La sesión termina al subir, y ese segundo paso no se daba: el 2026-11-19 había 22 worktrees abiertos en renova365 y 10 en academico. Probada en local con Claude Code 2.1.328 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`, y la opción del MR contra glab 1.123.0. `plugins/arnes/scripts` pasa de 14.430 a 14.513 líneas.
+
+### Cambiado
+- El sí del push es el único de la entrega. Con él, `ship.js deliver --push` sube, abre los MR y, sin otra pregunta, borra lo que el arnés creó para el issue; el worktree de la sesión se borra saliendo de él. La pregunta del push lo dice antes, y si la persona pide conservar el worktree, `--dejar` no borra nada. Con un MR que hay que pegar a mano (sin glab ni gh, o si no abrió) tampoco se borra: su cuerpo está en el informe.
+- El MR de GitLab se abre con `--remove-source-branch`: la rama remota la borra GitLab al mergear.
+- Lo mergeado se cierra solo. En cada entrega, `issues.js cerrar --mergeados --write` consulta los MR subidos (cada uno cada seis horas como mucho) y cierra sin preguntar los que ya se mergearon: la rama por defecto al día, la rama del issue borrada en local y en origin, y lo registrado. Solo si no hay nada que perder: sin rescates, sin cambios sin commitear en su worktree, con la rama local entera en lo que se subió, y nunca el issue de la sesión. Lo demás queda para `/arnes:cerrar`, que pasa a ser para no esperar y para lo que pide una decisión.
+- Con merge local, la skill cierra igual después del push de la rama por defecto: borra lo del issue, sale del worktree y deja el issue cerrado.
+
+### Corregido
+- El MR y lo subido de un issue se anotan con el checkout principal del repo, no con la carpeta del worktree. Con el worktree borrado, la consulta del MR fallaba para siempre y el issue nunca pasaba a mergeado. Los registros anteriores se resuelven al checkout principal del mismo repo.
+
+### Pendiente
+- El camino con glab no tiene test propio: el CLI falso de los tests no puede ser un `.exe`, que es lo que busca ship en Windows. Están probados la limpieza, el cierre de lo mergeado y la consulta del MR por separado.
+- En GitHub, `gh pr create` no tiene una opción para borrar la rama al mergear: la borra el cierre automático de la entrega siguiente, o el ajuste del repo.
+
 ## [0.8.6] - 2026-11-19
 
 Sin trabas. Sale de revisar ocho sesiones con la 0.8.4 y la 0.8.5 en renova365 y academico, del 2026-11-09 al 2026-11-18. En cuatro de ellas el arnés se apagó entero: `api/.claude/harness.json` trae en main un campo que el arnés no conoce, el validador daba por inválido el manifiesto completo, y en cada worktree nuevo ninguna etapa corría (12 veces, con Claude aprobando planes a mano y verificando por fuera). En academico el Stop frenó 21 veces el cierre del turno mientras la persona iteraba un diseño, 16 de ellas pidiendo repetir una suite de 30 minutos que estaba en rojo por pruebas que ya fallaban, y la persona tuvo que aprobar que el `harness.json` de dos repos se copiara al worktree. En las ocho hubo 272 inyecciones de contexto en 327 mensajes. Probada en local con Claude Code 2.1.328 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`; con la 2.1.328, `validate --strict` de `arnes-ui` avisa de un tipo del host que su test no declara, y pasa con la 2.1.316 del CI. `plugins/arnes/scripts` pasa de 14.144 a 14.430 líneas.
