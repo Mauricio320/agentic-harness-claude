@@ -347,7 +347,9 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^api: feature\/cobros subida a origin$/m);
   assert.match(r.stdout, /sin glab ni gh para su remoto/);
-  assert.match(r.stdout, /^pregunta: ¿Borro lo que creé para este issue, o lo dejo\?/m);
+  assert.doesNotMatch(r.stdout, /^pregunta:/m, 'después del sí no hay otra pregunta');
+  assert.match(r.stdout, /^lo que se creó para este issue se queda por ahora: el cuerpo del MR está en el informe, para pegarlo/m, 'sin glab ni gh no borra el informe que la persona necesita');
+  assert.equal(run(dir, 'ship.js', ['deliver', '--dejar']).status, 2, '--dejar solo va con --push');
   assert.equal(h.git(bare, 'rev-parse', 'feature/cobros'), h.git(dir, 'rev-parse', 'HEAD'));
   const informe = fs.readFileSync(/^informe: (\S+)$/m.exec(r.stdout)[1], 'utf8');
   assert.match(informe, /## MR de api, para pegar: Cobros\n\n```\nAgrega los cobros\.\n\n## Criterios\n- C1 \[literal\] un coordinador crea un taller\n\n## Ejemplos\n- E1 \(C1\) el coordinador crea «Robótica» y lo ve en la lista · SIN COMPROBAR: nadie lo corrió\n\n## Prueba manual\n1\. \(C1\)/);

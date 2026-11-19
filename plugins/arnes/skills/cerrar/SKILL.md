@@ -13,7 +13,7 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`; abajo, `S`. Córrelos con 
 
 El ciclo de un issue termina en main: planeado, construido, verificado, revisado, entregado, subido con su MR, mergeado y cerrado. El arnés anota en un registro por issue todo lo que crea para él, y esta skill cierra el ciclo y borra solo eso; antes de borrar, para la app que haya levantado. Nunca toca la conversación, ni nada que no esté en un registro.
 
-Son dos comandos: uno mira y el otro hace.
+Lo normal ya no pasa por aquí: al subir, ship borra lo que creó para el issue, y en cada entrega el arnés cierra solo los issues cuyo MR ya se mergeó. Esta skill es para no esperar a la próxima entrega y para lo que pide una decisión: un rescate, cambios sin commitear, algo entregado que no se mergeó, lo desconocido. Son dos comandos: uno mira y el otro hace.
 
 1. **Mirar, sin borrar:** `node "S/issues.js" cerrar`, con el issue de `$ARGUMENTS` detrás si vino. Consulta los MR (con glab o gh) y dice, por cada issue entregado, subido o mergeado, o con un rescate:
    - con el MR mergeado, lo que haría al cerrarlo: la rama por defecto al día, la rama del issue borrada en local y en origin, y lo registrado que se borra, con su tamaño;

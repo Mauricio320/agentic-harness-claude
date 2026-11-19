@@ -54,11 +54,15 @@
 //           con una respuesta de la persona después del commit (la nota "respuesta" de
 //           UserPromptSubmit): push de cada repo, nunca --force; abre cada MR con glab o gh si están
 //           (el ejecutable, sin shell, para que el cuerpo pase entero) y enlaza los de los otros repos;
-//           sin ellos, los cuerpos quedan en el informe para pegar. Deja el issue subido, anota end
-//           ship y lista lo que se creó para el issue (issues.js clean --actual) para la pregunta final
+//           sin ellos, los cuerpos quedan en el informe para pegar. Deja el issue subido y anota end
+//           ship. Con ese mismo sí cierra lo local, sin otra pregunta: borra lo que se creó para el
+//           issue (issues.js clean --actual --write; el worktree de la sesión se borra saliendo de él)
+//           y cierra los issues anteriores cuyo MR ya se mergeó (issues.js cerrar --mergeados). El MR
+//           de GitLab se abre con --remove-source-branch: la rama remota la borra GitLab al mergear.
+//           Con --dejar no borra lo del issue: la persona pidió conservar el worktree
 //   deliver --sin-push
 //           la persona no quiso subir: end ship ok, "commit sin push"
-// Uso: node ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push | deliver --sin-push
+// Uso: node ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] | deliver --sin-push
 //      node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
@@ -585,7 +589,7 @@ function deliverPrepare(project, o, say) {
       finish(project, d, 'ok', 'nada que commitear', say, true);
       return 0;
     }
-    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR; con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
+    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR, y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); sin él, ship.js deliver --sin-push');
     return 0;
   }
   const list = shipping(project);
@@ -686,7 +690,7 @@ function deliverCommit(project, say) {
   say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
   for (const l of unconfirmed(readPlan(project))) say(`aviso: el dev decidió algo que el plan no decía y nadie confirmó: ${l.replace(DEV, '').trim()}`);
   for (const l of (readJsonFile(path.join(harnessDir(project), 'review.json')) || {}).defectos || []) say(`aviso: la revisión vio un posible defecto de lógica, que no bloquea: ${l}`);
-  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba); con su sí, ship.js deliver --push; sin él, ship.js deliver --sin-push');
+  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba), y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); sin él, ship.js deliver --sin-push');
   return 0;
 }
 
@@ -742,7 +746,7 @@ function hostCli(ws) {
 function openMr(cli, ws, title, body) {
   const branch = branchOf(ws);
   const args = cli.name === 'glab'
-    ? ['mr', 'create', '--source-branch', branch, '--target-branch', defaultOf(ws), '--title', title, '--description', body, '--yes']
+    ? ['mr', 'create', '--source-branch', branch, '--target-branch', defaultOf(ws), '--title', title, '--description', body, '--remove-source-branch', '--yes']
     : ['pr', 'create', '--head', branch, '--base', defaultOf(ws), '--title', title, '--body', body];
   const r = spawnSync(cli.bin, args, { cwd: ws.gitRoot, encoding: 'utf8' });
   const url = ((r.stdout || '').match(/https?:\/\/\S+/g) || []).pop();
@@ -754,7 +758,11 @@ function updateMr(cli, ws, ref, body) {
   return spawnSync(cli.bin, args, { cwd: ws.gitRoot, encoding: 'utf8' }).status === 0;
 }
 
-function deliverPush(project, say) {
+// El checkout principal del repo del workspace: lo que se anota de un issue tiene que seguir sirviendo
+// cuando su worktree ya no existe.
+const mainOf = (ws) => posix(ledger.mainCheckout(ws.gitRoot));
+
+function deliverPush(project, say, keep = false) {
   const d = readJsonFile(deliveryFile(project));
   if (!d || !d.committedAt || !Array.isArray(d.order)) die('ship: no hay commits de esta entrega; corre ship.js deliver y deliver --commit');
   const answered = read(project.root).some((e) => e.stage === 'turno' && e.result === 'respuesta' && Date.parse(e.at) > Date.parse(d.committedAt));
@@ -770,28 +778,32 @@ function deliverPush(project, say) {
       finish(project, d, 'fail', `el push de ${ws.name} falló`, say);
       return 1;
     }
+    I.record(project, { pushed: [{ repo: mainOf(ws), branch: branchOf(ws), sha: git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim() }] });
     say(`${ws.name}: ${branchOf(ws)} subida a origin`);
   }
   I.setState(project, 'subido', 'push');
   const links = {};
   const opened = [];
+  let toPaste = false;
   for (const ws of wss) {
     const cli = hostCli(ws);
     const b = mrBodies(project, d, msgs, links)[ws.name];
     if (!cli) {
+      toPaste = true;
       addToReport(d.informe, `MR de ${ws.name}, para pegar: ${b.title}`, b.body);
       say(`${ws.name}: sin glab ni gh para su remoto; el título y el cuerpo del MR quedaron en el informe, listos para pegar`);
       continue;
     }
     const r = openMr(cli, ws, b.title, b.body);
     if (r.error) {
+      toPaste = true;
       addToReport(d.informe, `MR de ${ws.name}, para pegar: ${b.title}`, b.body);
       say(`${ws.name}: ${cli.name} no abrió el MR (${r.error}); el cuerpo quedó en el informe, listo para pegar`);
       continue;
     }
     links[ws.name] = r.url;
     opened.push({ ws, cli, ref: r.ref });
-    I.record(project, { mr: [{ repo: posix(ws.gitRoot), ref: r.ref }] });
+    I.record(project, { mr: [{ repo: mainOf(ws), ref: r.ref }] });
     I.setState(project, 'subido', `MR ${r.ref}`);
     say(`${ws.name}: MR ${r.url}`);
   }
@@ -799,9 +811,15 @@ function deliverPush(project, say) {
     if (!updateMr(o.cli, o.ws, o.ref, mrBodies(project, d, msgs, links)[o.ws.name].body)) say(`${o.ws.name}: no pude agregar al MR los enlaces de los otros repos`);
   }
   finish(project, d, 'ok', opened.length ? `MR ${opened.map((o) => o.ref).join(', ')}` : 'push sin MR: cuerpos para pegar', say);
-  const c = spawnSync(process.execPath, [path.join(__dirname, 'issues.js'), 'clean', '--actual'], { cwd: process.cwd(), encoding: 'utf8' });
-  say((c.stdout || '').trimEnd());
-  say('pregunta: ¿Borro lo que creé para este issue, o lo dejo? Con el sí, issues.js clean --actual --write');
+  // El sí del push cierra también lo local: subir es donde termina la sesión, y volver después a
+  // escribir /arnes:cerrar era un paso que nadie daba.
+  const issues = (args) => (spawnSync(process.execPath, [path.join(__dirname, 'issues.js'), ...args], { cwd: process.cwd(), encoding: 'utf8' }).stdout || '').trimEnd();
+  // Con un MR por pegar a mano, su cuerpo está en el informe: borrarlo ahora dejaría a la persona sin él.
+  if (toPaste) say('lo que se creó para este issue se queda por ahora: el cuerpo del MR está en el informe, para pegarlo; /arnes:cerrar lo borra después');
+  else if (keep) say('lo que se creó para este issue se queda, como pidió la persona; /arnes:cerrar lo borra cuando quiera');
+  else say(issues(['clean', '--actual', '--write']));
+  say(issues(['cerrar', '--mergeados', '--write']).replace(/^ningún issue mergeado.*$/m, ''));
+  if (!keep && !toPaste) say('siguiente: si arriba dice «falta … sal de él», sal del worktree con ExitWorktree y action "remove"; el informe se fue con lo del issue, así que a la persona dile los enlaces de los MR. No hay más pasos: cuando el MR se mergee, el issue se cierra solo con la próxima entrega');
   return 0;
 }
 
@@ -810,7 +828,7 @@ function deliver(project, o) {
     if (l) console.log(l);
   };
   if (o.commit) return deliverCommit(project, say);
-  if (o.push) return deliverPush(project, say);
+  if (o.push) return deliverPush(project, say, o.dejar);
   if (o.sinPush) {
     finish(project, readJsonFile(deliveryFile(project)), 'ok', 'commit sin push', say);
     return 0;
@@ -824,17 +842,17 @@ function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) help(__filename);
   const [mode, arg, extra] = argv;
-  const usage = 'uso: ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push | deliver --sin-push | check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
+  const usage = 'uso: ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] | deliver --sin-push | check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
   if (mode === 'deliver') {
     let o;
     try {
-      o = parseArgs({ args: argv.slice(1), options: { rama: { type: 'string' }, 'solo-commit': { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' }, 'sin-push': { type: 'boolean' } } }).values;
+      o = parseArgs({ args: argv.slice(1), options: { rama: { type: 'string' }, 'solo-commit': { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' }, 'sin-push': { type: 'boolean' }, dejar: { type: 'boolean' } } }).values;
     } catch {
       die(usage);
     }
     const phases = [o.commit, o.push, o['sin-push']].filter(Boolean).length;
-    if (phases > 1 || (phases && (o.rama || o['solo-commit']))) die(usage);
-    process.exit(deliver(requireProject(), { rama: o.rama, soloCommit: o['solo-commit'], commit: o.commit, push: o.push, sinPush: o['sin-push'] }));
+    if (phases > 1 || (phases && (o.rama || o['solo-commit'])) || (o.dejar && !o.push)) die(usage);
+    process.exit(deliver(requireProject(), { rama: o.rama, soloCommit: o['solo-commit'], commit: o.commit, push: o.push, sinPush: o['sin-push'], dejar: o.dejar }));
   }
   if (mode === 'merge') {
     if (extra || !['start', 'finish', 'abort'].includes(arg)) die(usage);

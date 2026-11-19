@@ -8,6 +8,11 @@
 //                   (clean); al final, lo desconocido (unknown). Con --write lo hace: recupera los
 //                   rescates (recover; con --con-cambios los descarta), cierra lo mergeado y borra lo
 //                   demás. Los otros modos son las piezas, para cuando hace falta una sola
+//   cerrar --mergeados --write
+//                   sin preguntar: cierra los issues cuyo MR ya se mergeó (consulta cada uno cada seis
+//                   horas como mucho) y que no piden una decisión: sin rescates, sin cambios sin
+//                   commitear en su worktree, con su rama local entera en lo que se subió, y nunca el
+//                   de esta sesión. Lo corre ship.js deliver --push con el sí de la persona
 //   list [--json]   los issues registrados, con su estado y lo que sigue en disco, con su tamaño
 //   clean <slug>|--actual [--write] [--con-cambios]
 //                   lo registrado para el issue: los worktrees de los sets de versiones anteriores y
@@ -313,6 +318,45 @@ function unknown(project) {
   return out.filter((p) => !known.has(key(p)));
 }
 
+// Lo registrado del issue fuera de sus ramas, que close borra aparte.
+const leftovers = (project, r) => plan(project, r).filter((i) => i.what !== 'rama' || !(r.branches || []).some((b) => i.label.startsWith(`${b.branch} `)));
+
+// Cada rama local del issue está entera en lo que ship subió, en algún remoto o en la rama por defecto.
+function pushedAll(r) {
+  return (r.branches || []).every((b) => {
+    if (!exists(b.repo) || !refExists(b.repo, `refs/heads/${b.branch}`)) return true;
+    const tip = git(b.repo, ['rev-parse', `refs/heads/${b.branch}`]).stdout.trim();
+    if ((r.pushed || []).some((p) => key(p.repo) === key(b.repo) && p.branch === b.branch && p.sha === tip)) return true;
+    const def = mergeTargets(b.repo).branch;
+    const local = def && refExists(b.repo, `refs/heads/${def}`) ? [def] : [];
+    return git(b.repo, ['rev-list', '--count', b.branch, '--not', '--remotes', ...local, '--']).stdout.trim() === '0';
+  });
+}
+
+// Lo mergeado se cierra solo, sin preguntar: con el MR mergeado y la rama local sin nada que no se haya
+// subido, no hay qué perder. Lo corre ship al subir, que es cuando la sesión termina; antes pedía volver
+// después del merge a escribir /arnes:cerrar, y nadie volvía (22 worktrees abiertos en renova365 y 10 en
+// academico el 2026-11-19). Se queda para /arnes:cerrar lo que pide una decisión: un rescate, cambios
+// sin commitear en su worktree, commits que no se subieron o el issue de esta sesión. → los que cerró
+function mergeados(project) {
+  I.refreshMerged(project, { max: 5 });
+  const done = [];
+  for (const r of I.list(project).filter((x) => x.state === 'mergeado')) {
+    if (rescuesOf(project, r).length || !pushedAll(r) || leftovers(project, r).some((i) => i.exit || i.why)) continue;
+    const log = console.log;
+    console.log = () => {};
+    let status = 1;
+    try {
+      status = close(project, r.slug, true);
+    } finally {
+      console.log = log;
+    }
+    if (status === 0) done.push(r.slug);
+  }
+  for (const s of done) console.log(`${s}: su MR ya estaba mergeado; quedó cerrado (su rama borrada y la rama por defecto al día)`);
+  return done;
+}
+
 // Cierra un issue mergeado, desde el checkout principal.
 function close(project, slug, write) {
   const r = I.readIssue(project, slug);
@@ -327,7 +371,7 @@ function close(project, slug, write) {
   }
   let merged = r.state === 'mergeado';
   if (!merged && (r.mr || []).length) {
-    const states = r.mr.map(I.mrState);
+    const states = I.mrStates(r);
     merged = states.every((s) => s === 'merged');
     if (merged) I.setState(project, 'mergeado', 'MR mergeado', slug);
     else console.log(`${slug}: el MR ${r.mr.map((m) => m.ref).join(', ')} no está mergeado (${states.map((s) => s || 'no se pudo consultar').join(', ')}); no lo cierro`);
@@ -360,7 +404,7 @@ function close(project, slug, write) {
       steps.push({ label: `${name}: borro la rama ${b.branch} de origin`, run: () => git(b.repo, ['push', '--quiet', 'origin', '--delete', b.branch]) });
     }
   }
-  const items = plan(project, r).filter((i) => i.what !== 'rama' || !(r.branches || []).some((b) => i.label.startsWith(`${b.branch} `)));
+  const items = leftovers(project, r);
   if (!write) {
     console.log(`${slug} · mergeado: al cerrar`);
     for (const s of steps) console.log(`- ${s.label}`);
@@ -431,24 +475,30 @@ function listAll(project, json) {
   }
 }
 
-module.exports = { plan, clean, close, unknown, recover, cerrar };
+module.exports = { plan, clean, close, unknown, recover, cerrar, mergeados };
 
 function main() {
   let args;
   try {
-    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, mr: { type: 'string' }, repo: { type: 'string' }, 'con-cambios': { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    args = parseArgs({ allowPositionals: true, options: { write: { type: 'boolean' }, actual: { type: 'boolean' }, json: { type: 'boolean' }, mr: { type: 'string' }, repo: { type: 'string' }, 'con-cambios': { type: 'boolean' }, mergeados: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
   } catch (e) {
     die(`issues: ${e.message}`);
   }
   const o = args.values;
   if (o.help) help(__filename);
-  const usage = 'uso: issues.js cerrar [<slug>...] [--write] [--con-cambios] | list [--json] | clean <slug>|--actual [--write] [--con-cambios] | recover <slug> | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
+  const usage = 'uso: issues.js cerrar [<slug>...] [--write] [--con-cambios] | cerrar --mergeados --write | list [--json] | clean <slug>|--actual [--write] [--con-cambios] | recover <slug> | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
   const [mode, ...pos] = args.positionals;
   const project = requireProject();
   if (mode === 'cerrar') {
     if (o.actual || o.json || o.mr || o.repo || (o['con-cambios'] && !o.write)) die(usage);
+    if (o.mergeados) {
+      if (pos.length || !o.write || o['con-cambios']) die(usage);
+      if (!mergeados(project).length) console.log('ningún issue mergeado que se pueda cerrar sin preguntar');
+      process.exit(0);
+    }
     process.exit(cerrar(project, pos, o.write, o['con-cambios']));
   }
+  if (o.mergeados) die(usage);
   if (mode === 'state') {
     const [slugArg, state, extra2] = o.actual ? [null, ...pos] : pos;
     if (extra2 || !state || !I.STATES.includes(state) || (!slugArg && !o.actual)) die(`${usage}\n  estados: ${I.STATES.join(', ')}`);

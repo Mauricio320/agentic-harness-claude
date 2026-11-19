@@ -79,7 +79,7 @@ test('con el MR mergeado: issues.js merged ofrece cerrar, y cerrar trae main, bo
   h.git(seed, 'merge', '-q', '--squash', 'cobros');
   h.git(seed, 'commit', '-q', '-m', 'feat: cobros (!12)');
   h.git(seed, 'push', '-q', bare, 'main');
-  assert.match(run(dir, 'issues.js', ['merged'], 'merged').stdout, /^cobros: el MR !12 ya está mergeado: la persona lo cierra con \/arnes:cerrar cobros$/m);
+  assert.match(run(dir, 'issues.js', ['merged'], 'merged').stdout, /^cobros: el MR !12 ya está mergeado: se cierra solo con la próxima entrega, o ya con \/arnes:cerrar cobros$/m);
   assert.equal(state(dir), 'mergeado');
   let r = run(dir, 'issues.js', ['close', 'cobros'], 'merged');
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -178,4 +178,50 @@ test('cerrar con el MR mergeado: lo dice al mirar, y con --write trae main, borr
   assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '', 'la rama remota también');
   assert.equal(state(dir), 'cerrado');
   assert.match(run(dir, 'issues.js', ['cerrar'], 'merged').stdout, /^ningún issue entregado, subido o mergeado: nada por cerrar$/m);
+});
+
+// Subir es donde termina la sesión: nadie volvía después del merge a escribir /arnes:cerrar (22 worktrees
+// abiertos en renova365 y 10 en academico el 2026-11-19). Lo mergeado se cierra solo en la entrega siguiente.
+function mergedInOrigin({ dir, bare, seed }) {
+  shipped(dir);
+  h.git(seed, 'fetch', '-q', bare, 'cobros:cobros');
+  h.git(seed, 'merge', '-q', '--squash', 'cobros');
+  h.git(seed, 'commit', '-q', '-m', 'feat: cobros (!12)');
+  h.git(seed, 'push', '-q', bare, 'main');
+}
+
+test('lo mergeado se cierra solo, sin preguntar; con un commit que no se subió, se queda para /arnes:cerrar', () => {
+  const c = repo();
+  const { dir, bare } = c;
+  mergedInOrigin(c);
+  h.write(dir, 'src/b.ts', 'sin subir\n');
+  h.commitAll(dir, 'wip: después del push');
+  let r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ningún issue mergeado que se pueda cerrar sin preguntar$/m);
+  assert.equal(state(dir), 'mergeado', 'lo sabe mergeado, pero no lo cierra');
+  assert.notEqual(h.git(dir, 'branch', '--list', 'cobros'), '', 'una rama con un commit sin subir no se borra sola');
+  h.git(dir, 'reset', '-q', '--hard', 'HEAD~1');
+  r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(r.stdout.trim(), 'cobros: su MR ya estaba mergeado; quedó cerrado (su rama borrada y la rama por defecto al día)', 'una línea, sin el detalle de cada paso');
+  assert.equal(state(dir), 'cerrado');
+  assert.equal(h.git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+  assert.equal(h.git(dir, 'rev-parse', 'main'), h.git(dir, 'rev-parse', 'origin/main'));
+  assert.equal(h.git(dir, 'branch', '--list', 'cobros'), '');
+  assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '', 'la remota también, si GitLab no la borró ya');
+  assert.equal(run(dir, 'issues.js', ['cerrar', '--mergeados']).status, 2, 'solo con --write');
+  assert.equal(run(dir, 'issues.js', ['list', '--mergeados']).status, 2);
+});
+
+test('el MR de un issue cuyo worktree ya se borró se consulta desde el checkout principal', () => {
+  const c = repo();
+  const { dir } = c;
+  mergedInOrigin(c);
+  const file = path.join(dir, '.tmp', 'harness', 'issues', 'cobros.json');
+  const r = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const gone = path.join(dir, '.claude', 'worktrees', 'ido').split(path.sep).join('/');
+  fs.writeFileSync(file, JSON.stringify({ ...r, mr: [{ repo: gone, ref: '12' }], worktree: { path: gone, name: 'ido', main: dir.split(path.sep).join('/') } }, null, 2));
+  assert.match(run(dir, 'issues.js', ['merged'], 'merged').stdout, /^cobros: el MR !12 ya está mergeado/m, 'antes quedaba «no se pudo consultar» para siempre');
+  assert.equal(state(dir), 'mergeado');
 });

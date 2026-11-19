@@ -8,7 +8,9 @@
 // salida de la app). Limpiar borra solo lo registrado, en orden seguro, y nunca lo que no está aquí.
 //   { version, slug, title, createdAt, updatedAt, state, states: [{ state, at, detail }],
 //     branches: [{ repo, branch }], worktree: { path, name, main } | null, sets: [{ ws, path, branch }],
-//     files: [ruta], mr: [{ repo, ref, url }] }
+//     files: [ruta], mr: [{ repo, ref, url }], pushed: [{ repo, branch, sha }] }
+// pushed es lo último que ship subió de cada rama: con el MR mergeado y la rama local en ese mismo
+// commit, cerrar no pierde nada y no hace falta preguntar (issues.js mergeados).
 
 const fs = require('fs');
 const path = require('path');
@@ -95,6 +97,7 @@ function record(project, add = {}, slug = null, now = new Date()) {
       mr: union(old.mr, add.mr, (m) => `${m.repo}|${m.ref}`),
       worktree: add.worktree || old.worktree || native.worktree || null,
       rescues: union(old.rescues, add.rescues, (x) => `${key(x.repo)}|${x.ref}`),
+      pushed: union(add.pushed, old.pushed, (p) => `${key(p.repo)}|${p.branch}`),
     };
     fs.mkdirSync(issuesDir(project), { recursive: true });
     fs.writeFileSync(fileOf(project, cur.slug), JSON.stringify(next, null, 2) + '\n');
@@ -150,6 +153,7 @@ function sizeOf(p) {
 // El estado de un MR según glab (GitLab) o gh (GitHub), si están: 'merged', 'open', 'closed' o null
 // si no se pudo saber. m = { repo, ref }, con ref el número o la url del MR.
 function mrState(m) {
+  if (!m.repo || !fs.existsSync(m.repo)) return null;
   const remote = git(m.repo, ['remote', 'get-url', 'origin']).stdout;
   const ref = String(m.ref).replace(/^[!#]/, '');
   const [cmd, args] = /github/i.test(remote) || /github/i.test(ref) ? ['gh', ['pr', 'view', ref, '--json', 'state']] : ['glab', ['mr', 'view', ref, '--output', 'json']];
@@ -163,13 +167,24 @@ function mrState(m) {
   }
 }
 
+// El repo desde el que se consulta un MR. Los registros anteriores a la 0.8.7 anotaban la carpeta del
+// worktree, que ya no existe cuando el issue se entregó y su worktree se borró: vale el checkout
+// principal del mismo repo (el de sus ramas con el mismo nombre de carpeta, o el del worktree).
+function mrRepo(r, m) {
+  if (m.repo && fs.existsSync(m.repo)) return m.repo;
+  const repos = (r.branches || []).map((b) => b.repo).filter((p) => p && fs.existsSync(p));
+  const main = r.worktree && r.worktree.main;
+  return repos.find((p) => path.basename(p) === path.basename(m.repo || '')) || repos.find((p) => main && key(p) === key(main)) || repos[0] || m.repo;
+}
+const mrStates = (r) => (r.mr || []).map((m) => mrState({ ...m, repo: mrRepo(r, m) }));
+
 // Los issues subidos cuyo MR ya se mergeó pasan a mergeado. Cada uno se consulta cada seis horas como
 // mucho, salvo con force, y a lo sumo max por llamada: SessionStart no puede esperar a la red.
 const CHECK_MS = 6 * 60 * 60 * 1000;
 function refreshMerged(project, { force = false, max = 3, now = new Date() } = {}) {
   const due = list(project).filter((r) => r.state === 'subido' && (r.mr || []).length && (force || !r.checkedAt || now - new Date(r.checkedAt) > CHECK_MS)).slice(0, max);
   for (const r of due) {
-    const states = r.mr.map(mrState);
+    const states = mrStates(r);
     const fresh = readIssue(project, r.slug);
     fresh.checkedAt = now.toISOString();
     fresh.mrStates = states;
@@ -195,11 +210,11 @@ function describe(r, now = new Date()) {
     revisado: `revisado y listo para /arnes:ship, ${age}`,
     entregado: `commiteado y sin subir, ${age}`,
     subido: `MR ${refs(r) || 'sin número'} esperando aprobación ${age}`,
-    mergeado: `${local ? 'mergeado en la rama por defecto' : `el MR ${refs(r)} ya está mergeado`}: la persona lo cierra con /arnes:cerrar ${r.slug}`,
+    mergeado: `${local ? 'mergeado en la rama por defecto' : `el MR ${refs(r)} ya está mergeado`}: se cierra solo con la próxima entrega, o ya con /arnes:cerrar ${r.slug}`,
   }[r.state];
   return text ? `${r.slug}: ${text}` : null;
 }
 
 const human = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
-module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, renameBranch, setState, sizeOf, human, mrState, refreshMerged, describe };
+module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, renameBranch, setState, sizeOf, human, mrState, mrStates, refreshMerged, describe };
