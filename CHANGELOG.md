@@ -2,6 +2,28 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.6] - 2026-11-19
+
+Sin trabas. Sale de revisar ocho sesiones con la 0.8.4 y la 0.8.5 en renova365 y academico, del 2026-11-09 al 2026-11-18. En cuatro de ellas el arnés se apagó entero: `api/.claude/harness.json` trae en main un campo que el arnés no conoce, el validador daba por inválido el manifiesto completo, y en cada worktree nuevo ninguna etapa corría (12 veces, con Claude aprobando planes a mano y verificando por fuera). En academico el Stop frenó 21 veces el cierre del turno mientras la persona iteraba un diseño, 16 de ellas pidiendo repetir una suite de 30 minutos que estaba en rojo por pruebas que ya fallaban, y la persona tuvo que aprobar que el `harness.json` de dos repos se copiara al worktree. En las ocho hubo 272 inyecciones de contexto en 327 mensajes. Probada en local con Claude Code 2.1.328 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`; con la 2.1.328, `validate --strict` de `arnes-ui` avisa de un tipo del host que su test no declara, y pasa con la 2.1.316 del CI. `plugins/arnes/scripts` pasa de 14.144 a 14.430 líneas.
+
+### Cambiado
+- Un campo que el arnés no conoce no invalida el manifiesto: se ignora, lo demás corre igual, y SessionStart y `manifest.js validate` lo nombran en una línea con el repo y el campo. Un tipo mal puesto o un JSON ilegible siguen siendo inválidos, y los archivos que escribe el propio arnés se siguen validando estrictos.
+- El código sin verificar no frena el cierre del turno. El Stop lo avisa una vez por estado, con lo que falló si la última verificación de ese contenido quedó en rojo, y la verificación la exige la entrega: el commit se niega sin bandera vigente y ship no entrega en rojo. El Stop sigue frenando por código escrito sin plan aprobado, por la configuración cambiada sin aprobación, por worktrees del issue sin integrar y por un plan aprobado sin construir.
+- Build y verify dicen que un ajuste de la persona no se verifica después de cada retoque: se verifica cuando lo da por bueno, o lo pide, y siempre antes de entregar. Verify no persigue una falla que ya estaba sin el cambio.
+- La configuración del arnés viaja sola (`lib/config-propia.js`). El `.claude/harness.json` que el checkout principal tiene sin commitear (sin versionar, ignorado o con un ajuste) llega al worktree al arrancar, al entrar y antes de verificar, también a cada repo de una carpeta. Lo que cambia en un worktree con init, setup o un ajuste aprobado vuelve al checkout principal al cerrar el turno: el worktree siguiente nace con él.
+- El manifiesto del arnés deja de ser un archivo tocado: no entra a la cuenta, no hace verificar ni nombrar en ship un repo que solo lo tiene sin commitear, y no impide borrar un worktree (la copia se va antes, o vuelve a como la trae su rama). La bandera lleva aparte la huella de la configuración: verde con unas reglas no es verde con otras.
+- `/arnes:cerrar` son dos comandos. `issues.js cerrar` mira todo de una vez: consulta los MR, dice qué cerraría o borraría de cada issue y nombra lo desconocido. `issues.js cerrar --write` lo hace: recupera los rescates, cierra lo mergeado y borra lo que sobra. Antes eran `list`, un `close` y un `clean` por issue y `unknown`, y después `recover`, `close` y `clean` uno por uno.
+- El estado que se adjunta a cada mensaje (tocados, bandera, «carga arnes:plan») se dice una vez por estado y por sesión, como los avisos del Stop.
+- La propuesta de un cambio de configuración se le dice a la persona en una o dos frases, sin mostrarle el bloque tal cual, y el motivo con que el guard niega escribirla avisa que copiarla a un worktree no hace falta.
+
+### Corregido
+- Con el manifiesto inválido la sesión no queda sin salida: cada etapa dice cómo proponer el arreglo, `ajuste.js` corre igual, y UserPromptSubmit anota la respuesta de la persona para que su «sí» abra la configuración.
+
+### Pendiente, visto en la misma revisión
+- La suite de un repo cuyo comando no filtra por spec (los 30 minutos de api-informes) sigue corriendo entera en cada verify, y sin un adaptador de resultados el gate no separa las fallas que ya estaban de las nuevas: con una sola prueba rota de antes, ese repo no llega a verde y no se entrega por el arnés.
+- Cambiar las reglas sigue pidiendo propuesta y aprobación; lo que dejó de pedirlas es mover la configuración entre el checkout principal y los worktrees.
+- El freno del Stop por código sin verificar se quitó en todos los proyectos: no hay un campo del manifiesto para volver a pedirlo en uno.
+
 ## [0.8.5] - 2026-11-12
 
 Ejemplos y gate. Sale de revisar seis sesiones con la 0.8.4 en academico y renova365, del 2026-11-09 al 2026-11-12, leyendo también el código que produjeron. El arnés frenaba y planificaba bien, pero el código salió con defectos que ni verify ni la revisión vieron: cumplía cada criterio en el papel y fallaba con el dato real (un buscador que no encuentra el NIT con su dígito, como lo muestra la pantalla), y llegó a main un SQL que nadie había ejecutado. Del lado de las trabas, un worktree corrió tres veces una suite de 30 minutos que la persona había bajado en el checkout cinco minutos antes. Probada en local con Claude Code 2.1.322 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`. `plugins/arnes/scripts` pasa de 14.004 a 14.144 líneas.
