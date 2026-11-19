@@ -158,7 +158,7 @@ test('stage y check: la configuración del proyecto se queda fuera del commit, t
   h.write(api, '.claude/rules/arquitectura.md', 'regla relajada\n');
   fs.appendFileSync(path.join(api, '.claude', 'harness.json'), '\n');
   h.git(api, 'add', '.claude/harness.json');
-  assert.match(ship(root, ['check']).stdout, /la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere: \.claude\/harness\.json, \.claude\/rules\/arquitectura\.md, \.claude\/settings\.json/);
+  assert.match(ship(root, ['check']).stdout, /la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere: \.claude\/rules\/arquitectura\.md, \.claude\/settings\.json/, 'el manifiesto del arnés no es un tocado: no se nombra');
   const r = ship(root, ['stage', 'api']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /api: la configuración del proyecto se queda fuera del commit/);
@@ -226,7 +226,7 @@ test('check: un repo con solo configuración o archivos del arnés sin commitear
   reviewed(root, 0);
   const r = ship(root, ['check']);
   assert.equal(r.status, 0, r.stdout);
-  assert.match(r.stdout, /- front no entra: solo cambió configuración o archivos del arnés \(\.claude\/harness\.json, \.env, \.worktreeinclude, tests\/baseline\.json, tests\/known-failures\.txt\); los commitea la persona si los quiere/);
+  assert.match(r.stdout, /- front no entra: solo cambió configuración o archivos del arnés \(\.env, \.worktreeinclude, tests\/baseline\.json, tests\/known-failures\.txt\); los commitea la persona si los quiere/);
   assert.match(r.stdout, /ship · carpeta · 1 workspace\(s\) con cambios/);
   assert.match(r.stdout, /orden de commit: api\n/);
   assert.match(r.stdout, /resultado: LISTO$/m);
@@ -260,21 +260,22 @@ test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => 
 
 test('committed: un tocado que quedó fuera del commit es nota, no falla; uno que entró distinto sí FALLA', () => {
   const { root, api } = folder();
+  h.write(api, 'docs/nota.md', 'nota\n');
   fs.appendFileSync(path.join(api, '.claude/harness.json'), '\n');
   ready(root);
   const flag = JSON.parse(fs.readFileSync(path.join(root, '.tmp', 'harness', 'gate', 'api.json'), 'utf8'));
-  assert.deepEqual(Object.keys(flag.blobs).sort(), ['.claude/harness.json', 'src/a.ts']);
+  assert.deepEqual(Object.keys(flag.blobs).sort(), ['docs/nota.md', 'src/a.ts'], 'el manifiesto del arnés no es un tocado');
   h.git(api, 'add', 'src/a.ts');
-  h.git(api, 'commit', '-q', '-m', 'feature(api): sin el manifiesto');
+  h.git(api, 'commit', '-q', '-m', 'feature(api): sin la nota');
   let r = ship(root, ['committed', 'api']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /api: el commit \w+ lleva el contenido que verificó la bandera \(1 archivo\(s\)\)\n {4}nota: quedó sin commitear: \.claude\/harness\.json/);
+  assert.match(r.stdout, /api: el commit \w+ lleva el contenido que verificó la bandera \(1 archivo\(s\)\)\n {4}nota: quedó sin commitear: docs\/nota\.md/);
   assert.doesNotMatch(r.stdout, /FALLA/);
 
-  fs.appendFileSync(path.join(api, '.claude/harness.json'), ' \n');
-  h.git(api, 'add', '.claude/harness.json');
-  h.git(api, 'commit', '-q', '-m', 'feature(api): el manifiesto, distinto del verificado');
+  fs.appendFileSync(path.join(api, 'docs/nota.md'), ' \n');
+  h.git(api, 'add', 'docs/nota.md');
+  h.git(api, 'commit', '-q', '-m', 'feature(api): la nota, distinta de la verificada');
   r = ship(root, ['committed', 'api']);
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /FALLA api: .*: \.claude\/harness\.json$/m);
+  assert.match(r.stdout, /FALLA api: .*: docs\/nota\.md$/m);
 });

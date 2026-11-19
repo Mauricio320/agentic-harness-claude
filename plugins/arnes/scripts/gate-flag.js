@@ -4,6 +4,7 @@
 //   head         HEAD del repo del workspace al escribirla
 //   touchedHash  sha256 de la lista ordenada de tocados respecto de HEAD (la de touched-files)
 //   contentHash  sha256 de "ruta\0sha256 del contenido" de cada tocado, trackeado o no
+//   rules        sha256 del manifiesto del workspace y del proyecto, que no están entre los tocados
 //   blobs        { ruta: el blob que git guardaría (git hash-object, que normaliza los finales de
 //                línea como el commit) } de cada tocado; ship comprueba con ellos que el commit
 //                lleva lo verificado, aunque un hook pre-commit reescriba
@@ -43,6 +44,7 @@ const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { matchAny } = require('./lib/glob.js');
 const { stateOf, fileHash, movedElsewhere } = require('./lib/huella.js');
+const { rulesHash, carried } = require('./lib/config-propia.js');
 const { checkReview } = require('./review.js');
 const ledger = require('./worktree-ledger.js');
 const issues = require('./lib/issues.js');
@@ -80,7 +82,7 @@ function writeFlag(project, ws, result, now = new Date(), base = 'HEAD') {
   if (s.error) return s;
   const b = blobsOf(ws, s.files);
   if (b.error) return b;
-  const flag = { head: s.head, base, touchedHash: s.touchedHash, contentHash: s.contentHash, blobs: b.blobs, eol: eolOf(ws, s.files), result, at: now.toISOString() };
+  const flag = { head: s.head, base, touchedHash: s.touchedHash, contentHash: s.contentHash, rules: rulesOf(project, ws), blobs: b.blobs, eol: eolOf(ws, s.files), result, at: now.toISOString() };
   const file = flagPath(project, ws);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(flag, null, 2) + '\n');
@@ -103,8 +105,13 @@ function checkFlag(project, ws, now = new Date()) {
   if (s.head !== flag.head && !movedElsewhere(project, ws, flag.head, s.head)) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
   if (s.touchedHash !== flag.touchedHash) return { ok: false, reason: 'la lista de archivos tocados cambió desde la verificación' };
   if (s.contentHash !== flag.contentHash) return { ok: false, reason: 'el contenido de un archivo tocado cambió desde la verificación' };
+  if (flag.rules && flag.rules !== rulesOf(project, ws)) return { ok: false, reason: 'la configuración del arnés cambió desde la verificación' };
   return { ok: true };
 }
+
+// La configuración no está entre los tocados (touched-files.js), así que la bandera lleva su huella
+// aparte: verde con unas reglas no es verde con otras. Una bandera anterior, sin ella, no la compara.
+const rulesOf = (project, ws) => rulesHash([ws.manifest, project.file]);
 
 // Foto del turno: por workspace, el sha256 de cada archivo de código tocado al enviarse el prompt
 // ({ code: { ruta: sha256 } }), en .tmp/harness/turn.json.
@@ -124,13 +131,15 @@ const ORIGIN_MS = 60 * 60 * 1000;
 // pull o un merge llega igual al árbol y al HEAD, así que no cuenta; lo escrito a mano, sí. Fuera de un
 // repo (la raíz de una carpeta antes de hacerla repo de carpeta) cuenta su contenido: el git init que la
 // persona corre en su terminal deja el mismo archivo sin versionar, y eso no es un cambio de reglas.
+// La copia que el arnés trajo del checkout principal a un worktree (lib/config-propia.js) tampoco.
 function manifestState(project) {
   // El de un repo que lo perdió también: la composición lo sigue listando, ya sin manifiesto.
   const files = [...new Set([project.file, ...project.workspaces.map((w) => w.manifest || (w.repo && path.join(w.repo, MANIFEST))).filter(Boolean)])];
   const out = {};
   for (const f of files) {
-    const r = git(path.dirname(path.dirname(f)), ['status', '--porcelain', '--', MANIFEST]);
-    if (r.status === 0 && !r.stdout.trim()) continue;
+    const repo = path.dirname(path.dirname(f));
+    const r = git(repo, ['status', '--porcelain', '--', MANIFEST]);
+    if ((r.status === 0 && !r.stdout.trim()) || carried(repo)) continue;
     out[posix(path.relative(project.root, f)) || MANIFEST] = fs.existsSync(f) ? crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex') : 'borrado';
   }
   return out;

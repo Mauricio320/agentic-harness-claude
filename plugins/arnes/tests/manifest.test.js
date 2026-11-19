@@ -27,11 +27,34 @@ test('validate: sin typecheck ni test explica que necesita uno de los dos', () =
   assert.match(errs[0], /workspaces\[0\]\.commands: necesita al menos uno de typecheck, test/);
 });
 
-test('validate: rechaza rutas absolutas, campos desconocidos, otra versión y specPattern sin {name}', () => {
+// Cuatro sesiones de renova365 (2026-11-17 y 18): el manifiesto del api traía en main un campo que el
+// arnés no conoce, allowedExceptions. Invalidaba el manifiesto entero, así que en cada worktree nuevo
+// ninguna etapa corría y el plan se aprobaba a mano, por fuera del arnés.
+test('un campo que el arnés no conoce no invalida el manifiesto: se ignora y se nombra', () => {
+  const ws = { ...h.workspace(), allowedExceptions: [{ command: 'bash tools/ensayo.sh' }], commands: { ...h.workspace().commands, deploy: 'x' } };
+  const data = { version: 1, name: 'x', workspaces: [ws], notas: 'de otra versión' };
+  assert.deepEqual(m.validate(data), []);
+  assert.deepEqual(m.unknown(data), [{ at: 'workspaces[0].commands', field: 'deploy' }, { at: 'workspaces[0]', field: 'allowedExceptions' }, { at: '(raíz)', field: 'notas' }]);
+  assert.deepEqual(m.unknown({ version: 1, name: 'x', workspaces: [h.workspace()] }), []);
+  const dir = h.tmp('desconocido');
+  h.repo(dir, { '.claude/harness.json': h.manifestJson(data), 'src/a.ts': 'a\n' });
+  const project = m.loadProject(dir);
+  assert.deepEqual(project.errors, []);
+  assert.deepEqual(project.ignored.map((x) => x.field), ['deploy', 'allowedExceptions', 'notas']);
+  assert.equal(project.workspaces.length, 1, 'el workspace carga igual');
+  const r = h.run('lib/manifest.js', ['validate'], { cwd: dir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^válido: /);
+  assert.match(r.stdout, /^se ignora: .*harness\.json: workspaces\[0\]: campo desconocido "allowedExceptions"$/m);
+  // Una composición con un campo de más sigue siendo una composición, y un error suyo se dice como suyo.
+  assert.deepEqual(m.validate({ version: 1, name: 'x', repos: [{ path: 'a', nota: 1 }], extra: 1 }), []);
+  assert.match(m.validate({ version: 1, name: 'x', repos: [{ path: '/a' }] }).join(' | '), /^repos\[0\]\.path: "\/a" no cumple/);
+});
+
+test('validate: rechaza rutas absolutas, otra versión y specPattern sin {name}', () => {
   const cases = [
     [{ path: 'C:\\repo' }, /no cumple/],
     [{ path: '/repo' }, /no cumple/],
-    [{ extra: true }, /campo desconocido "extra"/],
     [{ specPattern: '{dir}/x.spec.ts' }, /no cumple/],
   ];
   for (const [over, re] of cases) {

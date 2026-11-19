@@ -16,7 +16,7 @@ const { projectFor } = require('../worktree-ledger.js');
 const CONFIG = /(^|[\\/])\.claude[\\/](harness\.json|settings(\.local)?\.json|rules|hooks)([\\/]|$)/i;
 // Lo mismo como pathspecs de git, relativas a la raíz del repo.
 const AJUSTE_JS = path.resolve(__dirname, '..', 'ajuste.js').split(path.sep).join('/');
-const AJUSTE = `Si el cambio hace falta, propónselo: corre node "${AJUSTE_JS}" propone --archivo <ruta> --detalle "<qué cambia y por qué>", muéstrale la propuesta y termina el turno. Si responde que sí, node "${AJUSTE_JS}" aprueba abre la configuración solo ese turno. Ella también puede escribir /arnes:init --ajustar.`;
+const AJUSTE = `Copiarla del checkout principal a un worktree no hace falta: el arnés la lleva solo. Si lo que hace falta es cambiarla, propónselo: corre node "${AJUSTE_JS}" propone --archivo <ruta> --detalle "<qué cambia y por qué>", díselo a la persona en una o dos frases y termina el turno. Si responde que sí, node "${AJUSTE_JS}" aprueba abre la configuración solo ese turno. Ella también puede escribir /arnes:init --ajustar.`;
 const CONFIG_SPEC = ['.claude/harness.json', '.claude/settings.json', '.claude/settings.local.json', '.claude/rules', '.claude/hooks'];
 
 // La carpeta que tiene el .claude/ de esa configuración, o null si la ruta no es configuración.

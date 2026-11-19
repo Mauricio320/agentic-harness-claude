@@ -28,7 +28,7 @@ test('write pass → check 0, aunque la bandera viva dentro del repo sin ignorar
   const { dir, flag } = repo();
   assert.equal(gate(dir, ['write', 'api', '--result', 'pass']).status, 0);
   const f = JSON.parse(fs.readFileSync(flag, 'utf8'));
-  assert.deepEqual(Object.keys(f).sort(), ['at', 'base', 'blobs', 'contentHash', 'eol', 'head', 'result', 'touchedHash']);
+  assert.deepEqual(Object.keys(f).sort(), ['at', 'base', 'blobs', 'contentHash', 'eol', 'head', 'result', 'rules', 'touchedHash']);
   assert.match(f.eol['src/a.ts'], /^[0-9a-f]{64}$/, 'la huella del contenido con los fines de línea de git');
   assert.deepEqual(f.blobs, { 'src/a.ts': h.git(dir, 'hash-object', 'src/a.ts') }, 'el blob que git guardaría de cada tocado');
   assert.match(f.head, /^[0-9a-f]{40}$/);

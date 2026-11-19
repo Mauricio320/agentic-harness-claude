@@ -114,8 +114,9 @@ test('las líneas de estado de cada workspace van solo a la dueña del plan: la 
   live(dir, 'A');
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'de A\n');
   const say = (session) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿el túnel sobrevive un reinicio?', cwd: dir, session_id: session }, { env: as(session) }).out.hookSpecificOutput.additionalContext;
-  assert.doesNotMatch(say('B'), /arnes · api:/, 'B no recibe tocados ni bandera de A');
-  assert.match(say('B'), /^arnes: el plan en curso en este checkout es de otra sesión/, 'solo el aviso de su worktree');
+  const b = say('B');
+  assert.doesNotMatch(b, /arnes · api:/, 'B no recibe tocados ni bandera de A');
+  assert.match(b, /^arnes: el plan en curso en este checkout es de otra sesión/, 'solo el aviso de su worktree');
   assert.match(say('A'), /^arnes · api: \d+ tocado\(s\), 1 de código · bandera no vigente/m, 'la dueña sí');
 });
 
@@ -134,7 +135,7 @@ test('el Stop de una sesión ajena calla lo que es de la dueña del plan: ni cam
   assert.equal(turn(dir, 'B'), null, 'B, sin código, no recibe «siguen cambios sin verificar»');
   h.hook('agents', { hook_event_name: 'SubagentStart', agent_id: 'tw-1', agent_type: 'arnes:test-writer', session_id: 'A', cwd: dir }, { env: as('A') });
   assert.equal(turn(dir, 'B', () => h.write(dir, 'src/a.spec.ts', 'del test-writer de A\n')), null, 'ni bloqueo ni «trabajo en marcha» por lo que escribe el ayudante de A');
-  assert.match(turn(dir, 'A').systemMessage, /^arnes: siguen cambios sin verificar en api/, 'la dueña sí lo recibe');
+  assert.match(turn(dir, 'A').systemMessage, /^arnes: hay cambios sin verificar en api\./, 'la dueña sí lo recibe');
 });
 
 test('plan-guard: una sesión ajena no escribe código bajo el plan aprobado de otra viva; la dueña sí', () => {

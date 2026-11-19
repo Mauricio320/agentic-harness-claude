@@ -1,23 +1,26 @@
 #!/usr/bin/env node
-// Stop (docs/PLAN.md §6.2, §7). Impide cerrar el turno, con decision "block" y reason, si
-//   (a) algún workspace adoptable tiene archivos de codeGlobs tocados sin bandera de verificación
-//       vigente, o
+// Stop (docs/PLAN.md §6.2, §7).
+//   (a) Código tocado sin bandera de verificación vigente en algún workspace adoptable: no frena el
+//       turno desde la 0.8.6, solo se avisa una vez por estado. La verificación la exige la entrega (el
+//       commit se niega sin bandera, y ship no entrega en rojo). Frenar cada turno le cobraba a la
+//       persona la suite entera por cada retoque: en academico, 21 bloqueos con una suite de 30 minutos
+//       mientras iteraba un diseño.
+// Impide cerrar el turno, con decision "block" y reason, si
 //   (b) el registro de worktrees tiene trabajo sin integrar en la rama del issue: los worktrees de
 //       agentes aislados (o de sets viejos) abiertos, con commits o archivos sin commitear, cuyo
 //       destino es la rama en que está el checkout que los lanzó, o
 //   (c) el turno cambió archivos de codeGlobs sin plan aprobado. plan-guard lo niega en Edit y Write;
 //       esto cubre lo que llega por el shell (un sed -i, un Set-Content, un node -e) sin adivinar
-//       comandos, porque mira los tocados. Un workspace sin plan no se juzga además por (a): primero
+//       comandos, porque mira los tocados. Un workspace sin plan no se avisa además por (a): primero
 //       el plan, después la verificación, o
 //   (d) el turno cambió la configuración del arnés (un .claude/harness.json) fuera de init y setup,
 //       lo que plan-guard niega en Edit y Write, o
 //   (e) el plan quedó aprobado en este turno y build no empezó, sin nada más pendiente (buildPending),
 //       salvo que approve no haya dejado la rama del issue en algún workspace del plan.
-// Cuando frena por verificación, el motivo y el aviso dicen el paso que sigue (nextOf): correr la
-// verificación, corregir lo primero que falló en la última corrida del gate, o, si es de configuración,
-// proponer el cambio para que la persona lo apruebe respondiendo que sí.
+// El aviso de (a) dice lo que falló si la última corrida del gate sobre ese contenido quedó en rojo
+// (nextOf), o, si la falla es de configuración, que Claude propone el cambio y la persona lo aprueba.
 // Cada bloqueo se anota en la timeline (nota "bloqueado", la que lee arnes-ui). Bloquea solo si el
-// turno cambió algo: para (a) y (c), un archivo de código nuevo o cambiado respecto de la foto que
+// turno cambió algo: para (c), un archivo de código nuevo o cambiado respecto de la foto que
 // dejó prompt-context, archivo por archivo; para (b), un commit o un archivo tocado en el worktree después de esa foto. Si no,
 // solo avisa con systemMessage. Sin foto bloquea, salvo con init o setup en curso o que corrieron en
 // este turno: un workspace que no está en la foto porque su configuración se escribió en el turno no
@@ -30,7 +33,8 @@
 // en la timeline, también sin manifiesto o con uno inválido, les anota su end y lo dice en una línea:
 // una corrección que no anotó su fin dejaría la configuración escribible hasta el próximo plan o dos
 // horas. Un ajuste de configuración que la persona aprobó en el chat (ajuste.js) se cierra igual, y
-// su fin anota qué configuración quedó cambiada. No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
+// su fin anota qué configuración quedó cambiada. En un worktree, la configuración que cambió con init,
+// setup o un ajuste en el turno vuelve además al checkout principal (backToMain). No los cierra mientras viva el proceso de adopt.js que anotó su PID (lib/adopcion.js): Claude
 // Code puede mandarlo a segundo plano y cerrar el turno con la línea base corriendo; lo dice, y los
 // cierra el primer Stop después de que el proceso termina. Si hay bandera vigente sin revisión
 // de ese contenido, avisa en una línea que la revisión la hace ship, sin bloquear. Con trabajo en
@@ -56,10 +60,11 @@ const { loadProject, posix, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
 const { append, read, planState, prepOpen, prepInTurn, redStreak, RED_CAP, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
-const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged, readLast } = require('../gate-flag.js');
+const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged, acceptManifests, readLast } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
 const ledger = require('../worktree-ledger.js');
-const { nativeWorktree } = require('../lib/worktree-nativo.js');
+const { nativeWorktree, nativeRoot } = require('../lib/worktree-nativo.js');
+const propia = require('../lib/config-propia.js');
 const carpeta = require('../worktree-carpeta.js');
 const { running } = require('./agents.js');
 const { whyNoPlan } = require('./plan-guard.js');
@@ -70,7 +75,9 @@ const { planOwner, claudePid } = require('../lib/sesiones.js');
 
 const OPEN_MAX_MS = 2 * 60 * 60 * 1000;
 
-function unverified(project, skip = [], unseen = () => false) {
+// (a) Código tocado sin bandera vigente. No frena el turno: se avisa, y la verificación la exige la
+// entrega. capped: el workspace llegó al tope de verificaciones en rojo, y ahí decide la persona.
+function unverified(project, skip = []) {
   const out = [];
   for (const ws of project.workspaces.filter((w) => w.adoptable && !skip.includes(w.name))) {
     const t = touched(ws, 'HEAD', project);
@@ -78,10 +85,7 @@ function unverified(project, skip = [], unseen = () => false) {
     const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
     if (!code.length) continue;
     const flag = checkFlag(project, ws);
-    // Como (c), archivo por archivo: el código que la persona dejó antes del turno no lo bloquea. Un
-    // workspace que llegó al tope de verificaciones en rojo tampoco: ahí decide la persona.
-    const capped = redStreak(read(project.root), ws.name) >= RED_CAP;
-    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, capped, changed: !capped && !unseen(ws) && codeChangedSince(project, ws, code).length > 0 });
+    if (!flag.ok) out.push({ ws: ws.name, files: code, reason: flag.reason || flag.error, capped: redStreak(read(project.root), ws.name) >= RED_CAP });
   }
   return out;
 }
@@ -188,6 +192,19 @@ function followText(project, w) {
   return steps.length ? ` Lo que sigue: ${steps.join('; ')}.` : '';
 }
 
+// El aviso de (a) cuando es lo único pendiente. Sin cuentas de archivos, para que el mismo estado calle
+// mientras la persona itera (once); con lo que falló, si la última verificación de este contenido
+// quedó en rojo.
+function unverifiedText(project, code) {
+  const red = code.map((p) => {
+    if (p.capped) return `En ${p.ws}, la verificación quedó en rojo ${RED_CAP} veces seguidas: dile a Claude cómo seguir.`;
+    const n = nextOf(project, p.ws);
+    if (n.red && n.config) return `En ${p.ws}, la verificación falla por la configuración (${n.what}): Claude te propone el cambio, y lo apruebas respondiendo que sí.`;
+    return n.red ? `En ${p.ws}, la última verificación falló: ${n.what}.` : null;
+  });
+  return [`arnes: hay cambios sin verificar en ${code.map((p) => p.ws).join(', ')}. No frenan el turno: la verificación corre antes de entregar.`, ...red.filter(Boolean)].join(' ');
+}
+
 function pendingText(w) {
   return [
     w.build.length && 'el plan aprobado sin construir',
@@ -276,10 +293,28 @@ function closePrep(root) {
   return `arnes: ${stage} seguía abierto al terminar el turno; lo cerré, y la configuración vuelve a quedar protegida.`;
 }
 
+// Un cambio de configuración que la persona aprobó dentro de un worktree (init, setup o un ajuste en
+// este turno) vuelve al checkout principal, que es de donde lo toma el worktree siguiente
+// (lib/config-propia.js). Allá no es un cambio de reglas de ningún turno. → los repos a los que volvió
+function backToMain(project) {
+  const out = [];
+  for (const repo of [...new Set([project.root, ...project.workspaces.map((ws) => ws.repo)])]) {
+    try {
+      if (repo && propia.giveBack(repo)) out.push(path.basename(propia.mainOf(repo)));
+    } catch {
+      /* sin poder copiarla queda en el worktree: nunca frena el cierre */
+    }
+  }
+  const wt = out.length ? nativeRoot(project) : null;
+  const main = wt && loadProject(wt.main);
+  if (main && !main.errors.length) acceptManifests(main);
+  return out;
+}
+
 // El aviso que no bloquea, una vez por estado y por sesión: si el texto es el mismo que esta sesión ya
 // dijo, calla; sin nada que decir, olvida el último, para que el mismo pendiente vuelva a decirse si
 // reaparece. Se guarda su sha256 en .tmp/harness/avisos.json, que los tocados no cuentan.
-const AVISOS_MAX = 20;
+const AVISOS_MAX = 40;
 
 function once(project, session, r) {
   const file = path.join(harnessDir(project), 'avisos.json');
@@ -331,32 +366,35 @@ function stopGate(input) {
   const unseen = (ws) => Boolean(prep) && !snap[ws.name];
   const noPlan = unplanned(project, home, unseen);
   const mine = !planOwner(home, { session: input.session_id || null, pid: claudePid() });
-  const w = { rules: rulesChanged(project, home), noPlan, code: mine ? unverified(project, noPlan.map((p) => p.ws), unseen) : [], wts: mine ? pendingWorktrees(cwd, turnStart(project)) : [] };
+  const w = { rules: rulesChanged(project, home), noPlan, code: mine ? unverified(project, noPlan.map((p) => p.ws)) : [], wts: mine ? pendingWorktrees(cwd, turnStart(project)) : [] };
   w.build = !mine || w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(home, turnStart(project));
-  const all = [...w.rules, ...w.noPlan, ...w.code, ...w.wts, ...w.build];
+  // Lo que frena: (b) a (e). El código sin verificar no: la persona puede iterar sin pagar la
+  // verificación en cada turno, y la entrega la exige igual.
+  const stops = [...w.rules, ...w.noPlan, ...w.wts, ...w.build];
   // Un turno que no cambió los tocados ni sumó commits a un worktree (imprimir la timeline, una
   // pregunta) no se bloquea: solo se avisa de lo que sigue pendiente.
-  const pending = all.length > 0;
-  const due = pending && !input.stop_hook_active && all.some((p) => p.changed);
+  const due = !input.stop_hook_active && stops.some((p) => p.changed);
   const busy = due && mine ? inProgress(project) : [];
   if (due && !busy.length) return block(project, w);
   // El turno cierra. La nota marca desde cuándo se espera a la persona: prompt-context anota su
   // respuesta, y timeline.js print suma esos huecos aparte de las etapas.
-  const closed = closePrep(home.root);
+  const back = prep ? backToMain(project) : [];
+  const closed = [closePrep(home.root), back.length && `arnes: la configuración que cambió en este worktree quedó también en el checkout principal de ${back.join(', ')}, para los worktrees que vengan.`].filter(Boolean).join('\n') || null;
   append(project.root, { event: 'note', stage: 'turno', result: 'cerrado' });
   const quiet = (r) => withClosed(closed, once(project, input.session_id, r));
-  if (busy.length) return quiet({ systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); la verificación se pide cuando termine.` });
-  if (pending && input.stop_hook_active) {
+  if (busy.length) return quiet({ systemMessage: `arnes: todavía hay trabajo en marcha (${busy.join(', ')}); lo pendiente se pide cuando termine.` });
+  if (stops.length && input.stop_hook_active) {
     append(project.root, { event: 'note', stage: 'stop-gate', result: 'pendiente', detail: `turno cerrado ${detailOf(w)}` });
     return withClosed(closed, { systemMessage: `arnes: el turno termina con ${pendingText(w)}; queda como pendiente.${followText(project, w)}` });
   }
-  if (pending) return quiet({ systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
+  if (stops.length) return quiet({ systemMessage: `arnes: siguen ${pendingText(w)}; este turno no los tocó.${followText(project, w)}` });
+  if (w.code.length) return quiet({ systemMessage: unverifiedText(project, w.code) });
   const noReview = mine ? unreviewed(project) : [];
   return quiet(noReview.length ? { systemMessage: `arnes: ${noReview.join(', ')} quedó verificado; la revisión la hace /arnes:ship antes de commitear.` } : null);
 }
 
 function block(project, w) {
-  const { rules, noPlan, code, wts, build } = w;
+  const { rules, noPlan, wts, build } = w;
   // La nota de bloqueo es la que lee arnes-ui para avisar: no depende de que su hook vea el Stop.
   append(project.root, { event: 'note', stage: 'stop-gate', result: 'bloqueado', detail: `turno bloqueado ${detailOf(w)}` });
   const parts = [];
@@ -372,21 +410,6 @@ function block(project, w) {
       `este turno cambió código sin plan aprobado en ${plain(noPlan)} (${noPlan[0].reason}). Escribir código pide un plan ` +
         `aprobado también por el shell: dile a la persona qué cambiaste, carga arnes:plan y espera su aprobación, o que ` +
         `ella escriba /arnes:plan --trivial si el cambio es mínimo. No lo verifiques ni lo entregues antes.`,
-    );
-  }
-  if (code.length) {
-    const next = code.map((p) => [p.ws, nextOf(project, p.ws)]);
-    const red = next.filter(([, n]) => n.red);
-    const config = red.filter(([, n]) => n.config);
-    parts.push(
-      red.length
-        ? `la verificación quedó en rojo en ${red.map(([ws, n]) => `${ws} (${n.what})`).join(', ')}. ` +
-            (config.length
-              ? `La falla es de configuración: no la cambies tú; propónselo a la persona como propuesta de configuración, con qué cambiar y por qué (el motivo con que se niega escribirla dice cómo), y termina el turno: lo aprueba respondiendo que sí. `
-              : `Corrige y vuelve a verificar en este mismo turno, sin pedir permiso: en rojo se corrige, no se pregunta. `) +
-            `La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano.`
-        : `hay cambios de código sin verificar en ${plain(code)}. Corre la verificación antes de cerrar el turno: la marca de ` +
-            `verificación la escribe la verificación solo si todo pasa, nunca a mano.`,
     );
   }
   if (build.length) {

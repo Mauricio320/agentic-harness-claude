@@ -31,6 +31,7 @@ const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
 const { linkedWorktree, targetOf, liveLinks, nativeWork } = require('../worktree-ledger.js');
 const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const carpeta = require('../worktree-carpeta.js');
+const config = require('../lib/config-propia.js');
 const apps = require('../lib/app.js');
 
 // La app que levantó el arnés en el worktree de dir, parada antes de borrarlo. → null, o el motivo
@@ -107,7 +108,13 @@ if (require.main === module) {
   run('worktree-remove', (input) => {
     const ti = input.tool_input || {};
     if (ti.action !== 'remove') return null;
-    const why = judge(path.resolve(input.cwd || process.cwd()));
-    return why ? deny(`arnes: ${why}`) : null;
+    const dir = path.resolve(input.cwd || process.cwd());
+    const why = judge(dir);
+    if (why) return deny(`arnes: ${why}`);
+    // La copia de la configuración que trajo el arnés no es trabajo: se va antes, para que Claude Code
+    // no la cuente como un cambio sin commitear y pida descartarla.
+    const top = git(dir, ['rev-parse', '--show-toplevel']);
+    if (top.status === 0) config.drop(path.resolve(top.stdout.trim()));
+    return null;
   });
 }

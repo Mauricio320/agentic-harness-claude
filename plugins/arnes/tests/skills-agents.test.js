@@ -141,7 +141,7 @@ test('un ajuste de la persona con el plan aprobado no reabre el plan: «pide cam
   assert.match(read('plan'), /\*\*Si pide cambios antes de aprobar:\*\* `node "S\/plan-state\.js" start --detail "ajuste"`/);
   for (const s of ['build', 'verify']) {
     assert.match(read(s), /\*\*Un ajuste que pide la persona con el plan aprobado\*\*, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state\.js start`/, s);
-    assert.match(read(s), /anótalo en `## Decisiones` de `\.tmp\/harness\/plan\.md` como ajuste de la persona, corrígelo y verifica\. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea/, s);
+    assert.match(read(s), /anótalo en `## Decisiones` de `\.tmp\/harness\/plan\.md` como ajuste de la persona, y corrígelo\. Mientras ella sigue ajustando no verifiques después de cada retoque: verifica cuando dé el ajuste por bueno, o lo pida, y siempre antes de entregar\. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea/, s);
   }
 });
 

@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 // Lo que el arnés creó para cada issue y su limpieza (docs/PLAN.md §7), sobre el registro de
 // lib/issues.js en <checkout principal>/.tmp/harness/issues/<slug>.json.
+//   cerrar [<slug>...] [--write] [--con-cambios]
+//                   todo /arnes:cerrar en un comando. Sin --write mira: consulta los MR y dice, por cada
+//                   issue entregado, subido o mergeado, o con un rescate (o por los nombrados), qué
+//                   haría: cerrarlo si su MR está mergeado (close) y, si no, borrar lo que sobra
+//                   (clean); al final, lo desconocido (unknown). Con --write lo hace: recupera los
+//                   rescates (recover; con --con-cambios los descarta), cierra lo mergeado y borra lo
+//                   demás. Los otros modos son las piezas, para cuando hace falta una sola
 //   list [--json]   los issues registrados, con su estado y lo que sigue en disco, con su tamaño
 //   clean <slug>|--actual [--write] [--con-cambios]
 //                   lo registrado para el issue: los worktrees de los sets de versiones anteriores y
@@ -126,8 +133,9 @@ function plan(project, r, conCambios = false) {
   if (w && exists(w.path)) {
     const size = I.sizeOf(w.path);
     const nested = (carpeta.readState(loadProject(w.path) || { root: w.path }).repos || []).filter((x) => x.status === 'vivo' && exists(x.path));
-    const own = rescate.dirtyIn(w.path, ledger.liveLinks(w.path));
-    const kept = nested.map((x) => [x, rescate.dirtyIn(x.path, ledger.liveLinks(x.path))]).filter(([, d]) => d.length);
+    // La copia de la configuración que trajo el arnés no es un cambio sin commitear (lib/config-propia.js).
+    const own = rescate.dirtyIn(w.path, [...ledger.liveLinks(w.path), ...carpeta.ownOf({ links: [], copies: [], copiedDirs: [], path: w.path, main: w.main })]);
+    const kept = nested.map((x) => [x, rescate.dirtyIn(x.path, [...ledger.liveLinks(x.path), ...carpeta.ownOf(x)])]).filter(([, d]) => d.length);
     const lost = kept.map(([x, d]) => `${path.basename(x.repo)} tiene ${d.length} archivo(s) sin commitear (${d.slice(0, 3).join(', ')})`).join(' y ');
     const lock = lockOf(w.main, w.path);
     if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, size, action: 'se borra saliendo de él', exit: true });
@@ -378,6 +386,39 @@ function close(project, slug, write) {
   return 0;
 }
 
+// Todo el cierre en un comando: mirar (sin write) o hacer, sobre los issues nombrados o sobre los que
+// tienen algo por cerrar o borrar. Antes eran list, y un close, un clean y a veces un recover por issue.
+function cerrar(project, slugs, write, conCambios) {
+  // Al hacer no se vuelve a consultar: mirar ya anotó los mergeados, y close consulta el suyo si hace falta.
+  if (!write) I.refreshMerged(project, { force: true, max: 50 });
+  for (const s of slugs) if (!I.readIssue(project, s)) die(`issues: no hay registro del issue ${s}`);
+  const due = slugs.length
+    ? slugs.map((s) => I.readIssue(project, s))
+    : I.list(project).filter((r) => r.state !== 'cerrado' && (I.DONE.includes(r.state) || rescuesOf(project, r).length)).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  if (!due.length) console.log('ningún issue entregado, subido o mergeado: nada por cerrar');
+  let failed = false;
+  for (const r of due) {
+    if (write && !conCambios && rescuesOf(project, r).length) {
+      failed = recover(project, r.slug) !== 0 || failed;
+      continue;
+    }
+    if (['subido', 'mergeado'].includes(r.state)) {
+      if (close(project, r.slug, write) === 0) continue;
+      // No lo cerró: si es porque el MR no está mergeado, queda borrar lo que sobra; si no, ya dijo qué faltó.
+      const inside = r.worktree && exists(r.worktree.path) && here(r.worktree.path);
+      if (inside || I.readIssue(project, r.slug).state === 'mergeado') {
+        failed = true;
+        continue;
+      }
+    }
+    failed = clean(project, r.slug, write, conCambios) !== 0 || failed;
+  }
+  if (write) return failed ? 1 : 0;
+  for (const p of unknown(project)) console.log(`no lo conozco: ${posix(p)} · ${I.human(I.sizeOf(p))}; decide tú si se borra`);
+  if (due.length) console.log('siguiente: con el sí de la persona, cerrar --write lo hace todo, y cerrar <issue>... --write solo esos; --con-cambios solo si dijo que esos cambios se pierden');
+  return 0;
+}
+
 function listAll(project, json) {
   const all = I.list(project).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   if (json) return console.log(JSON.stringify(all, null, 2));
@@ -390,7 +431,7 @@ function listAll(project, json) {
   }
 }
 
-module.exports = { plan, clean, close, unknown, recover };
+module.exports = { plan, clean, close, unknown, recover, cerrar };
 
 function main() {
   let args;
@@ -401,9 +442,13 @@ function main() {
   }
   const o = args.values;
   if (o.help) help(__filename);
-  const usage = 'uso: issues.js list [--json] | clean <slug>|--actual [--write] [--con-cambios] | recover <slug> | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
+  const usage = 'uso: issues.js cerrar [<slug>...] [--write] [--con-cambios] | list [--json] | clean <slug>|--actual [--write] [--con-cambios] | recover <slug> | unknown | state <slug>|--actual <estado> [--mr <ref>] [--repo <ruta>] | merged | close <slug> [--write]';
   const [mode, ...pos] = args.positionals;
   const project = requireProject();
+  if (mode === 'cerrar') {
+    if (o.actual || o.json || o.mr || o.repo || (o['con-cambios'] && !o.write)) die(usage);
+    process.exit(cerrar(project, pos, o.write, o['con-cambios']));
+  }
   if (mode === 'state') {
     const [slugArg, state, extra2] = o.actual ? [null, ...pos] : pos;
     if (extra2 || !state || !I.STATES.includes(state) || (!slugArg && !o.actual)) die(`${usage}\n  estados: ${I.STATES.join(', ')}`);

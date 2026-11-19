@@ -133,3 +133,49 @@ test('merge local con main en otro checkout: avanza con fast-forward ahí; con u
   assert.match(r.stdout, /para la persona:\nNo pude mergear feature\/cobros en main porque choca con lo que entró a main después, en src\/a\.ts\.\n1\. Trae main a tu rama: escribe `\/arnes:sync`/);
   assert.equal(h.git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), 'feature/cobros', 'vuelve a la rama, sin merge a medias');
 });
+
+// /arnes:cerrar corría list, y por cada issue un close, un clean y a veces un recover, más unknown: con
+// tres issues, una docena de comandos antes de preguntar. Ahora es uno para mirar y uno para hacer.
+test('cerrar, en un comando: mira los MR, lo que se cerraría o borraría y lo desconocido; con --write lo hace', () => {
+  const { dir } = repo();
+  shipped(dir);
+  h.write(dir, '.tmp/otro-arnes/nota.txt', 'de nadie\n');
+  let r = run(dir, 'issues.js', ['cerrar']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^cobros: el MR 12 no está mergeado \(open\); no lo cierro$/m);
+  assert.match(r.stdout, /^cobros · subido$/m);
+  assert.match(r.stdout, /^- rama cobros en api · se queda: es la rama del issue: se borra al cerrar, cuando su MR esté mergeado$/m);
+  assert.match(r.stdout, /^no lo conozco: .*\/\.tmp\/otro-arnes · .*; decide tú si se borra$/m);
+  assert.match(r.stdout, /^siguiente: con el sí de la persona, cerrar --write lo hace todo/m);
+  assert.ok(fs.existsSync(path.join(dir, '.tmp', 'harness', 'plan.md')), 'mirar no borra nada');
+  assert.equal(run(dir, 'issues.js', ['cerrar', '--con-cambios']).status, 2, '--con-cambios solo con --write');
+  assert.equal(run(dir, 'issues.js', ['cerrar', 'nadie']).status, 2, 'un issue que no existe');
+  r = run(dir, 'issues.js', ['cerrar', '--write']);
+  assert.equal(r.status, 1, 'la rama del issue se queda hasta el merge');
+  assert.match(r.stdout, /^se queda rama cobros en api: es la rama del issue/m);
+  assert.ok(!fs.existsSync(path.join(dir, '.tmp', 'harness', 'plan.md')), 'lo registrado que sobra se borra');
+  assert.equal(state(dir), 'subido');
+  assert.ok(fs.existsSync(path.join(dir, '.tmp', 'otro-arnes', 'nota.txt')), 'lo desconocido no se toca');
+});
+
+test('cerrar con el MR mergeado: lo dice al mirar, y con --write trae main, borra la rama y lo deja cerrado; después no queda nada', () => {
+  const { dir, bare, seed } = repo();
+  shipped(dir);
+  h.git(seed, 'fetch', '-q', bare, 'cobros:cobros');
+  h.git(seed, 'merge', '-q', '--squash', 'cobros');
+  h.git(seed, 'commit', '-q', '-m', 'feat: cobros (!12)');
+  h.git(seed, 'push', '-q', bare, 'main');
+  let r = run(dir, 'issues.js', ['cerrar'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^cobros · mergeado: al cerrar$/m);
+  assert.match(r.stdout, /^- api: borro la rama cobros de origin$/m);
+  assert.equal(state(dir), 'mergeado', 'mirar consulta el MR y anota que está mergeado');
+  r = run(dir, 'issues.js', ['cerrar', 'cobros', '--write'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^cobros: cerrado$/m);
+  assert.equal(h.git(dir, 'rev-parse', 'main'), h.git(dir, 'rev-parse', 'origin/main'));
+  assert.equal(h.git(dir, 'branch', '--list', 'cobros'), '');
+  assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '', 'la rama remota también');
+  assert.equal(state(dir), 'cerrado');
+  assert.match(run(dir, 'issues.js', ['cerrar'], 'merged').stdout, /^ningún issue entregado, subido o mergeado: nada por cerrar$/m);
+});

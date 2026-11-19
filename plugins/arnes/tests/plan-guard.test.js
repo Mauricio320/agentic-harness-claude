@@ -62,7 +62,7 @@ test('la configuración del proyecto solo se escribe con init o setup en curso, 
   for (const f of config) {
     const r = edit(dir, f, 'Write');
     assert.ok(denied(r), f);
-    assert.match(reason(r), /es configuración del proyecto .*: no la escribas sin que la persona lo apruebe, tampoco con un plan aprobado\. Si el cambio hace falta, propónselo: corre node "[^"]+ajuste\.js" propone/);
+    assert.match(reason(r), /es configuración del proyecto .*: no la escribas sin que la persona lo apruebe, tampoco con un plan aprobado\. Copiarla del checkout principal a un worktree no hace falta: el arnés la lleva solo\. Si lo que hace falta es cambiarla, propónselo: corre node "[^"]+ajuste\.js" propone/);
   }
   assert.ok(denied(edit(dir, path.join(dir, '.claude', 'harness.json'))), 'con ruta absoluta');
   note(dir, { event: 'start', stage: 'plan' });

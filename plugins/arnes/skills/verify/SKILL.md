@@ -1,7 +1,7 @@
 ---
 name: verify
 argument-hint: "[--base <commit>]"
-description: Verificar, probar o comprobar un cambio de código antes de cerrar el turno o de commitear. Por cada workspace tocado corre el typecheck contra el HEAD, el lint de los tocados, los specs de test-select y la línea base de tests; escribe tests para el código nuevo sin spec y, si todo pasa, la bandera de verificación.
+description: Verificar, probar o comprobar un cambio de código al terminar de construirlo y antes de entregarlo o de commitear. Por cada workspace tocado corre el typecheck contra el HEAD, el lint de los tocados, los specs de test-select y la línea base de tests; escribe tests para el código nuevo sin spec y, si todo pasa, la bandera de verificación.
 ---
 
 # arnes:verify
@@ -21,10 +21,10 @@ Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la 
 
 ## Si algo falla
 
-- **Un paso en rojo:** corrígelo y vuelve a verificar desde el principio, en el mismo turno y sin pedir permiso: en rojo se corrige, no se pregunta. El código lo corrige el dev de ese workspace, relanzado con la falla concreta; un spec que escribió el test-writer, él. Solo paras si la falla es de configuración (propónle el cambio a la persona, que lo aprueba respondiendo que sí), si corregir pide una decisión de negocio que el plan no tomó, o si la salida dice `tope:` (tres vueltas en rojo desde su último mensaje); ahí, dile qué sigue fallando y qué propones, y termina.
+- **Un paso en rojo:** corrígelo y vuelve a verificar desde el principio, en el mismo turno y sin pedir permiso: en rojo se corrige, no se pregunta. El código lo corrige el dev de ese workspace, relanzado con la falla concreta; un spec que escribió el test-writer, él. Solo paras si la falla es de configuración (propónle el cambio a la persona, que lo aprueba respondiendo que sí), si corregir pide una decisión de negocio que el plan no tomó, si lo que falla ya fallaba sin este cambio (un test que no tocaste y que no depende de lo que cambiaste: no lo persigas ni repitas la suite por él), o si la salida dice `tope:` (tres vueltas en rojo desde su último mensaje); ahí, dile qué sigue fallando y qué propones, y termina.
 - **Una falla de la línea base** (un test borrado o saltado, un salto no declarado, un spec de la base borrado): no se arregla recapturando la base para que cuadre. Un spec renombrado no es falla: el gate lo reconoce por su contenido, y en verde la base pasa sola al nombre nuevo; no deshagas el renombre. Recapturar (`test-baseline.js capture <ws>`) es una decisión de la persona, y su commit lleva `gates:` en el asunto.
 - **Una falla `preexistente (<fecha>)`:** no pone rojo. Va al informe con su fecha.
-- **Sin bandera vigente:** el commit se niega y el Stop bloquea una vez. No los rodees.
+- **Sin bandera vigente:** el commit se niega y ship no entrega. No lo rodees. El turno sí puede cerrar sin ella: mientras la persona itera, la verificación va al final.
 
 ## Los ejemplos del plan
 
@@ -38,7 +38,7 @@ En verde, y antes de cerrar, corre de verdad cada ejemplo de `## Ejemplos` del p
 
 Verify es el final de build: no cargues review. La revisión es el gasto grande (un reviewer en opus leyendo el diff), y se paga una vez, en `/arnes:ship`, sobre el diff completo antes de commitear. Cierra con `Listo para /arnes:ship`, y en una línea que si la persona quiere la revisión antes, la pide con `/arnes:review`. Si ship te cargó para verificar, sigue con lo que ship pida.
 
-**Un ajuste que pide la persona con el plan aprobado**, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state.js start`, que reabre el plan y le quita la aprobación: anótalo en `## Decisiones` de `.tmp/harness/plan.md` como ajuste de la persona, corrígelo y verifica. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea como siempre, con la skill plan. Un pedido distinto (otra pantalla, otro repo, otro tema) tampoco es un ajuste, aunque sea chico: es un plan nuevo, corto si cabe en el carril. El plan aprobado no es permiso para lo que no describe.
+**Un ajuste que pide la persona con el plan aprobado**, dentro de los mismos workspaces, sin `riskPaths` y sin cambiar el contrato de la API ni los datos, no corre `plan-state.js start`, que reabre el plan y le quita la aprobación: anótalo en `## Decisiones` de `.tmp/harness/plan.md` como ajuste de la persona, y corrígelo. Mientras ella sigue ajustando no verifiques después de cada retoque: verifica cuando dé el ajuste por bueno, o lo pida, y siempre antes de entregar. Si cambia el contrato, toca `riskPaths` o cambia los datos, se re-planea como siempre, con la skill plan. Un pedido distinto (otra pantalla, otro repo, otro tema) tampoco es un ajuste, aunque sea chico: es un plan nuevo, corto si cabe en el carril. El plan aprobado no es permiso para lo que no describe.
 
 ## Reporte
 

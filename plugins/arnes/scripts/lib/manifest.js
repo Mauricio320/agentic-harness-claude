@@ -38,7 +38,10 @@ function isType(v, t) {
   return typeof v === t;
 }
 
-function check(v, schema, at, errs) {
+// extra junta los campos que el schema no conoce, cada uno como { at, field }.
+// No son errores: el manifiesto de un proyecto puede traer un campo de otra versión del arnés, o uno
+// que alguien agregó a mano, y un arnés que se apaga entero por eso deja a la sesión sin nada.
+function check(v, schema, at, errs, extra) {
   const s = deref(schema);
   const here = at || '(raíz)';
   if (s.type && !isType(v, s.type)) {
@@ -53,37 +56,50 @@ function check(v, schema, at, errs) {
   }
   if (Array.isArray(v)) {
     if (s.minItems && v.length < s.minItems) errs.push(`${here}: necesita al menos ${s.minItems} elemento(s)`);
-    if (s.items) v.forEach((x, i) => check(x, s.items, `${at}[${i}]`, errs));
+    if (s.items) v.forEach((x, i) => check(x, s.items, `${at}[${i}]`, errs, extra));
   }
   if (isType(v, 'object')) {
     for (const k of s.required || []) if (!(k in v)) errs.push(`${here}: falta "${k}"`);
     for (const [k, x] of Object.entries(v)) {
       const sub = s.properties && s.properties[k];
-      if (sub) check(x, sub, at ? `${at}.${k}` : k, errs);
-      else if (s.additionalProperties === false) errs.push(`${here}: campo desconocido "${k}"`);
-      else if (isType(s.additionalProperties, 'object')) check(x, s.additionalProperties, at ? `${at}["${k}"]` : `["${k}"]`, errs);
+      if (sub) check(x, sub, at ? `${at}.${k}` : k, errs, extra);
+      else if (s.additionalProperties === false) extra.push({ at: here, field: k });
+      else if (isType(s.additionalProperties, 'object')) check(x, s.additionalProperties, at ? `${at}["${k}"]` : `["${k}"]`, errs, extra);
     }
   }
   for (const kw of ['anyOf', 'oneOf']) {
     if (!s[kw]) continue;
     const results = s[kw].map((b) => {
-      const e = [];
-      check(v, b, at, e);
-      return e;
+      const r = { errs: [], extra: [] };
+      check(v, b, at, r.errs, r.extra);
+      return r;
     });
-    const passing = results.filter((e) => !e.length).length;
-    if (kw === 'oneOf' && passing > 1) errs.push(`${here}: coincide con más de una forma`);
-    if (passing) continue;
+    const passing = results.filter((r) => !r.errs.length);
+    if (kw === 'oneOf' && passing.length > 1) errs.push(`${here}: coincide con más de una forma`);
+    if (passing.length) {
+      extra.push(...passing[0].extra);
+      continue;
+    }
     const onlyRequired = s[kw].every((b) => Object.keys(b).length === 1 && b.required);
     if (onlyRequired) errs.push(`${here}: necesita al menos uno de ${s[kw].flatMap((b) => b.required).join(', ')}`);
-    else errs.push(...results.reduce((a, b) => (b.length < a.length ? b : a)));
+    // La forma más cercana es la que menos choca, contando también lo que no conoce.
+    else errs.push(...results.reduce((a, b) => (b.errs.length + b.extra.length < a.errs.length + a.extra.length ? b : a)).errs);
   }
+}
+
+// Los campos que el schema no conoce, [{ at, field }]: se ignoran, y el manifiesto vale igual.
+const unknownText = (x) => `${x.at}: campo desconocido "${x.field}"`;
+
+function unknown(data) {
+  const extra = [];
+  check(data, SCHEMA, '', [], extra);
+  return extra;
 }
 
 // Valida contra el schema y además lo que el schema no expresa: nombres y rutas sin repetir.
 function validate(data) {
   const errs = [];
-  check(data, SCHEMA, '', errs);
+  check(data, SCHEMA, '', errs, []);
   if (errs.length) return errs;
   if (data.workspaces) {
     const seen = new Set();
@@ -104,11 +120,12 @@ function validate(data) {
 }
 
 // Valida contra una definición de $defs, para los archivos del arnés que no son el manifiesto
-// (por ejemplo, la línea base de tests).
+// (por ejemplo, la línea base de tests). Esos los escribe el arnés: un campo de más sí es un error.
 function validateDef(name, data) {
   const errs = [];
-  check(data, SCHEMA.$defs[name], '', errs);
-  return errs;
+  const extra = [];
+  check(data, SCHEMA.$defs[name], '', errs, extra);
+  return [...errs, ...extra.map(unknownText)];
 }
 
 // ---------- búsqueda y composición ----------
@@ -133,9 +150,10 @@ function read(file) {
   try {
     data = JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    return { file, errors: [`${file}: JSON ilegible (${e.message})`] };
+    return { file, errors: [`${file}: JSON ilegible (${e.message})`], ignored: [] };
   }
-  return { file, data, errors: validate(data).map((e) => `${file}: ${e}`) };
+  const errors = validate(data).map((e) => `${file}: ${e}`);
+  return { file, data, errors, ignored: errors.length ? [] : unknown(data).map((x) => ({ file, ...x })) };
 }
 
 function samePath(a, b) {
@@ -210,6 +228,7 @@ function fromRepo(m) {
     testEnvironments: m.data.testEnvironments,
     workspaces: m.data.workspaces.map((ws) => resolvedWorkspace(root, root, m.file, ws)),
     errors: [],
+    ignored: m.ignored,
   };
 }
 
@@ -228,6 +247,7 @@ function fromFolder(m) {
     repoEnvironments: [],
     workspaces: [],
     errors: [],
+    ignored: [...m.ignored],
   };
   for (const entry of m.data.repos) {
     const repoDir = path.resolve(root, entry.path);
@@ -245,6 +265,7 @@ function fromFolder(m) {
       project.errors.push(`${file}: un repo listado en la composición no puede ser otra composición`);
       continue;
     }
+    project.ignored.push(...rm.ignored);
     if (rm.data.plan) project.repoPlans.push(rm.data.plan);
     if (rm.data.testEnvironments) project.repoEnvironments.push(...rm.data.testEnvironments);
     for (const ws of rm.data.workspaces) {
@@ -261,20 +282,20 @@ function fromFolder(m) {
 }
 
 // Proyecto resuelto desde startDir, o null si no hay manifiesto subiendo. Un manifiesto de repo
-// listado por una composición más arriba se resuelve como esa composición, para ver a sus hermanos.
+// listado por una composición más arriba se resuelve como esa composición, para ver a sus hermanos,
+// también si el del repo tiene errores: la composición los trae, y su raíz es la de la sesión.
 function loadProject(startDir = process.cwd()) {
   const file = findUp(startDir);
   if (!file) return null;
   const m = read(file);
-  if (m.errors.length) return { kind: 'invalid', file, root: rootOf(file), workspaces: [], errors: m.errors };
-  if (m.data.repos) return fromFolder(m);
+  if (!m.errors.length && m.data.repos) return fromFolder(m);
   const repoDir = rootOf(file);
   for (let above = findUp(path.dirname(repoDir)); above; above = findUp(path.dirname(rootOf(above)))) {
     const fm = read(above);
     if (fm.errors.length || !fm.data.repos) continue;
     if (fm.data.repos.some((r) => samePath(path.resolve(rootOf(above), r.path), repoDir))) return fromFolder(fm);
   }
-  return fromRepo(m);
+  return m.errors.length ? { kind: 'invalid', file, root: rootOf(file), workspaces: [], errors: m.errors, ignored: [] } : fromRepo(m);
 }
 
 // Cómo planifica el proyecto: las referencias de negocio de la composición y de cada repo, sin
@@ -317,6 +338,9 @@ function resolveWorkspace(project, p) {
   return best;
 }
 
+// Un manifiesto inválido para todas las etapas menos la que lo arregla: ajuste.js corre igual.
+const REPARAR = `siguiente: ese archivo es configuración del proyecto y el arnés no corre hasta que quede válido. Propón el arreglo: corre node "${path.resolve(__dirname, '..', 'ajuste.js').split(path.sep).join('/')}" propone --archivo <ese archivo> --detalle "<qué campo sobra o falta y qué cambia>", muéstrale la propuesta a la persona y termina el turno.`;
+
 // Para los CLI: proyecto válido o salida en 2 con el motivo.
 function requireProject(startDir = process.cwd()) {
   const project = loadProject(startDir);
@@ -325,7 +349,7 @@ function requireProject(startDir = process.cwd()) {
     process.exit(2);
   }
   if (project.errors.length) {
-    process.stderr.write(`manifiesto inválido:\n  ${project.errors.join('\n  ')}\n`);
+    process.stderr.write(`manifiesto inválido:\n  ${project.errors.join('\n  ')}\n${REPARAR}\n`);
     process.exit(2);
   }
   return project;
@@ -370,6 +394,7 @@ module.exports = {
   DEFAULT_CODE_GLOBS,
   shown,
   validate,
+  unknown,
   validateDef,
   findUp,
   loadProject,
@@ -391,6 +416,7 @@ function main() {
     const m = read(path.resolve(arg));
     if (m.errors.length) die(`inválido:\n  ${m.errors.join('\n  ')}`, 1);
     console.log(`válido: ${arg} (${m.data.repos ? 'composición de carpeta' : 'manifiesto de repo'})`);
+    for (const x of m.ignored) console.log(`se ignora: ${unknownText(x)}`);
     process.exit(0);
   }
   const project = loadProject();
@@ -398,6 +424,7 @@ function main() {
   if (mode === 'validate') {
     if (project.errors.length) die(`inválido:\n  ${project.errors.join('\n  ')}`, 1);
     console.log(`válido: ${project.file} (${project.kind === 'folder' ? 'composición' : 'repo'}, ${project.workspaces.length} workspace(s))`);
+    for (const x of project.ignored) console.log(`se ignora: ${x.file}: ${unknownText(x)}`);
     process.exit(0);
   }
   if (project.errors.length) die(`manifiesto inválido:\n  ${project.errors.join('\n  ')}`);

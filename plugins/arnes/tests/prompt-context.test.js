@@ -26,7 +26,8 @@ test('sin plan en curso ni código tocado, una sola línea: un pedido de código
   const dir = repo();
   assert.equal(ctx(prompt(dir)), PLAN_FIRST);
   fs.appendFileSync(path.join(dir, 'README.md'), 'doc\n');
-  assert.equal(ctx(prompt(dir)), PLAN_FIRST, 'lo que no es código no cuenta');
+  assert.equal(prompt(dir).out, null, 'lo que no es código no cuenta, y el mismo estado no se repite en cada mensaje');
+  assert.equal(ctx(h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd: dir, session_id: 'otra' })), PLAN_FIRST, 'otra sesión lo oye una vez');
   assert.equal(h.run('lib/timeline.js', ['start', 'plan'], { cwd: dir }).status, 0);
   assert.equal(prompt(dir).out, null, 'con un plan en curso no lo repite');
   h.run('lib/timeline.js', ['end', 'ship', '--result', 'ok'], { cwd: dir });
@@ -69,10 +70,12 @@ test('el aviso de un agente en segundo plano no abre turno: no deja foto, no cue
   const turn = path.join(dir, '.tmp', 'harness', 'turn.json');
   const before = fs.readFileSync(turn, 'utf8');
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'del dev en segundo plano\n');
-  for (const text of ['<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>', 'Another Claude session sent a message: <agent-message from="a1"> [Subagent hand-back]']) {
-    const r = prompt(dir, text);
-    assert.match(ctx(r), /^arnes · api: 1 tocado\(s\), 1 de código/, 'el estado sí lo dice');
-  }
+  const avisos = ['<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>', 'Another Claude session sent a message: <agent-message from="a1"> [Subagent hand-back]'];
+  avisos.forEach((text, i) => {
+    h.write(dir, `src/dev-${i}.ts`, 'del dev en segundo plano\n');
+    assert.match(ctx(prompt(dir, text)), new RegExp(`^arnes · api: ${i + 2} tocado\\(s\\), ${i + 2} de código`), 'el estado nuevo sí lo dice');
+    assert.equal(prompt(dir, text).out, null, 'y el mismo estado no se repite');
+  });
   assert.equal(fs.readFileSync(turn, 'utf8'), before, 'la foto sigue siendo la del mensaje de la persona');
   assert.deepEqual(tl.read(dir).filter((e) => e.stage === 'turno').map((e) => e.result), ['respuesta']);
   const sinCodigo = repo();

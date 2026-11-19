@@ -29,92 +29,72 @@ const promptAt = (cwd) => h.hook('prompt-context', { hook_event_name: 'UserPromp
 // Las notas del Stop sin las del turno (cerrado y respuesta), que tienen su propio test, ni las del plan.
 const notes = (root) => tl.read(root).filter((n) => n.stage !== 'turno' && n.stage !== 'plan');
 
-test('código tocado sin bandera vigente: bloquea con decision block y reason, y lo anota en la timeline', () => {
+// (a) El código sin verificar no frena el turno desde la 0.8.6: la verificación la exige la entrega.
+const SIN_VERIFICAR = 'arnes: hay cambios sin verificar en api. No frenan el turno: la verificación corre antes de entregar.';
+
+test('código tocado sin bandera vigente: no frena el turno; avisa que la verificación corre antes de entregar, y cierra', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
   const r = stop(api);
   assert.equal(r.status, 0);
-  assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. Corre la verificación antes de cerrar el turno: la marca de verificación la escribe la verificación solo si todo pasa, nunca a mano/);
-  assert.doesNotMatch(r.out.reason, /\.js\b|\/arnes:verify|src\/a\.ts/, 'sin scripts, sin la skill que carga el modelo y sin rutas');
-  assert.match(r.out.reason, /una sola vez por turno/);
-  const list = tl.read(root).filter((n) => n.stage !== 'plan');
-  assert.equal(list.length, 1, 'un turno bloqueado no anota "cerrado"');
-  assert.deepEqual([list[0].event, list[0].stage, list[0].result], ['note', 'stop-gate', 'bloqueado']);
-  assert.match(list[0].detail, /^turno bloqueado sin verificar: api \(1 archivo\(s\) de código: src\/a\.ts/);
+  assert.equal(r.out.decision, undefined, 'frenar cada turno cobraba la suite entera por cada retoque');
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
+  assert.doesNotMatch(r.out.systemMessage, /\.js\b|\/arnes:verify|src\/a\.ts/, 'sin scripts, sin la skill que carga el modelo y sin rutas');
+  assert.deepEqual(tl.read(root).filter((n) => n.stage !== 'plan').map((n) => [n.stage, n.result]), [['turno', 'cerrado']], 'el turno cierra, sin nota de bloqueo');
 });
 
-test('lo que escribieron los devs en segundo plano cuenta en el turno que reabrió su aviso: el Stop bloquea', () => {
-  const { root, api } = folder();
+test('lo que escribieron los devs en segundo plano tampoco frena el turno que reabrió su aviso', () => {
+  const { api } = folder();
   const say = (prompt) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt, cwd: api });
   say('apruebo el plan, constrúyelo');
   assert.equal(stop(api).out, null, 'el turno cierra al lanzar los devs, todavía sin código');
   h.write(api, 'src/taller.ts', 'escrito por el dev\n');
   say('<task-notification>\n<task-id>dev-1</task-id>\n<status>completed</status>');
   const r = stop(api);
-  assert.equal(r.out.decision, 'block', 'el árbol cambió desde el mensaje de la persona, lo haya escrito quien sea');
-  assert.match(r.out.reason, /sin verificar en api \(1 archivo\(s\) de código\)/);
-  assert.match(tl.read(root).pop().detail, /src\/taller\.ts/, 'el detalle queda en la timeline');
+  assert.equal(r.out.decision, undefined);
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
 });
 
-test('un turno que no cambió los tocados desde el prompt solo avisa; uno que los cambió bloquea', () => {
+test('mientras la persona itera, el aviso no se repite ni deja nota: otro retoque es el mismo estado', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
-  const prompt = () => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'imprime la timeline', cwd: api });
+  const prompt = () => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'un poquito más anchas las celdas', cwd: api });
   prompt();
-  const quieto = stop(api);
-  assert.equal(quieto.out.decision, undefined);
-  assert.match(quieto.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\. Lo que sigue: en api, corre la verificación\.$/);
-  assert.deepEqual(notes(root), [], 'sin bloqueo no hay nota');
+  assert.equal(stop(api).out.systemMessage, SIN_VERIFICAR);
 
   prompt();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'c\n');
-  assert.equal(stop(api).out.decision, 'block', 'cambió el contenido de un tocado');
+  assert.equal(stop(api).out, null, 'cambió el contenido de un tocado: ni frena ni lo repite');
 
   prompt();
   h.write(api, 'src/nuevo.ts', 'x\n');
-  assert.equal(stop(api).out.decision, 'block', 'cambió la lista de tocados');
-  assert.deepEqual(notes(root).map((n) => n.result), ['bloqueado', 'bloqueado']);
-});
-
-test('(a) también archivo por archivo: el código sin verificar que dejó la persona no bloquea un turno que tocó otra cosa', () => {
-  const { root, api } = folder();
-  fs.appendFileSync(path.join(api, 'src/a.ts'), 'de la persona\n');
-  promptAt(api);
-  fs.appendFileSync(path.join(api, 'README.md'), 'pedido de documentación\n');
-  const r = stop(api);
-  assert.equal(r.out.decision, undefined, 'avisa, no bloquea');
-  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api \(1 archivo\(s\) de código\); este turno no los tocó\. Lo que sigue: en api, corre la verificación\.$/);
-  assert.deepEqual(notes(root), []);
+  assert.equal(stop(api).out, null, 'cambió la lista de tocados: tampoco');
+  assert.deepEqual(notes(root), [], 'sin bloqueo no hay nota');
 });
 
 test('el aviso que no bloquea se dice una vez por estado: el mismo texto en la misma sesión calla hasta que cambie', () => {
-  const { api } = folder();
+  const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'de la persona\n');
   const quieto = (session) => {
     h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: '¿qué hora es?', cwd: api, session_id: session });
     return h.hook('stop-gate', { hook_event_name: 'Stop', stop_hook_active: false, cwd: api, session_id: session }).out;
   };
-  assert.match(quieto('s1').systemMessage, /este turno no los tocó/, 'la primera vez se dice');
+  assert.equal(quieto('s1').systemMessage, SIN_VERIFICAR, 'la primera vez se dice');
   assert.equal(quieto('s1'), null, 'el mismo pendiente, en la misma sesión, calla');
-  assert.match(quieto('s2').systemMessage, /este turno no los tocó/, 'otra sesión lo dice una vez');
-  h.write(api, 'src/b.ts', 'otro\n');
-  assert.match(quieto('s1').systemMessage, /api \(2 archivo\(s\) de código\)/, 'otro estado se dice');
-  fs.unlinkSync(path.join(api, 'src/b.ts'));
-  assert.match(quieto('s1').systemMessage, /api \(1 archivo\(s\) de código\); este turno no los tocó/, 'y el anterior, si vuelve, también');
+  assert.equal(quieto('s2').systemMessage, SIN_VERIFICAR, 'otra sesión lo dice una vez');
+  h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: root });
+  assert.match(quieto('s1').systemMessage, /api quedó verificado/, 'otro estado se dice');
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'otro retoque\n');
+  assert.equal(quieto('s1').systemMessage, SIN_VERIFICAR, 'y el anterior, si vuelve, también');
 });
 
-test('con stop_hook_active deja pasar, avisa con systemMessage y lo anota en la timeline', () => {
+test('con stop_hook_active y solo código sin verificar: el mismo aviso, sin nota de pendiente', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
   const r = stop(api, true);
   assert.equal(r.out.decision, undefined);
-  assert.match(r.out.systemMessage, /el turno termina con cambios sin verificar en api/);
-  const [note] = notes(root);
-  assert.equal(note.event, 'note');
-  assert.equal(note.stage, 'stop-gate');
-  assert.equal(note.result, 'pendiente');
-  assert.match(note.detail, /src\/a\.ts/);
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
+  assert.deepEqual(notes(root), []);
 });
 
 test('con bandera vigente, sin cambios de código o sin manifiesto: no bloquea', () => {
@@ -155,8 +135,8 @@ test('el turno que cierra anota "cerrado" en la timeline, el bloqueado no; el pr
   assert.deepEqual(turn(), ['cerrado']);
   h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sigue', cwd: api });
   assert.deepEqual(turn(), ['cerrado', 'respuesta']);
-  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
-  assert.equal(stop(api).out.decision, 'block');
+  fs.appendFileSync(path.join(api, '.claude', 'harness.json'), '\n');
+  assert.equal(stop(api).out.decision, 'block', 'la configuración cambiada en el turno sí frena');
   assert.deepEqual(turn(), ['cerrado', 'respuesta'], 'un turno bloqueado sigue: no cerró');
   stop(api, true);
   assert.deepEqual(turn(), ['cerrado', 'respuesta', 'cerrado']);
@@ -170,8 +150,7 @@ test('una bandera en fail no cuenta como verificado', () => {
   const { root, api } = folder();
   fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
   h.run('gate-flag.js', ['write', 'api', '--result', 'fail'], { cwd: root });
-  assert.match(stop(api).out.reason, /sin verificar en api/);
-  assert.match(notes(root).pop().detail, /terminó en "fail"/, 'el motivo queda en la timeline');
+  assert.equal(stop(api).out.systemMessage, SIN_VERIFICAR);
 });
 
 test('cambios en un repo no adoptable no bloquean', () => {
@@ -219,7 +198,7 @@ test('(c) verificar por su cuenta no lo absuelve: con bandera vigente y sin plan
   assert.match(stop(root).out.reason, /sin plan aprobado en api/);
 });
 
-test('(c) el plan escrito sin aprobar lo dice; aprobado, vuelve a pedir la verificación', () => {
+test('(c) el plan escrito sin aprobar lo dice; aprobado, ya no frena y solo avisa de la verificación', () => {
   const root = sinPlan();
   tl.append(root, { event: 'start', stage: 'plan' });
   tl.append(root, { event: 'end', stage: 'plan', result: 'ok' });
@@ -227,8 +206,8 @@ test('(c) el plan escrito sin aprobar lo dice; aprobado, vuelve a pedir la verif
   assert.match(stop(root).out.reason, /\(el plan está escrito y espera la aprobación de la persona\)/);
   tl.append(root, { event: 'note', stage: 'plan', result: 'aprobado' });
   const r = stop(root);
-  assert.match(r.out.reason, /sin verificar en api/);
-  assert.doesNotMatch(r.out.reason, /sin plan/);
+  assert.equal(r.out.decision, undefined);
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
 });
 
 test('(c) lo que estaba tocado antes del turno no cuenta como escrito sin plan', () => {
@@ -238,7 +217,7 @@ test('(c) lo que estaba tocado antes del turno no cuenta como escrito sin plan',
   promptAt(root);
   const r = stop(root);
   assert.equal(r.out.decision, undefined);
-  assert.match(r.out.systemMessage, /^arnes: siguen cambios sin verificar en api/);
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
 });
 
 test('(c) cuenta archivo por archivo: el código de la persona no se le cobra a un turno que tocó otra cosa', () => {
@@ -324,7 +303,7 @@ test('el turno de init que escribe la configuración no bloquea por el código q
   tl.append(dir, { event: 'end', stage: 'init', result: 'ok' });
   const r = stop(dir);
   assert.equal(r.out.decision, undefined, 'init cerró en este mismo turno: ' + JSON.stringify(r.out));
-  assert.match(r.out.systemMessage, /este turno no los tocó/);
+  assert.equal(r.out.systemMessage, SIN_VERIFICAR);
   assert.equal(stop(dir).out.decision, 'block', 'el turno siguiente, sin init ni foto, bloquea');
 });
 
@@ -461,14 +440,15 @@ test('(b) con stop_hook_active deja pasar con aviso y anota el pendiente', () =>
   assert.match(note.detail, /^turno cerrado sin integrar: agent-a1 worktree-agent-a1/);
 });
 
-test('(a) y (b) a la vez: un solo bloqueo con los dos pendientes', () => {
+test('(a) y (b) a la vez: frena por el worktree sin integrar; el código sin verificar solo queda en la nota', () => {
   const { root, wt } = issueRepo();
   h.write(wt, 'src/b.ts', 'b\n');
   h.commitAll(wt, 'trabajo del agente');
   fs.appendFileSync(path.join(root, 'src/a.ts'), 'sin verificar\n');
   const r = stop(root);
   assert.equal(r.out.decision, 'block');
-  assert.match(r.out.reason, /hay cambios de código sin verificar en api \(1 archivo\(s\) de código\)\. .*Además, hay worktrees del issue con trabajo sin integrar/);
+  assert.match(r.out.reason, /^arnes: hay worktrees del issue con trabajo sin integrar/);
+  assert.doesNotMatch(r.out.reason, /sin verificar/, 'no es motivo de bloqueo');
   assert.match(notes(root)[0].detail, /^turno bloqueado sin verificar: api \(1 archivo.*; sin integrar: agent-a1 worktree-agent-a1/);
 });
 
@@ -478,16 +458,23 @@ test('un error propio sale con 0 y no bloquea', () => {
   assert.equal(r.stdout, '');
 });
 
-test('con un build abierto en la timeline o un agente del arnés corriendo, el Stop avisa en una línea y no bloquea', () => {
+// Lo que sí frena, con trabajo en marcha, espera: aquí, la configuración cambiada en el turno (d).
+function configCambiada() {
   const { root, api } = folder();
-  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+  promptAt(api);
+  fs.appendFileSync(path.join(api, '.claude', 'harness.json'), '\n');
+  return { root, api };
+}
+
+test('con un build abierto en la timeline o un agente del arnés corriendo, el Stop avisa en una línea y no bloquea', () => {
+  const { root, api } = configCambiada();
   aprobado(root);
   tl.append(root, { event: 'start', stage: 'build', ws: 'api' });
   tl.append(root, { event: 'end', stage: 'build', ws: 'api', result: 'ok' });
   tl.append(root, { event: 'start', stage: 'build', ws: 'front' });
   let r = stop(api);
   assert.equal(r.out.decision, undefined);
-  assert.equal(r.out.systemMessage, 'arnes: todavía hay trabajo en marcha (build de front abierto); la verificación se pide cuando termine.');
+  assert.equal(r.out.systemMessage, 'arnes: todavía hay trabajo en marcha (build de front abierto); lo pendiente se pide cuando termine.');
   assert.deepEqual(notes(root).filter((n) => n.stage === 'stop-gate'), [], 'no bloquea ni anota pendiente');
   tl.append(root, { event: 'end', stage: 'build', ws: 'front', result: 'ok' });
   assert.equal(stop(api).out.decision, 'block', 'sin nada en marcha, bloquea');
@@ -502,9 +489,8 @@ test('con un build abierto en la timeline o un agente del arnés corriendo, el S
   assert.equal(stop(api).out.decision, 'block', 'el agente terminó y el otro no es del arnés');
 });
 
-test('un verify vivo en segundo plano no deja bloquear por código sin verificar; uno muerto, sí', () => {
-  const { root, api } = folder();
-  fs.appendFileSync(path.join(api, 'src/a.ts'), 'b\n');
+test('un verify vivo en segundo plano no deja bloquear; uno muerto, sí', () => {
+  const { root, api } = configCambiada();
   aprobado(root);
   const pidFile = path.join(root, '.tmp', 'harness', 'verify.json');
   fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, at: new Date().toISOString(), paso: null }));

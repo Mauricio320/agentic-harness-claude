@@ -4,8 +4,8 @@
 // respuesta de la persona lo abre.
 //   propone --archivo <ruta>... --detalle <qué cambia y por qué>
 //            anota la propuesta (nota "propuesta" de la etapa ajuste, con los archivos), que tienen que
-//            ser configuración de este proyecto (lib/configuracion.js), y la imprime en un bloque para
-//            mostrarla tal cual. Desde ahí, el modelo termina el turno
+//            ser configuración de este proyecto (lib/configuracion.js), y la imprime. El modelo se la
+//            dice a la persona en una o dos frases, sin tecnicismos, y termina el turno
 //   aprueba  abre la configuración solo durante este turno (start ajuste, que cuenta como init en
 //            curso, timeline.js PREP) si después de la última propuesta, sin aprobar todavía, la última
 //            respuesta es de la persona escrita en el composer: la nota "respuesta" de UserPromptSubmit
@@ -22,7 +22,7 @@
 
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, posix } = require('./lib/manifest.js');
+const { loadProject, posix } = require('./lib/manifest.js');
 const { append, read } = require('./lib/timeline.js');
 const { configRoot, configHome } = require('./lib/configuracion.js');
 const { help, die } = require('./lib/exec.js');
@@ -37,7 +37,7 @@ function propone(project, archivos, detalle) {
   const rel = files.map((f) => posix(path.relative(project.root, f)) || '.');
   append(project.root, { event: 'note', stage: 'ajuste', result: 'propuesta', detail: `${rel.join(', ')} · ${detalle}`, archivos: rel });
   console.log(['propuesta de configuración:', ...rel.map((r) => `- ${r}`), `cambio: ${detalle}`].join('\n'));
-  console.log('siguiente: muéstrale esta propuesta a la persona tal cual, dile que la aprueba respondiendo que sí, y termina el turno. Con su sí, corre ajuste.js aprueba.');
+  console.log('siguiente: dile a la persona en una o dos frases qué cambia y por qué, con sus palabras y sin nombres de scripts, y que lo aprueba respondiendo que sí; termina el turno. Con su sí, corre ajuste.js aprueba.');
   return 0;
 }
 
@@ -75,7 +75,9 @@ function main() {
   if (extra || !['propone', 'aprueba'].includes(mode)) die(usage);
   if (mode === 'propone' && !(o.archivo && o.archivo.length && o.detalle && o.detalle.trim())) die(usage);
   if (mode === 'aprueba' && (o.archivo || o.detalle)) die(usage);
-  const project = requireProject();
+  // Con el manifiesto inválido también: arreglarlo es un ajuste, y nada más corre hasta entonces.
+  const project = loadProject();
+  if (!project) die(`sin manifiesto: no hay .claude/harness.json subiendo desde ${posix(process.cwd())}`);
   process.exit(mode === 'propone' ? propone(project, o.archivo, o.detalle.trim()) : aprueba(project));
 }
 

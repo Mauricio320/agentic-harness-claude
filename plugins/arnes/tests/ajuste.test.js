@@ -90,3 +90,44 @@ test('el guard deja correr ajuste.js propone aunque nombre la configuración; ot
   assert.ok(denied(guard('node tools/otro.js .claude/harness.json')), 'otro script que la nombra, no');
   assert.ok(denied(guard('node -e "require(\'fs\').writeFileSync(\'.claude/harness.json\', \'{}\')"')));
 });
+
+// Sesión 07e377ae (renova365, 2026-11-12): el manifiesto del api llegó de otra rama con un campo que
+// el arnés no conoce. Ninguna etapa corría, la propuesta de ajuste fallaba con ese mismo archivo y
+// /arnes:init --ajustar tampoco abría el guard: no había forma de arreglarlo desde la sesión. Un campo
+// desconocido ya no invalida nada (manifest.test.js); esto queda para el manifiesto roto de verdad.
+function carpetaConManifiestoInvalido() {
+  const root = h.tmp('ajuste-invalido');
+  const ws = { ...h.workspace({ name: 'api' }), riskPaths: 'src/auth/**' };
+  h.repo(path.join(root, 'api'), { '.gitignore': '.tmp/\n', '.claude/harness.json': h.repoManifest('api', ws), 'src/a.ts': 'a\n' });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'c', repos: [{ path: 'api' }] }));
+  return root;
+}
+const MANIFIESTO = path.join('api', '.claude', 'harness.json');
+
+test('un manifiesto inválido no deja la sesión sin salida: las etapas dicen cómo proponer el arreglo, y la propuesta y el «sí» lo abren', () => {
+  const root = carpetaConManifiestoInvalido();
+  const aviso = say(root, 'arregla la vista de pendientes').out.hookSpecificOutput.additionalContext;
+  assert.match(aviso, /^arnes: la configuración del proyecto no es válida, y ninguna etapa corre hasta arreglarla:\n- .*workspaces\[0\]\.riskPaths: debe ser array\nCopiarla del checkout principal a un worktree no hace falta: el arnés la lleva solo\. Si lo que hace falta es cambiarla, propónselo/);
+  const start = h.run('plan-state.js', ['start', '--detail', 'vista de pendientes', '--en-checkout'], { cwd: root });
+  assert.equal(start.status, 2);
+  assert.match(start.stderr, /^manifiesto inválido:\n.*workspaces\[0\]\.riskPaths: debe ser array\nsiguiente: ese archivo es configuración del proyecto .* corre node "[^"]+\/ajuste\.js" propone --archivo/m);
+  assert.ok(denied(edit(root, MANIFIESTO)), 'sin aprobación sigue protegido');
+  const p = ajuste(root, ['propone', '--archivo', MANIFIESTO, '--detalle', 'riskPaths tiene que ser una lista']);
+  assert.equal(p.status, 0, p.stderr);
+  assert.match(p.stdout, /^- api\/\.claude\/harness\.json$/m);
+  stop(root);
+
+  say(root, 'sí');
+  const a = ajuste(root, ['aprueba']);
+  assert.equal(a.status, 0, a.stderr);
+  assert.ok(!denied(edit(root, MANIFIESTO)), 'ese turno, el manifiesto roto se puede arreglar');
+  fs.writeFileSync(path.join(root, MANIFIESTO), h.repoManifest('api'));
+  assert.equal(h.run('plan-state.js', ['start', '--detail', 'vista de pendientes', '--en-checkout'], { cwd: root }).status, 0, 'y el arnés vuelve a correr');
+});
+
+test('/arnes:init --ajustar abre el manifiesto inválido de un repo de la carpeta: el guard mira la timeline de la carpeta, donde init lo anota', () => {
+  const root = carpetaConManifiestoInvalido();
+  assert.ok(denied(edit(root, MANIFIESTO)));
+  assert.equal(h.run('lib/timeline.js', ['start', 'init', '--detail', 'ajuste'], { cwd: root }).status, 0);
+  assert.ok(!denied(edit(root, MANIFIESTO)));
+});

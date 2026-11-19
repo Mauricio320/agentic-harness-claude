@@ -37,7 +37,7 @@ const { parseArgs } = require('util');
 const { requireProject, harnessDir, posix, MANIFEST } = require('./lib/manifest.js');
 const { git, help, die } = require('./lib/exec.js');
 const { checkFlag, flagPath, acceptManifests } = require('./gate-flag.js');
-const { mainCheckout } = require('./worktree-ledger.js');
+const { carry } = require('./lib/config-propia.js');
 const { append, read, tasks, redStreak, RED_CAP } = require('./lib/timeline.js');
 const { touched } = require('./touched-files.js');
 const { missingSpecs, patternRegExp } = require('./test-select.js');
@@ -79,24 +79,10 @@ function fresh(project, ws, base) {
   return Date.parse(flag.at) > Math.max(0, ...rules);
 }
 
-// → los repos cuyo manifiesto quedó igual al del checkout principal. Solo lo que allá difiere de su
-// HEAD (lo que trae una rama llega por git) y aquí está como vino: limpio, o la copia sin versionar
-// que dejó el arnés, más vieja que la de allá.
+// → los repos cuyo manifiesto quedó igual al del checkout principal (lib/config-propia.js carry). Lo
+// mismo corre al entrar al worktree; aquí alcanza al ajuste que la persona aprobó después.
 function alDia(project) {
-  const rel = posix(MANIFEST);
-  const changed = (dir) => git(dir, ['status', '--porcelain', '--', rel]).stdout.trim();
-  const out = [];
-  for (const file of [...new Set(project.workspaces.map((w) => w.manifest).filter(Boolean))]) {
-    const repo = path.dirname(path.dirname(file));
-    const main = mainCheckout(repo);
-    const src = path.join(main, MANIFEST);
-    if (!path.relative(main, repo) || !fs.existsSync(src) || !changed(main)) continue;
-    if (fs.readFileSync(src, 'utf8') === fs.readFileSync(file, 'utf8')) continue;
-    const here = changed(repo);
-    if (here && !(here.startsWith('??') && fs.statSync(src).mtimeMs > fs.statSync(file).mtimeMs)) continue;
-    fs.copyFileSync(src, file);
-    out.push(path.basename(repo));
-  }
+  const out = [...new Set([project.root, ...project.workspaces.map((w) => w.repo)])].filter((repo) => repo && carry(repo)).map((repo) => path.basename(repo));
   if (out.length) acceptManifests(project);
   return out;
 }

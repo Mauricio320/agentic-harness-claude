@@ -34,7 +34,7 @@ test('con una composición resume cada repo: rama, árbol sucio, stack y no adop
   assert.match(t, /- front \(front\) · rama feature\/x · limpio · nextjs · sin riskPaths/);
   assert.match(t, /- legacy \(legacy\) · rama main · no adoptable todavía/);
   assert.match(t, /Protocolo del arnés:/);
-  assert.match(t, /verifícalos/);
+  assert.match(t, /La verificación va antes de entregar, no después de cada retoque/);
   assert.match(t, /revisa el cambio/);
   assert.doesNotMatch(t, /\/arnes:(verify|review|build)\b/, 'las skills que carga el modelo no se nombran');
   assert.match(t, /los integra la persona con \/arnes:worktree integrate <slug>, y entrega con \/arnes:ship/);
@@ -84,6 +84,21 @@ test('con un manifiesto inválido lo dice y no inyecta el protocolo', () => {
   assert.match(t, /la configuración del arnés no es válida/);
   assert.match(t, /necesita al menos 1/);
   assert.doesNotMatch(t, /Protocolo/);
+});
+
+// renova365, 2026-11-17 y 18: el api traía allowedExceptions en main, y cada worktree nuevo nacía con
+// el arnés apagado. Un campo de más se dice en una línea, y el arnés corre con lo que sí conoce.
+test('con un campo que el arnés no conoce arranca igual, y lo dice en una línea con el repo y el campo', () => {
+  const root = h.tmp('start-campo');
+  const ws = { ...h.workspace({ name: 'api', stack: 'nestjs' }), allowedExceptions: [{ command: 'bash tools/ensayo.sh' }] };
+  h.repo(path.join(root, 'api'), { '.claude/harness.json': h.repoManifest('api', ws), 'a.ts': 'a\n' });
+  h.write(root, '.claude/harness.json', h.manifestJson({ version: 1, name: 'carpeta', repos: [{ path: 'api' }] }));
+  const t = text(start(root));
+  assert.match(t, /^arnes · carpeta · carpeta con 1 repo\(s\)\n/);
+  assert.match(t, /^- la configuración de api trae campos que este arnés no conoce \(allowedExceptions\): los ignora, y lo demás corre igual$/m);
+  assert.match(t, /- api \(api\) · rama main · limpio · nestjs/);
+  assert.match(t, /Protocolo del arnés:/);
+  assert.equal(h.run('plan-state.js', ['start', '--detail', 'vista de pendientes', '--en-checkout'], { cwd: root }).status, 0, 'y las etapas corren');
 });
 
 test('usa el cwd del evento, no el del proceso ni CLAUDE_PROJECT_DIR', () => {

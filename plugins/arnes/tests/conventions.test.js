@@ -81,5 +81,5 @@ test('una regla que no compila sale en 2; el schema valida las convenciones', ()
   assert.deepEqual(validate(manifest(CONVENTIONS)), []);
   assert.notDeepEqual(validate(manifest([{ id: 'Sin Id', pattern: 'x', message: 'y' }])), []);
   assert.notDeepEqual(validate(manifest([{ id: 'x', pattern: 'x' }])), [], 'sin message');
-  assert.notDeepEqual(validate(manifest([{ id: 'x', pattern: 'x', message: 'y', otra: 1 }])), []);
+  assert.deepEqual(validate(manifest([{ id: 'x', pattern: 'x', message: 'y', otra: 1 }])), [], 'un campo de más se ignora, no invalida');
 });

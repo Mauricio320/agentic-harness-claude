@@ -20,6 +20,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
+const { OWN } = require('./lib/config-propia.js');
 
 // Lo que nunca es código del issue aunque el repo no lo ignore: el grafo de graphify, el estado del
 // arnés, las dependencias, en cualquier nivel (también un node_modules enlazado, que git ve como
@@ -38,7 +39,9 @@ const GENERATED = /(^|\/)(dist|coverage|\.astro|\.next|\.nuxt|\.svelte-kit|\.tur
 // workspace limitan ambos a su subárbol, que es lo que necesita un monorepo con varios paquetes.
 // Con el proyecto, se excluye su .tmp/harness/: en un proyecto de un solo repo cae dentro del
 // workspace y, si no está ignorado, la propia bandera contaría como archivo tocado. Y siempre lo de
-// NEVER, y entre los sin trackear, lo de GENERATED.
+// NEVER, y entre los sin trackear, lo de GENERATED. El manifiesto del propio arnés tampoco es trabajo
+// del issue (lib/config-propia.js): contarlo hacía verificar y nombrar en cada entrega un repo que solo
+// tenía su configuración sin commitear, y la bandera lleva su huella aparte.
 function touched(ws, base = 'HEAD', project = null) {
   const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=d', '--relative', base, '--']);
   if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
@@ -46,7 +49,7 @@ function touched(ws, base = 'HEAD', project = null) {
   if (untracked.status !== 0) return { error: `git ls-files falló en ${ws.name}: ${firstLine(untracked.stderr)}` };
   const own = project ? `${posix(path.relative(ws.dir, harnessDir(project)))}/` : null;
   const fresh = lines(untracked.stdout).filter((f) => !GENERATED.test(f));
-  const files = [...new Set([...lines(diff.stdout), ...fresh])].filter((f) => (!own || !f.startsWith(own)) && !NEVER.test(f));
+  const files = [...new Set([...lines(diff.stdout), ...fresh])].filter((f) => (!own || !f.startsWith(own)) && !NEVER.test(f) && f !== OWN);
   return { files: files.sort() };
 }
 

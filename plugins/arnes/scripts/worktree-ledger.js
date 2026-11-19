@@ -43,6 +43,7 @@ const { link, unlink, isLink } = require('./lib/links.js');
 const { nativeWorktree, nativeWorktrees, nativeRoot, agentWorktree, AGENT, key } = require('./lib/worktree-nativo.js');
 const { present } = require('./lib/puertos.js');
 const rescate = require('./lib/rescate.js');
+const config = require('./lib/config-propia.js');
 const app = require('./lib/app.js');
 const carpeta = require('./worktree-carpeta.js');
 
@@ -218,6 +219,14 @@ function describeRescue(x, now = new Date()) {
   return `rescate ${x.name} de ${x.repo}: ${x.count} archivo(s) sin commitear (${files}) que quedaron sin su worktree (rama ${x.branch}, guardado ${days ? `hace ${days} día(s)` : 'hoy'}); nunca se borra solo: /arnes:cerrar lo recupera o lo descarta`;
 }
 
+// La línea de status es la copia de la configuración que trajo el arnés (lib/config-propia.js), que no
+// es trabajo; sola en un .claude/ sin versionar, git la muestra como la carpeta.
+function ownConfig(w, line) {
+  const f = line.slice(3);
+  const alone = () => fs.readdirSync(path.join(w.path, '.claude')).every((n) => n === 'harness.json');
+  return (f === config.OWN || (f === '.claude/' && alone())) && config.carried(w.path, w.main);
+}
+
 // Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.
 function nativeWork(dir, defaultBranch, now = new Date()) {
   const seen = new Set();
@@ -228,7 +237,7 @@ function nativeWork(dir, defaultBranch, now = new Date()) {
     const def = mergeTargets(w.main, defaultBranch).branch;
     const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
     const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
-    const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, '')))).length;
+    const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, ''))) && !ownConfig(w, l)).length;
     if (!unpushed && !dirty) continue;
     let created = now;
     try {

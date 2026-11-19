@@ -8,6 +8,8 @@
 // /arnes:cerrar lo lista para quien lo pida. Sin manifiesto dice cómo crearlo y no inventa nada. Antes de todo, si la
 // sesión corre una versión de Claude Code más nueva que la probada (lib/compat.js), lo dice en una
 // línea, con o sin manifiesto: es donde el modelo tiene que atribuir una falla rara a la versión.
+// En un worktree, antes de leer nada, la configuración del arnés que el checkout principal tiene sin
+// commitear llega sola (worktree-carpeta.js bringConfig): nadie la copia a mano ni la aprueba.
 // En un worktree nativo de Claude Code (lib/worktree-nativo.js), antes deja el worktree usable
 // (worktree-carpeta.js equipNative): enlaza node_modules del principal donde falta y desplaza una vez
 // los puertos de los .env que copió .worktreeinclude, y lo dice en una línea cada cosa. En el de una
@@ -44,10 +46,10 @@ const DECISIONS = 5;
 // nombres de scripts, y con el nombre de una skill solo cuando la persona tiene que escribirla.
 const PROTOCOL = [
   'Protocolo del arnés:',
-  '1. Manda la configuración de cada repo: sus comandos, sus rutas de riesgo y lo prohibido. No inventes comandos que no estén ahí.',
+  '1. Manda la configuración de cada repo: sus comandos, sus rutas de riesgo y lo prohibido. No inventes comandos que no estén ahí. Es del arnés: él la lleva a cada worktree y la trae de vuelta, y no se le comenta a la persona como un cambio.',
   '2. Un pedido que cambia código empieza por el plan, que aprueba la persona; sin plan aprobado no se puede escribir código. Para un cambio mínimo, la persona escribe /arnes:plan --trivial.',
-  '3. Antes de cerrar un turno con cambios de código, verifícalos. La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano; sin ella, el cierre del turno se frena una vez.',
-  '4. Un commit exige la verificación vigente de su workspace: el mismo commit de base y el mismo contenido de los archivos, sin vencer por tiempo.',
+  '3. La verificación va antes de entregar, no después de cada retoque: mientras la persona itera, el turno cierra sin ella. La marca de verificación la escribe la verificación solo si todo pasa, nunca a mano.',
+  '4. Un commit exige la verificación vigente de su workspace: el mismo commit de base, el mismo contenido de los archivos y la misma configuración, sin vencer por tiempo.',
   '5. Se niega siempre: git reset --hard, push forzado, clean -f, borrar una rama o un worktree con commits sin integrar, y leer secretos (.env, llaves). Con la configuración, además: lo prohibido del workspace y un git add masivo con .env o logs.',
   '6. Antes de entregar, revisa el cambio; si toca rutas de riesgo, va REVISIÓN HUMANA OBLIGATORIA. Los worktrees del issue con commits los integra la persona con /arnes:worktree integrate <slug>, y entrega con /arnes:ship.',
   '7. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio. Se dice una vez por corrida.',
@@ -138,6 +140,17 @@ function decisions(project) {
   return found.sort((a, b) => (a.key < b.key ? 1 : -1)).slice(0, DECISIONS).map((d) => d.line);
 }
 
+// Los campos de la configuración que este arnés no conoce, en una línea: se ignoran y todo lo demás
+// corre. Antes invalidaban el manifiesto entero, y cada worktree nuevo nacía con el arnés apagado.
+function ignoredLine(project) {
+  const by = new Map();
+  for (const x of project.ignored || []) {
+    const name = path.basename(path.dirname(path.dirname(x.file)));
+    by.set(name, [...new Set([...(by.get(name) || []), x.field])]);
+  }
+  return [...by].map(([name, fields]) => `- la configuración de ${name} trae campos que este arnés no conoce (${fields.join(', ')}): los ignora, y lo demás corre igual`);
+}
+
 // El estado del issue de este worktree, en una línea: lo único del ledger que le sirve a esta sesión.
 function issueLine(project) {
   const c = issues.current(project);
@@ -194,6 +207,7 @@ function unlockSession(input) {
 
 function sessionStart(input, now = new Date()) {
   const cwd = path.resolve(input.cwd || process.cwd());
+  carpeta.bringConfig(cwd);
   let project = loadProject(cwd);
   const newer = compat.line();
   if (!project) {
@@ -215,7 +229,7 @@ function sessionStart(input, now = new Date()) {
   // Con los repos recién traídos al worktree de una carpeta, la composición los ve: se relee.
   if (native.length) project = loadProject(cwd);
   const where = w ? [`- esta sesión trabaja en el worktree ${w.name}, en su propia copia de los repos; el checkout principal no se toca`, ...whereLines(w).map((l) => `- ${l}`)] : [];
-  const head = [`arnes · ${project.name} · ${kind}`, ...(newer ? [`- ${newer}`] : []), ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...(w ? issueLine(project) : [])];
+  const head = [`arnes · ${project.name} · ${kind}`, ...(newer ? [`- ${newer}`] : []), ...ignoredLine(project), ...where, ...[...native, ...pruned].map((l) => `- ${l}`), ...(w ? issueLine(project) : [])];
   lockSession(project, input, cwd, now);
   const notes = decisions(project);
   const tailLines = [...(notes.length ? ['Decisiones recientes:', ...notes] : []), ...PROTOCOL];
@@ -231,6 +245,7 @@ function sessionStart(input, now = new Date()) {
 // de planificar, y el plan nace aquí.
 function entered(input) {
   const cwd = path.resolve(input.cwd || process.cwd());
+  carpeta.bringConfig(cwd);
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
   const native = carpeta.equipNative(cwd).lines;

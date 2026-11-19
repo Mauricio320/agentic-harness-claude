@@ -50,6 +50,7 @@ const { link, unlink, isLink, linksUnder, real } = require('./lib/links.js');
 const { nativeWorktree, nativeRoot, key, list, DIR } = require('./lib/worktree-nativo.js');
 const { readPlan, planWorkspaces } = require('./lib/plan.js');
 const rescate = require('./lib/rescate.js');
+const config = require('./lib/config-propia.js');
 const { fetchOrigin } = require('./lib/fetch.js');
 const issues = require('./lib/issues.js');
 const { NATIVE_PORTS, present, envFiles, shiftPorts, usedOffsets, portsLine, ngPort } = require('./lib/puertos.js');
@@ -107,8 +108,25 @@ function checkedOutAt(repo, branch) {
   return hit ? hit.path : null;
 }
 
-// Lo que el arnés puso en el worktree de un repo: enlaces y copias, que no son trabajo.
-const ownOf = (e) => [...e.links, ...e.copies, ...e.copiedDirs];
+// Lo que el arnés puso en el worktree de un repo: enlaces y copias, que no son trabajo, y su propia
+// configuración cuando es copia de la del checkout principal (lib/config-propia.js).
+const ownOf = (e) => [...e.links, ...e.copies, ...e.copiedDirs, ...(config.carried(e.path, e.main) ? [posix(path.join(e.path, config.OWN))] : [])];
+
+// La configuración del arnés llega sola al worktree de dir y a los repos que ya tiene adentro, antes
+// de leer el manifiesto: puede ser justo lo que le falta para cargar. Nunca falla hacia afuera.
+// → true si trajo alguna
+function bringConfig(dir) {
+  try {
+    const top = git(dir, ['rev-parse', '--show-toplevel']);
+    const root = top.status === 0 ? path.resolve(top.stdout.trim()) : null;
+    const main = root && config.mainOf(root);
+    if (!main) return false;
+    const nested = readState({ root }).repos.filter((r) => r.status === 'vivo' && fs.existsSync(r.path));
+    return [config.carry(root, main), ...nested.map((r) => config.carry(r.path))].some(Boolean);
+  } catch {
+    return false;
+  }
+}
 
 // Cambios sin commitear de un worktree de repo, sin contar lo que trajo el arnés.
 const dirtyOf = (e) => (fs.existsSync(e.path) ? rescate.dirtyIn(e.path, ownOf(e)) : []);
@@ -168,6 +186,11 @@ function linkInto(f, state, list, src, dst) {
 // crearlo, para que nunca quede uno sin registrar.
 function equipRepo(f, state, entry) {
   const out = [];
+  try {
+    config.carry(entry.path);
+  } catch {
+    /* sin su configuración el repo queda como llegó: no frena el resto */
+  }
   linkInto(f, state, entry.links, path.join(entry.main, 'graphify-out'), path.join(entry.path, 'graphify-out'));
   for (const ws of f.main.workspaces.filter((w) => w.adoptable && key(w.repo) === key(entry.main))) {
     const dir = path.join(entry.path, path.relative(ws.repo, ws.dir));
@@ -303,6 +326,7 @@ function removeRepo(e, force) {
     const stray = linksUnder(e.path);
     if (stray.length) return `hay un enlace en ${posix(stray[0])} que no registró el arnés; no borro su worktree`;
     fs.rmSync(path.join(e.path, '.tmp', 'harness'), { recursive: true, force: true });
+    config.drop(e.path);
     const r = git(e.main, ['worktree', 'remove', ...(force ? ['--force'] : []), e.path]);
     if (r.status !== 0) return `no se pudo quitar su worktree (${firstLine(r.stderr)})`;
   } else git(e.main, ['worktree', 'prune']);
@@ -433,6 +457,7 @@ function equipNative(dir) {
 
 // equipNative para cualquier worktree enlazado, nativo o no. → { lines, links, linked }
 function equipar(dir) {
+  bringConfig(dir);
   const w = nativeWorktree(dir) || linkedOf(dir);
   return { ...equip(w), linked: Boolean(w) };
 }
@@ -492,7 +517,7 @@ function equip(w) {
   return { lines, links };
 }
 
-module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo, equipNative, equipar, linkedOf };
+module.exports = { FILE, folderWorktree, readState, materialize, dematerialize, protect, recoverFolder, nestedLinks, folderLinks, pruneOrphans, branchName, perRepo, equipNative, equipar, linkedOf, bringConfig, ownOf };
 
 function main() {
   let args;
