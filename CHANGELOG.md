@@ -2,6 +2,65 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.8] - 2026-11-19
+
+Cierre seguro. Sale de las tres primeras sesiones reales con la 0.8.7 en renova365, el mismo día de publicarla, y de una revisión del arnés entero por áreas (hooks, plan y worktrees, verificación, entrega y adopción). En una de esas sesiones, al subir, el cierre automático de lo mergeado borró de origin la rama recién subida, y GitHub cerró el PR un minuto después de abrirlo: al consultar el MR de otro issue desde un worktree, el arnés le anotaba a ese issue la rama de la sesión, y al cerrarlo borraba «sus» ramas. Siete registros de renova365 quedaron así, dos desde el 2026-11-10. En las mismas sesiones la app arrancó dos veces contra producción porque el aviso de base no local decía solo el host, y el cierre de turno frenó dos veces por «build no empezó» con el cambio ya escrito, verificado y revisado. Probada en local con Claude Code 2.1.329 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`; `validate --strict` de `arnes-ui` sigue avisando con la 2.1.329 de un tipo del host que su test no declara. `plugins/arnes/scripts` pasa de 14.513 a 14.931 líneas.
+
+### Corregido
+- El worktree y las ramas de la sesión se anotan solo en el issue de la corrida, nunca en el de otro slug. Los registros que ya quedaron con una rama ajena no la borran: la rama compartida con un issue que espera su MR, o que sigue en curso, se queda.
+- Cerrar un issue mergeado no borra una rama con commits que nadie subió, ni una abierta en otro worktree o en el checkout principal con cambios sin commitear, ni la de un repo cuyo MR no quedó registrado y que lleva commits fuera de la rama por defecto. Nada se toca a medias: si algo de eso pasa, el issue se queda para `/arnes:cerrar`, con el motivo. De origin solo se borra la rama cuya copia local ya se borró.
+- Antes de borrar nada se consulta otra vez cada MR del issue, y la rama de origin solo se borra si sigue donde quedó lo mergeado: con commits posteriores (otra entrega, o un push a mano) se queda. Un issue ya mergeado que recibe otra entrega vuelve a «subido». La rama de origin se busca por su nombre completo: «cobros» casaba también con «feature/cobros».
+- Un issue no se da por cerrado mientras quede en disco su worktree con cambios sin commitear o un rescate por recuperar; `--con-cambios` llega también a ese cierre, y no alcanza a una rama subida sin MR. Si un paso falla, los siguientes de ese repo no corren.
+- Ni cerrar ni limpiar borran el worktree donde otro pedido sigue en curso o espera su MR, ni el plan y los reportes de la revisión que hoy son de otro pedido (tienen ruta fija, y el registro de un issue viejo los seguía nombrando).
+- En un mismo worktree se trabajan varios pedidos seguidos: el que se commiteó sin MR propio y viajó en el MR del siguiente cierra con él, y el que quedó a medias hace más de una semana también. Antes quedaban «commiteado y sin subir» para siempre.
+- La consulta de los MR empieza por los que llevan más tiempo sin consultarse: con más issues subidos que consultas por entrega, se consultaban siempre los mismos.
+- El cierre de turno no frena por «el plan quedó aprobado y build no empezó» cuando el turno ya escribió código o anotó una etapa posterior.
+- El aviso de una base que no es local dice el host, el puerto y el nombre de la base, también cuando van en variables sueltas (`DB_HOST`, `DB_PORT`, `DB_NAME`), y lo repite al arrancar contra una base ya aceptada.
+- La cuenta de bloqueantes tolera el énfasis de markdown («**BLOQUEANTES: 1**», «- **BLOQUEANTE** …»): daba 0 y ship decía LISTO. Un reporte sin la línea de cuenta ni un bloqueante no se marca.
+- Una revisión limpia sigue valiendo cuando lo único que cambió es la huella (un archivo que cambió sus fines de línea): ship la pedía una y otra vez hasta frenar la entrega.
+- Un cambio que solo borra archivos se verifica y deja su bandera: antes verify decía «nada que verificar», el commit se negaba y ship pedía verificar. Los borrados entran a la huella: borrar algo después del verde la vence. Un archivo movido sin `git mv` no la vence al entrar al stage.
+- Un archivo que no es código pero tiene su spec (la plantilla de un componente) corre ese spec; pasaba en verde sin correr nada.
+- Una carpeta entre los tocados (un repo anidado sin trackear) no rompe la huella ni deja pasar el commit sin bandera. Un repo de la composición que no está en el worktree no tumba la verificación de los demás.
+- Una corrección pedida en la pregunta del push se hace en la misma entrega: el plan sigue aprobado, el commit nuevo va aparte y el push sube los dos. El push sube también lo que una vuelta anterior commiteó y no subió, y su MR lleva el título de ese commit y su línea de zona de riesgo.
+- Un repo sin remoto termina la entrega en el commit: todo commit suyo contaba como sin subir, y cada entrega volvía a preguntar por un push que fallaba.
+- Si la rama ya tiene su MR abierto, el de un pedido anterior del mismo worktree, el push lo actualiza y el issue queda con ese MR.
+- El merge local comprueba todos los repos antes de tocar ninguno, y la configuración que el arnés lleva al worktree no cuenta como cambio sin commitear.
+- La guarda de secretos no niega listar o preguntar si existe un `.env` (`ls`, `Get-ChildItem | Select-Object`, `Test-Path`, `test -f`, `stat`, Glob), ni el texto libre que nombra uno (el mensaje de un commit, el cuerpo de un MR, el patrón de un `grep`, un `echo`). Solo cuando nada en la línea puede abrir después lo nombrado: sin variables ni expansiones, sin tubería a algo que no sea un formateador de nombres, y sin dejarlo en un archivo si el comando no va solo. `credentials.ts` es código, y `.env.template` y `.env.sample` se leen como `.env.example`.
+- Un commit en el repo de la carpeta no se niega por no ser de ningún workspace. Elegir un lado en un conflicto (`git checkout --theirs`) no cuenta como descartar trabajo. La configuración se puede leer con el validador del propio arnés, y el mensaje de un commit que la nombra no cuenta como tocarla. Un commit con `--git-dir` o `--work-tree` se niega: iba al repo que nombran, sin mirar su verificación.
+- Un worktree que quedó dentro de un repo de la carpeta, porque la sesión estaba parada ahí al crearlo, manda al de la carpeta. La configuración sin commitear en la rama base ya no manda el pedido al checkout: viaja sola al worktree, también cuando allá falta. Un plan descartado deja de figurar en curso.
+- Sin rama por defecto declarada vale la que el repo tenga (`master`). La unidad en minúscula no deja la carpeta del worktree anotada como repo de la rama.
+- El lint que se corta por lento no se reintenta cada diez minutos ni en cada worktree nuevo: la marca vale un día para el repo, mientras su comando de lint sea el mismo.
+- El arranque de la sesión no queda mudo si falla la preparación del worktree. Salir del worktree con `remove` no se niega por el estado del propio arnés en un repo que no ignora `.tmp/`.
+- Los `.env` que el repo versiona no se tocan al correr los puertos. `npm start` recibe el puerto corrido igual que `npm run`.
+- Un plan o una evidencia guardados con CRLF se leen. Un manifiesto con BOM se lee. `--no-warn-ignored` solo va al lint que escribe init si el repo tiene `eslint.config.*`. La propuesta de un cambio de configuración acepta la ruta con la unidad en minúscula. `/arnes:init --ajustar` desde un repo de adentro abre la configuración.
+- En un `.mcp.json`, el secreto que va como argumento después de su opción se enmascara.
+
+### Cambiado
+- «Entrégalo» lanza la entrega: `/arnes:ship` deja de estar reservada a que la persona escriba el comando, y el modelo la carga cuando ella pide entregar, subir o commitear con sus palabras. No la carga por cuenta propia al terminar de verificar, y el push sigue pidiendo su sí después del commit.
+- La bandera lleva la huella de lo que el gate lee de la configuración (comandos, convenciones, globs), no la del archivo entero ni su fecha: cambiar lo prohibido o las rutas de riesgo, o reescribir el manifiesto igual al llevarlo a un worktree, no hace correr todo de nuevo. Las banderas escritas hasta la 0.8.7 siguen valiendo.
+- Verify pide specs para el código nuevo, no para cada archivo viejo sin spec que se retocó.
+- Con un paso anterior en rojo, la suite completa no se corre para confirmar un rojo que ya se sabe. El test-writer no corre un comando de tests que no filtra por spec.
+- La línea de la versión de Claude Code sale solo cuando cambia el mayor o el menor. Con `arnes-mod`, el aviso de cargar el plan lo pone el mod y no sale dos veces. El aviso de configuración inválida se dice una vez por estado.
+- El rescate del cierre de turno parte de una copia del índice (de 2,6 a 5,6 s por repo a 0,2 s en un repo de 4.000 archivos). El cierre de issues mide tamaños solo al mostrarlos y resuelve el checkout principal una vez. Salir de un worktree juzga solo ese worktree.
+- El código por defecto incluye `.vue`, `.svelte`, `.py`, `.go`, `.cs`, `.java`, `.kt`, `.rb` y `.rs`.
+- En el diff del reviewer, un archivo que no es código y trae un diff enorme (un lockfile) va con su cabecera y cuatro líneas.
+
+### Pendiente, visto en la misma revisión
+- Ninguna sesión real corrió todavía esta versión. El cierre de lo mergeado está probado con una carpeta de dos repos y la sesión dentro del worktree, que es el caso que falló; contra GitHub y GitLab reales no.
+- Varios pedidos seguidos en el mismo worktree siguen compartiendo la rama. El cierre ya lo soporta, pero el pedido nuevo cae en el MR del anterior si sigue abierto.
+- La suite de un repo cuyo comando no filtra por spec y no tiene adaptador de resultados (Maven en api-informes) sigue corriendo entera en cada verify, y una prueba rota de antes lo deja en rojo. Lo más chico que lo resuelve es leer el XML de JUnit que Maven ya deja, con su ruta declarada en la configuración.
+- En una carpeta, el manifiesto inválido de un repo sigue apagando el arnés en todos.
+- init solo detecta repos de Node con TypeScript, jest, vitest o Karma; a uno de Python, Go o .NET hay que escribirle el manifiesto a mano. Además escribe cuatro convenciones sin decirlo, repone en `forbidden` y `afterBuild` lo que la persona quitó, y toma por restos del arnés anterior cualquier hook del equipo en `.claude/hooks/`.
+- La copia de la configuración entre el checkout principal y los worktrees va por archivo entero y por fecha: con dos worktrees que la cambian, o con el principal atrasado respecto de origin, puede pisar lo más nuevo.
+- Las skills citan secciones de `docs/PLAN.md`, que no viaja con el plugin instalado.
+- Cada cierre de turno en una carpeta de dos repos lanza unas cincuenta llamadas a git; quedaron las repetidas (el mismo par de consultas y la misma lista de tocados, varias veces por evento).
+- El client de un worktree le sigue hablando al api del checkout principal cuando su puerto está fijo en un archivo versionado; el arnés lo avisa, no lo resuelve.
+- Código que ninguna skill ni script llama (subcomandos de `plan-state.js`, `issue-branch.js`, `worktree-carpeta.js`, `test-select.js`, `typecheck-baseline.js`, y varios exports y duplicados) sigue ahí.
+- En la app de escritorio, el interruptor Worktree encendido debería dejar la sesión en el grupo del proyecto; sigue sin probarse en vivo.
+- Un commit subido a mano a la rama después del merge se respeta solo si el host informa la cabeza del MR (`gh` y `glab` la dan); sin ese dato, un registro anterior a la 0.8.7 no tiene con qué notarlo.
+- La guarda de secretos sigue dejando pasar lo que ya pasaba antes de esta versión: un comodín (`cat .en*`), una variable (`f=.env; cat $f`) o una búsqueda recursiva sobre la carpeta.
+- Borrar entera la carpeta de un workspace da «nada que verificar».
+
 ## [0.8.7] - 2026-11-19
 
 Entrega y cierre en un solo sí. Después de subir quedaban dos pasos: la pregunta de si borrar lo que el arnés creó para el issue y, cuando el MR se mergeaba, volver a otra sesión a escribir `/arnes:cerrar`. La sesión termina al subir, y ese segundo paso no se daba: el 2026-11-19 había 22 worktrees abiertos en renova365 y 10 en academico. Probada en local con Claude Code 2.1.328 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`, y la opción del MR contra glab 1.123.0. `plugins/arnes/scripts` pasa de 14.430 a 14.513 líneas.
