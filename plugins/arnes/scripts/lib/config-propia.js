@@ -40,7 +40,7 @@ function mainOf(dir) {
 function carry(repo, main = mainOf(repo)) {
   if (!main || !path.relative(main, repo)) return false;
   const [src, dst] = [fileIn(main), fileIn(repo)];
-  if (!fs.existsSync(src) || same(src, dst) || !local(main)) return false;
+  if (!fs.existsSync(src) || same(src, dst) || (!local(main) && fs.existsSync(dst))) return false;
   if (fs.existsSync(dst)) {
     const here = local(repo);
     if (here && !(loose(here) && newer(src, dst))) return false;

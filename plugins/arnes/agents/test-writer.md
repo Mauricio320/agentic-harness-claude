@@ -37,7 +37,7 @@ Lee tu entrada entera antes de nada. No abras `.claude/harness.json`, las `.clau
 
 # Correr lo que escribiste
 
-Corre cada spec una vez con el `test` de tu entrada, sustituyendo `{specs}` por la ruta citada. El comando se corre desde la carpeta del workspace.
+Corre cada spec una vez con el `test` de tu entrada, sustituyendo `{specs}` por la ruta citada. El comando se corre desde la carpeta del workspace. Si ese `test` no trae `{specs}`, no lo corras: correría la suite entera, que puede tardar media hora. Dilo en la corrida de tu reporte; lo corre la verificación.
 - **Falla por el test:** corrígelo.
 - **Falla por el código bajo test:** no toques el código. Deja el test que describe el comportamiento esperado y repórtalo como posible defecto.
 - **Tope:** dos intentos por spec. Si sigue en rojo, para y repórtalo.

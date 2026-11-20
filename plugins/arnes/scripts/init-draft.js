@@ -355,7 +355,7 @@ function detectRepo(dir) {
     commands.typecheck = ['npx tsc -p tsconfig.app.json --noEmit'];
     if (has('tsconfig.spec.json')) commands.typecheck.push('npx tsc -p tsconfig.spec.json --noEmit');
   } else if (deps.typescript && has('tsconfig.json')) commands.typecheck = ['npx tsc --noEmit'];
-  if (deps.eslint && ESLINT_CONFIGS.some(has)) commands.lint = 'npx eslint {files} --max-warnings=0 --no-warn-ignored';
+  if (deps.eslint && ESLINT_CONFIGS.some(has)) commands.lint = `npx eslint {files} --max-warnings=0${ESLINT_CONFIGS.filter((f) => f.startsWith('eslint.config.')).some(has) ? ' --no-warn-ignored' : ''}`;
   const scope = commands.lint ? lintScope(dir, pkg) : null;
   if (deps.jest) Object.assign(commands, { test: 'npx jest {specs} --runTestsByPath --verbose', testAll: 'npx jest' });
   else if (deps.vitest) Object.assign(commands, { test: 'npx vitest run {specs}', testAll: 'npx vitest run' });

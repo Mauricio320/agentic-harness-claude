@@ -20,6 +20,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, posix } = require('./lib/manifest.js');
@@ -32,9 +33,17 @@ const isAnswer = (e) => e.stage === 'turno' && e.result === 'respuesta';
 
 function propone(project, archivos, detalle) {
   const files = archivos.map((a) => path.resolve(a));
-  const bad = files.filter((f) => !configRoot(f) || configHome(configRoot(f)) !== project.root);
+  const real = (p) => {
+    try {
+      return fs.realpathSync.native(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  const same = (a, b) => (process.platform === 'win32' ? real(a).toLowerCase() === real(b).toLowerCase() : real(a) === real(b));
+  const bad = files.filter((f) => !configRoot(f) || !same(configHome(configRoot(f)), project.root));
   if (bad.length) die(`ajuste: ${bad.map(posix).join(', ')} no es configuración de este proyecto (un .claude/harness.json, settings*.json, rules/ o hooks/)`);
-  const rel = files.map((f) => posix(path.relative(project.root, f)) || '.');
+  const rel = files.map((f) => posix(path.relative(real(project.root), real(f))) || '.');
   append(project.root, { event: 'note', stage: 'ajuste', result: 'propuesta', detail: `${rel.join(', ')} · ${detalle}`, archivos: rel });
   console.log(['propuesta de configuración:', ...rel.map((r) => `- ${r}`), `cambio: ${detalle}`].join('\n'));
   console.log('siguiente: dile a la persona en una o dos frases qué cambia y por qué, con sus palabras y sin nombres de scripts, y que lo aprueba respondiendo que sí; termina el turno. Con su sí, corre ajuste.js aprueba.');

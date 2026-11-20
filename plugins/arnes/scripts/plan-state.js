@@ -83,7 +83,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
+const { requireProject, loadProject, harnessDir, planConfig, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { planOwner, fromEnv } = require('./lib/sesiones.js');
 const { append, read, planState, tasks, personYes } = require('./lib/timeline.js');
@@ -144,7 +144,16 @@ async function graphStart(project, detail) {
 // seguir, o 3 con lo que sigue, sin anotar nada
 function door(project, detail, checkout) {
   const owner = planOwner(project);
-  if (nativeRoot(project) || nativeWorktree(project.root)) {
+  const w = nativeRoot(project) || nativeWorktree(project.root);
+  if (w) {
+    // El worktree quedó dentro de un repo de una carpeta: la sesión estaba parada en ese repo al llamar a
+    // EnterWorktree. El pedido se planifica en el worktree de la carpeta, con todos sus repos.
+    const outer = project.kind === 'repo' ? loadProject(w.main) : null;
+    if (outer && outer.kind === 'folder' && !outer.errors.length && key(outer.root) !== key(w.main)) {
+      console.log(`worktree: ${w.name}`);
+      console.log(`siguiente: este worktree quedó dentro de ${path.basename(w.main)}, un repo de la carpeta ${outer.name}, y el pedido se planifica en el de la carpeta. Sal con ExitWorktree y action "remove"; después cd "${posix(outer.root)}", llama a EnterWorktree con name "${w.name}", y vuelve a correr esto mismo desde ahí`);
+      return 3;
+    }
     if (!owner) return 0;
     console.log('otra sesión: el plan en curso de este worktree es de otra sesión de Claude que sigue abierta; no lo piso');
     console.log('siguiente: ExitWorktree, y desde la raíz vuelve a correr esto mismo, que abre un worktree para este pedido');
@@ -152,7 +161,7 @@ function door(project, detail, checkout) {
   }
   const route = branch.worktreeRoute(project);
   const ajuste = /^ajuste\b/i.test(detail) && planState(read(project.root)).open;
-  if (!owner && (checkout || ajuste || (!route.ok && !route.noRepo))) return 0;
+  if (!owner && (checkout || ajuste || (!route.ok && !(route.noRepo && project.kind === 'folder')))) return 0;
   if (owner) {
     const title = ((readPlan(project) || '').match(/^# (?:Plan: )?(.+)$/m) || [])[1];
     console.log(`otra sesión: hay un plan en curso de otra sesión de Claude que sigue abierta en este checkout${title ? ` («${title.trim()}»)` : ''}; no lo piso`);
@@ -166,7 +175,7 @@ function door(project, detail, checkout) {
     return 3;
   }
   const name = branch.freeName(project, slugOf(`# ${detail}`));
-  const cd = key(process.cwd()) === key(project.root) ? '' : `cd "${posix(project.root)}" (EnterWorktree crea el worktree del repo donde está parada la sesión) y `;
+  const cd = key(process.cwd()) === key(project.root) ? '' : `primero cd "${posix(project.root)}", porque EnterWorktree crea el worktree del repo donde está parada la sesión; después `;
   console.log(`worktree: ${name}`);
   console.log(`siguiente: este pedido se planifica en su propio worktree: ${cd}llama a EnterWorktree con name "${name}", y vuelve a correr esto mismo desde ahí${owner ? '' : '. Si EnterWorktree falla o la persona pide el checkout, start --en-checkout'}`);
   return 3;

@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { git, firstLine } = require('./exec.js');
-const { touched } = require('../touched-files.js');
+const { touched, deleted } = require('../touched-files.js');
 
 const sha = (data) => crypto.createHash('sha256').update(data).digest('hex');
 
@@ -19,15 +19,26 @@ function stateOf(project, ws, base = 'HEAD') {
   const t = touched(ws, base, project);
   if (t.error) return { error: t.error };
   const hashes = Object.fromEntries(t.files.map((f) => [f, fileHash(ws, f)]));
-  const touchedHash = sha(t.files.join('\n'));
+  // Los borrados entran a la huella de la lista: borrar un archivo después del verde vence la bandera.
+  const gone = deleted(ws, base).files || [];
+  const touchedHash = sha([...t.files, ...gone.map((f) => `-${f}`)].join('\n'));
   const contentHash = sha(t.files.map((f) => `${f}\0${hashes[f]}`).join('\n'));
   return { head: head.stdout.trim(), touchedHash, contentHash, files: t.files, hashes };
 }
 
-// El sha256 del contenido de un archivo del workspace, o "-" si no existe.
+// El sha256 del contenido de un archivo del workspace, "-" si no existe y "dir" si es una carpeta (un
+// repo anidado sin trackear, un submódulo): leerla reventaba, y el guard del commit dejaba pasar sin bandera.
 function fileHash(ws, f) {
-  const p = path.join(ws.dir, f);
-  return fs.existsSync(p) ? sha(fs.readFileSync(p)) : '-';
+  const st = fs.statSync(path.join(ws.dir, f), { throwIfNoEntry: false });
+  if (!st) return '-';
+  if (st.isFile()) return sha(fs.readFileSync(path.join(ws.dir, f)));
+  // Una carpeta que es un repo (un submódulo, un repo anidado): su commit y su estado, para que un cambio
+  // adentro después del verde venza la bandera.
+  const dir = path.join(ws.dir, f);
+  const head = git(dir, ['rev-parse', 'HEAD']);
+  const top = git(dir, ['rev-parse', '--show-toplevel']);
+  const own = top.status === 0 && path.resolve(top.stdout.trim()).toLowerCase() === path.resolve(dir).toLowerCase();
+  return own ? `dir:${head.stdout.trim()}:${sha(git(dir, ['status', '--porcelain']).stdout)}` : 'dir';
 }
 
 // Un HEAD que se movió solo por otro workspace del mismo repo no cambia lo que se verificó o se revisó

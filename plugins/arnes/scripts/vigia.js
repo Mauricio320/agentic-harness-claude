@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { parseArgs } = require('util');
-const { requireProject, harnessDir } = require('./lib/manifest.js');
+const { requireProject, loadProject, harnessDir } = require('./lib/manifest.js');
 const { help, die } = require('./lib/exec.js');
 const { summary } = require('./lib/timeline.js');
 const { status } = require('./gate-flag.js');
@@ -39,7 +39,7 @@ function watch(project, sessionStart, { out = (o) => process.stdout.write(`${JSO
       seen = stamp();
       out({ tipo: 'timeline', ...s });
     },
-    gate: () => out({ tipo: 'gate', ...status(project) }),
+    gate: () => out({ tipo: 'gate', ...status(loadProject(project.root) || project) }),
   };
   const pending = new Set();
   let timer = null;

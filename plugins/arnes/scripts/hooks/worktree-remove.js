@@ -47,7 +47,7 @@ function judgeNative(dir) {
   const project = loadProject(dir);
   const hit = project && !project.errors.length ? resolveWorkspace(project, dir) : null;
   const top = git(dir, ['rev-parse', '--show-toplevel']).stdout.trim();
-  const own = nativeWork(dir, hit && hit.ws.defaultBranch).find((n) => path.resolve(n.path).toLowerCase() === path.resolve(top).toLowerCase());
+  const own = nativeWork(dir, hit && hit.ws.defaultBranch, new Date(), top).find((n) => path.resolve(n.path).toLowerCase() === path.resolve(top).toLowerCase());
   if (!own) return null;
   const what = [own.unpushed && `${own.unpushed} commit(s) sin subir`, own.dirty && `${own.dirty} archivo(s) sin commitear`].filter(Boolean).join(' y ');
   return `este worktree (rama ${own.branch}) tiene ${what}; borrarlo los pierde. Sube la rama con /arnes:ship, o commitea y sube a mano; después se puede borrar. Si no, sal con action "keep". Un worktree de Claude Code no se integra con un merge local.`;

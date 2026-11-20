@@ -24,6 +24,7 @@ function mergeTargets(dir, defaultBranch) {
     const head = git(dir, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
     if (head.status === 0) branch = head.stdout.trim().replace(/^origin\//, '');
   }
+  if (!branch) branch = ['main', 'master'].find((b) => refExists(dir, b) || refExists(dir, `origin/${b}`));
   const candidates = branch ? [branch, `origin/${branch}`] : ['main', 'origin/main', 'master', 'origin/master'];
   return { branch: branch || 'main', refs: candidates.filter((r) => refExists(dir, r)) };
 }

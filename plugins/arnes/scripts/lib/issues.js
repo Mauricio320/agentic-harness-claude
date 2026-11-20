@@ -24,10 +24,16 @@ const { readPlan, slugOf } = require('./plan.js');
 const STATES = ['planeado', 'construido', 'verificado', 'revisado', 'entregado', 'subido', 'mergeado', 'cerrado'];
 const DONE = ['entregado', 'subido', 'mergeado'];
 
-// El checkout principal del proyecto: el de un worktree nativo es su principal.
+// El checkout principal del proyecto: el de un worktree nativo es su principal. Se resuelve una vez por
+// proceso: cada llamada lanzaba dos git, una por registro al listar y cuatro por anotación (con 60
+// registros, listar tardaba 5,6 s, y eso corre en cada entrega).
+const roots = new Map();
 const mainRoot = (project) => {
-  const w = nativeRoot(project);
-  return w ? w.main : project.root;
+  if (!roots.has(project.root)) {
+    const w = nativeRoot(project);
+    roots.set(project.root, w ? w.main : project.root);
+  }
+  return roots.get(project.root);
 };
 const issuesDir = (project) => path.join(mainRoot(project), '.tmp', 'harness', 'issues');
 const fileOf = (project, slug) => path.join(issuesDir(project), `${slug}.json`);
@@ -81,12 +87,17 @@ function nativeOf(project) {
 
 // Agrega lo que se creó para el issue de la corrida (o el de slug). Nunca falla hacia afuera: el
 // registro es para limpiar después, no una condición para trabajar. → el registro, o null sin issue
+// El worktree y las ramas de la sesión se anotan solo en el issue de la corrida, nunca en el de otro slug:
+// el 2026-11-19, al subir desde un worktree, cada issue ajeno que pasó a mergeado quedó con la rama de esa
+// sesión, y al cerrarlo se borró de origin la rama recién subida, con su PR abierto.
 function record(project, add = {}, slug = null, now = new Date()) {
   try {
-    const cur = slug ? { slug, title: slug } : current(project);
+    const run = current(project);
+    const cur = slug ? { slug, title: slug } : run;
     if (!cur) return null;
     const old = readIssue(project, cur.slug) || { version: 1, slug: cur.slug, title: cur.title, createdAt: now.toISOString(), state: null, states: [], branches: [], worktree: null, sets: [], files: [], mr: [] };
-    const native = old.worktree && project.kind !== 'folder' ? {} : nativeOf(project);
+    const own = Boolean(run && run.slug === cur.slug);
+    const native = !own || (old.worktree && project.kind !== 'folder') ? {} : nativeOf(project);
     const next = {
       ...old,
       title: old.title || cur.title,
@@ -126,8 +137,13 @@ function renameBranch(project, from, to) {
 function setState(project, state, detail, slug = null, now = new Date()) {
   const r = record(project, {}, slug, now);
   if (!r || !STATES.includes(state)) return null;
-  if (r.state && STATES.indexOf(state) < STATES.indexOf(r.state)) return r;
+  const again = state === 'subido' && ['mergeado', 'cerrado'].includes(r.state) && /^(push$|MR )/.test(detail || '');
+  if (!again && r.state && STATES.indexOf(state) < STATES.indexOf(r.state)) return r;
   if (r.state === state && !detail) return r;
+  if (again) {
+    delete r.checkedAt;
+    delete r.mrStates;
+  }
   r.state = state;
   r.states = [...(r.states || []), { state, at: now.toISOString(), ...(detail ? { detail } : {}) }];
   if (DONE.includes(state) && !r.shippedAt) r.shippedAt = now.toISOString();
@@ -151,21 +167,25 @@ function sizeOf(p) {
 }
 
 // El estado de un MR según glab (GitLab) o gh (GitHub), si están: 'merged', 'open', 'closed' o null
-// si no se pudo saber. m = { repo, ref }, con ref el número o la url del MR.
-function mrState(m) {
-  if (!m.repo || !fs.existsSync(m.repo)) return null;
+// si no se pudo saber, y el commit que era su cabeza, si el host lo da. m = { repo, ref }, con ref el
+// número o la url del MR. → { state, head }
+function mrInfo(m) {
+  if (!m.repo || !fs.existsSync(m.repo)) return { state: null, head: null };
   const remote = git(m.repo, ['remote', 'get-url', 'origin']).stdout;
   const ref = String(m.ref).replace(/^[!#]/, '');
-  const [cmd, args] = /github/i.test(remote) || /github/i.test(ref) ? ['gh', ['pr', 'view', ref, '--json', 'state']] : ['glab', ['mr', 'view', ref, '--output', 'json']];
+  const [cmd, args] = /github/i.test(remote) || /github/i.test(ref) ? ['gh', ['pr', 'view', ref, '--json', 'state,headRefOid']] : ['glab', ['mr', 'view', ref, '--output', 'json']];
   const r = spawnSync(cmd, args, { cwd: m.repo, encoding: 'utf8', timeout: 5000, shell: process.platform === 'win32' });
-  if (r.status !== 0) return null;
+  if (r.status !== 0) return { state: null, head: null };
   try {
-    const s = String(JSON.parse(r.stdout).state || '').toLowerCase();
-    return s === 'merged' ? 'merged' : s === 'opened' || s === 'open' ? 'open' : s === 'closed' ? 'closed' : null;
+    const data = JSON.parse(r.stdout);
+    const s = String(data.state || '').toLowerCase();
+    const head = [data.headRefOid, data.sha].find((x) => /^[0-9a-f]{40}$/.test(String(x || ''))) || null;
+    return { state: s === 'merged' ? 'merged' : s === 'opened' || s === 'open' ? 'open' : s === 'closed' ? 'closed' : null, head };
   } catch {
-    return null;
+    return { state: null, head: null };
   }
 }
+const mrState = (m) => mrInfo(m).state;
 
 // El repo desde el que se consulta un MR. Los registros anteriores a la 0.8.7 anotaban la carpeta del
 // worktree, que ya no existe cuando el issue se entregó y su worktree se borró: vale el checkout
@@ -176,13 +196,19 @@ function mrRepo(r, m) {
   const main = r.worktree && r.worktree.main;
   return repos.find((p) => path.basename(p) === path.basename(m.repo || '')) || repos.find((p) => main && key(p) === key(main)) || repos[0] || m.repo;
 }
-const mrStates = (r) => (r.mr || []).map((m) => mrState({ ...m, repo: mrRepo(r, m) }));
+const mrInfos = (r) => (r.mr || []).map((m) => mrInfo({ ...m, repo: mrRepo(r, m) }));
+const mrStates = (r) => mrInfos(r).map((i) => i.state);
 
 // Los issues subidos cuyo MR ya se mergeó pasan a mergeado. Cada uno se consulta cada seis horas como
-// mucho, salvo con force, y a lo sumo max por llamada: SessionStart no puede esperar a la red.
+// mucho, salvo con force, y a lo sumo max por llamada, para que la entrega no espere a la red. Primero
+// los que llevan más tiempo sin consultarse: sin ese orden, con más de max issues subidos se consultaban
+// siempre los mismos y los demás nunca.
 const CHECK_MS = 6 * 60 * 60 * 1000;
 function refreshMerged(project, { force = false, max = 3, now = new Date() } = {}) {
-  const due = list(project).filter((r) => r.state === 'subido' && (r.mr || []).length && (force || !r.checkedAt || now - new Date(r.checkedAt) > CHECK_MS)).slice(0, max);
+  const due = list(project)
+    .filter((r) => r.state === 'subido' && (r.mr || []).length && (force || !r.checkedAt || now - new Date(r.checkedAt) > CHECK_MS))
+    .sort((a, b) => String(a.checkedAt || '').localeCompare(String(b.checkedAt || '')))
+    .slice(0, max);
   for (const r of due) {
     const states = mrStates(r);
     const fresh = readIssue(project, r.slug);
@@ -217,4 +243,4 @@ function describe(r, now = new Date()) {
 
 const human = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
 
-module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, renameBranch, setState, sizeOf, human, mrState, mrStates, refreshMerged, describe };
+module.exports = { STATES, DONE, mainRoot, issuesDir, fileOf, current, readIssue, list, record, renameBranch, setState, sizeOf, human, mrState, mrRepo, mrStates, mrInfos, refreshMerged, describe };

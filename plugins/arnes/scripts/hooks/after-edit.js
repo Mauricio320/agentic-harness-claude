@@ -17,8 +17,10 @@
 // entero en cada corrida, tres minutos por archivo en un monorepo, medido en renova365/api, y el hook
 // entero tiene 120 s. Al vencer se mata el árbol de procesos (lib/exec.js runTimed), se dice una vez
 // que queda para la verificación, y en ese workspace no se vuelve a intentar durante LINT_BACKOFF_MS
-// (la marca .tmp/harness/after-edit/<ws>.lint-lento.json). ARNES_LINT_TIMEOUT_MS acorta el tope en
-// los tests.
+// (la marca .tmp/harness/after-edit/<ws>.lint-lento.json del checkout principal, que vale para todos sus
+// worktrees mientras el comando de lint sea el mismo: con la marca en cada worktree y por diez minutos,
+// cada worktree nuevo de renova365 volvía a esperar 30 s, y otra vez cada diez minutos).
+// ARNES_LINT_TIMEOUT_MS acorta el tope en los tests.
 // Salida: JSON con hookSpecificOutput.additionalContext, o nada. Siempre exit 0.
 
 'use strict';
@@ -31,18 +33,23 @@ const { matchAny } = require('../lib/glob.js');
 const { runTimedExpanded, tail } = require('../lib/exec.js');
 const tb = require('../typecheck-baseline.js');
 const { splitLint } = require('../lib/lint.js');
+const { nativeRoot } = require('../lib/worktree-nativo.js');
 
 const DEBOUNCE_MS = 20 * 1000;
 const RESCUE_MS = 60 * 1000;
 const MAX_CHARS = 4000;
 const LINT_TIMEOUT_MS = Number(process.env.ARNES_LINT_TIMEOUT_MS) || 30 * 1000;
-const LINT_BACKOFF_MS = 10 * 60 * 1000;
+const LINT_BACKOFF_MS = 24 * 60 * 60 * 1000;
 
-const slowMark = (project, ws) => path.join(harnessDir(project), 'after-edit', `${ws.name}.lint-lento.json`);
+function slowMark(project, ws) {
+  const w = nativeRoot(project);
+  return path.join(w ? w.main : project.root, '.tmp', 'harness', 'after-edit', `${ws.name}.lint-lento.json`);
+}
 
 function lintBackedOff(project, ws, now) {
   try {
-    return now - Date.parse(JSON.parse(fs.readFileSync(slowMark(project, ws), 'utf8')).at) < LINT_BACKOFF_MS;
+    const mark = JSON.parse(fs.readFileSync(slowMark(project, ws), 'utf8'));
+    return (mark.cmd === undefined || mark.cmd === ws.commands.lint) && now - Date.parse(mark.at) < LINT_BACKOFF_MS;
   } catch {
     return false;
   }
@@ -55,10 +62,10 @@ async function lint(project, ws, rel, now) {
   if (r.timedOut) {
     const file = slowMark(project, ws);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify({ at: new Date(now).toISOString() }));
+    fs.writeFileSync(file, JSON.stringify({ at: new Date(now).toISOString(), cmd }));
     return (
       `lint de ${rel} en ${ws.name}: tardó más de ${Math.round(LINT_TIMEOUT_MS / 1000)} s y se cortó. El lint de este repo es lento para un archivo suelto ` +
-      `(compila el proyecto entero en cada corrida); queda para la verificación, y en ${ws.name} no se vuelve a intentar tras cada edición durante ${Math.round(LINT_BACKOFF_MS / 60000)} minutos.`
+      `(compila el proyecto entero en cada corrida); queda para la verificación, y en ${ws.name} no se vuelve a intentar tras cada edición mientras su comando de lint sea el mismo.`
     );
   }
   if (r.status === 0) return null;

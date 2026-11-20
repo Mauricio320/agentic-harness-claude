@@ -57,7 +57,9 @@ function flagPath(project, ws) {
 
 // El blob de cada tocado, por ruta relativa al workspace. hash-object con --stdin-paths lee rutas
 // relativas a la raíz del repo, y desde ahí aplica los atributos y el autocrlf igual que un commit.
-function blobsOf(ws, files) {
+function blobsOf(ws, all) {
+  // Una carpeta entre los tocados (un repo anidado sin trackear) no tiene blob.
+  const files = all.filter((f) => (fs.statSync(path.join(ws.dir, f), { throwIfNoEntry: false }) || { isFile: () => false }).isFile());
   if (!files.length) return { blobs: {} };
   const rel = (f) => posix(path.relative(ws.gitRoot, path.join(ws.dir, f)));
   const r = spawnSync('git', ['hash-object', '--stdin-paths'], { cwd: ws.gitRoot, input: `${files.map(rel).join('\n')}\n`, encoding: 'utf8' });
@@ -69,7 +71,7 @@ function blobsOf(ws, files) {
 // sha256 de cada tocado con CRLF normalizado a LF, como git guarda un archivo de texto.
 function eolOf(ws, files) {
   const sha = (data) => crypto.createHash('sha256').update(data).digest('hex');
-  return Object.fromEntries(files.filter((f) => fs.existsSync(path.join(ws.dir, f))).map((f) => [f, sha(fs.readFileSync(path.join(ws.dir, f)).toString('latin1').replace(/\r\n/g, '\n'))]));
+  return Object.fromEntries(files.filter((f) => (fs.statSync(path.join(ws.dir, f), { throwIfNoEntry: false }) || { isFile: () => false }).isFile()).map((f) => [f, sha(fs.readFileSync(path.join(ws.dir, f)).toString('latin1').replace(/\r\n/g, '\n'))]));
 }
 
 function writeFlag(project, ws, result, now = new Date(), base = 'HEAD') {
@@ -105,13 +107,24 @@ function checkFlag(project, ws, now = new Date()) {
   if (s.head !== flag.head && !movedElsewhere(project, ws, flag.head, s.head)) return { ok: false, reason: `HEAD cambió desde la verificación (${String(flag.head).slice(0, 10)} → ${s.head.slice(0, 10)})` };
   if (s.touchedHash !== flag.touchedHash) return { ok: false, reason: 'la lista de archivos tocados cambió desde la verificación' };
   if (s.contentHash !== flag.contentHash) return { ok: false, reason: 'el contenido de un archivo tocado cambió desde la verificación' };
-  if (flag.rules && flag.rules !== rulesOf(project, ws)) return { ok: false, reason: 'la configuración del arnés cambió desde la verificación' };
+  if (flag.rules && flag.rules !== rulesOf(project, ws) && flag.rules !== wholeRulesOf(project, ws)) return { ok: false, reason: 'la configuración del arnés cambió desde la verificación' };
   return { ok: true };
 }
 
 // La configuración no está entre los tocados (touched-files.js), así que la bandera lleva su huella
 // aparte: verde con unas reglas no es verde con otras. Una bandera anterior, sin ella, no la compara.
-const rulesOf = (project, ws) => rulesHash([ws.manifest, project.file]);
+// La huella es de lo que el gate lee del workspace: sus comandos, convenciones y globs. Un cambio en lo
+// que el gate no lee (lo prohibido, las rutas de riesgo, la composición, un campo que el arnés no conoce)
+// vencía la bandera y hacía correr todo de nuevo, también en los demás worktrees a los que viajó el ajuste.
+// wholeRulesOf es la huella del manifiesto entero, la de las banderas escritas hasta la 0.8.7.
+const GATE_KEYS = ['codeGlobs', 'lintGlobs', 'specPattern', 'sharedPaths', 'conventions', 'testBaseline', 'knownFailures'];
+const rulesOf = (project, ws) => {
+  const c = ws.commands || {};
+  const read = { commands: { typecheck: c.typecheck, lint: c.lint, test: c.test, testAll: c.testAll, testJson: c.testJson } };
+  for (const k of GATE_KEYS) read[k] = ws[k];
+  return crypto.createHash('sha256').update(JSON.stringify(read)).digest('hex');
+};
+const wholeRulesOf = (project, ws) => rulesHash([ws.manifest, project.file]);
 
 // Foto del turno: por workspace, el sha256 de cada archivo de código tocado al enviarse el prompt
 // ({ code: { ruta: sha256 } }), en .tmp/harness/turn.json.

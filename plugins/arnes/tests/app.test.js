@@ -80,7 +80,7 @@ test('con una base que no es local en el .env, app frena y pide el sí; con la r
   const say = (prompt) => h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt, cwd: dir });
   let r = h.run('build.js', ['app', '--ws', 'api'], { cwd: dir });
   assert.equal(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stdout, /^api: no la levanto todavía: su \.env apunta a 100\.64\.87\.88:5432, que no es una base local/m);
+  assert.match(r.stdout, /^api: no la levanto todavía: su \.env apunta a 100\.64\.87\.88:5432 \(base prod\), que no es una base local/m);
   assert.doesNotMatch(r.stdout, /clave9876|app:/, 'nunca las credenciales');
   assert.ok(!fs.existsSync(path.join(dir, '.tmp', 'harness', 'app', 'api.json')), 'no arrancó');
   say('/arnes:ship');
@@ -91,7 +91,18 @@ test('con una base que no es local en el .env, app frena y pide el sí; con la r
   assert.ok(await until(() => fs.existsSync(path.join(dir, 'hijo.pid'))), 'la app arrancó');
   r = h.run('build.js', ['app', '--ws', 'api'], { cwd: dir });
   assert.equal(r.status, 0, 'aceptada: no vuelve a preguntar');
+  assert.match(r.stdout, /^api: su \.env apunta a 100\.64\.87\.88:5432 \(base prod\), que no es una base local: dile a la persona contra cuál quedó$/m);
   h.run('build.js', ['app', 'stop'], { cwd: dir });
+  // renova365: el host, el puerto y el nombre van en variables sueltas, y el aviso decía solo el host; con
+  // producción en el 5432 y QA en el 5455 del mismo host, la persona aceptó sin saber cuál era.
+  const sueltas = h.tmp('app-sueltas');
+  fs.cpSync(dir, sueltas, { recursive: true });
+  fs.rmSync(path.join(sueltas, '.tmp'), { recursive: true, force: true });
+  h.write(sueltas, '.env', 'PORT=3001\nDB_HOST=100.64.87.88\nDB_PORT=5432\nDB_USER=app\nDB_PASSWORD=clave9876\nDB_NAME=gestion\n');
+  r = h.run('build.js', ['app', '--ws', 'api'], { cwd: sueltas });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /su \.env apunta a 100\.64\.87\.88:5432 \(base gestion\), que no es una base local/);
+  assert.doesNotMatch(r.stdout, /clave9876/);
   h.write(dir, '.env', 'PORT=3001\nDATABASE_URL=postgres://app:x@localhost:5432/dev\n');
   const local = h.tmp('app-local');
   fs.cpSync(dir, local, { recursive: true });

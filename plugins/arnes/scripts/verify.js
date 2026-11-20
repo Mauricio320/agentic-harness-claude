@@ -39,7 +39,7 @@ const { git, help, die } = require('./lib/exec.js');
 const { checkFlag, flagPath, acceptManifests } = require('./gate-flag.js');
 const { carry } = require('./lib/config-propia.js');
 const { append, read, tasks, redStreak, RED_CAP } = require('./lib/timeline.js');
-const { touched } = require('./touched-files.js');
+const { touched, added, deleted } = require('./touched-files.js');
 const { missingSpecs, patternRegExp } = require('./test-select.js');
 const { matchAny } = require('./lib/glob.js');
 const { informe } = require('./informe.js');
@@ -63,8 +63,8 @@ function firstRed(section) {
   return l ? l.trim().replace(/\s+FALLA\s+·\s*/, ': ') : 'el gate salió en rojo';
 }
 
-// Verde con este mismo contenido: la bandera está vigente, es del mismo base y es más nueva que los
-// manifiestos del workspace y del proyecto, porque una convención nueva obliga a correrlo de nuevo.
+// Verde con este mismo contenido: la bandera está vigente (el mismo HEAD, los mismos archivos y la misma
+// configuración del gate) y es del mismo base.
 function fresh(project, ws, base) {
   if (!checkFlag(project, ws).ok) return false;
   let flag;
@@ -74,9 +74,7 @@ function fresh(project, ws, base) {
     return false;
   }
   const want = base === 'HEAD' ? 'HEAD' : git(ws.gitRoot, ['rev-parse', '--verify', '--quiet', `${base}^{commit}`]).stdout.trim();
-  if ((flag.base || 'HEAD') !== want) return false;
-  const rules = [ws.manifest, path.join(project.root, MANIFEST)].filter((f) => f && fs.existsSync(f)).map((f) => fs.statSync(f).mtimeMs);
-  return Date.parse(flag.at) > Math.max(0, ...rules);
+  return Boolean(flag.rules) && (flag.base || 'HEAD') === want;
 }
 
 // → los repos cuyo manifiesto quedó igual al del checkout principal (lib/config-propia.js carry). Lo
@@ -97,9 +95,12 @@ function run(project, base, afterTests, integration = false) {
   if (!afterTests) append(project.root, { event: 'start', stage: 'verify', detail: base === 'HEAD' ? undefined : `base ${base}` });
   const found = [];
   for (const ws of project.workspaces) {
+    if (!fs.existsSync(ws.dir)) continue;
     const t = touched(ws, base, project);
+    if (t.error && !ws.adoptable) continue;
     if (t.error) die(`verify: ${t.error}`);
-    if (t.files.length) found.push({ ws, files: t.files.filter((f) => fs.existsSync(path.join(ws.dir, f))) });
+    const gone = t.files.length ? [] : deleted(ws, base).files || [];
+    if (t.files.length || gone.length) found.push({ ws, files: t.files.filter((f) => fs.existsSync(path.join(ws.dir, f))) });
   }
   const say = (l) => console.log(l);
   const listTasks = () => {
@@ -115,7 +116,9 @@ function run(project, base, afterTests, integration = false) {
   for (const { ws } of found.filter((x) => !x.ws.adoptable)) say(`${ws.name}: no adoptable todavía; tiene cambios, pero no se verifica`);
   const adoptable = found.filter((x) => x.ws.adoptable);
   const kept = new Set(adoptable.filter((x) => fresh(project, x.ws, base)).map((x) => x.ws.name));
-  const missing = new Map(adoptable.map(({ ws, files }) => [ws.name, missingSpecs(ws, files)]));
+  const fresh0 = new Map(adoptable.map(({ ws }) => [ws.name, new Set(added(ws, base, project).files || [])]));
+  const unspecced = (ws, files) => missingSpecs(ws, files.filter((f) => fresh0.get(ws.name).has(f)));
+  const missing = new Map(adoptable.map(({ ws, files }) => [ws.name, unspecced(ws, files)]));
   if (integration) {
     const writers = [];
     for (const { ws, files } of adoptable) {
@@ -167,7 +170,7 @@ function run(project, base, afterTests, integration = false) {
       const w = node('gate-flag.js', ['write', ws.name, '--result', 'pass', ...(base === 'HEAD' ? [] : ['--base', base])]);
       flag = w.status === 0 ? w.out.trim() : `la bandera no se escribió: ${w.out.trim()}`;
     }
-    results.push({ ws, ok: gate.status === 0, section: moved ? `${section}\n${moved}` : section, flag, left: afterTests ? missingSpecs(ws, adoptable.find((x) => x.ws === ws).files) : [] });
+    results.push({ ws, ok: gate.status === 0, section: moved ? `${section}\n${moved}` : section, flag, left: afterTests ? unspecced(ws, adoptable.find((x) => x.ws === ws).files) : [] });
   }
   const ok = results.every((r) => r.ok);
   const rojos = results.filter((r) => !r.ok).map((r) => r.ws.name);

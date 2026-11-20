@@ -370,7 +370,7 @@ function runTests(ws, cmd, specs, all = false) {
 }
 
 function noAdapter(ws, cmd) {
-  return `${ws.name}: no hay adaptador de resultados para ${toolOf(cmd) || cmd}; declara commands.testJson con un comando que imprima el contrato de resultados (docs/PROBADORES.md §4, punto 7)`;
+  return `${ws.name}: no hay adaptador de resultados para ${toolOf(cmd) || cmd}; declara commands.testJson con un comando del repo que imprima en JSON, por cada test, su archivo, su nombre y si pasó, falló o se saltó`;
 }
 
 function baselinePath(ws) {

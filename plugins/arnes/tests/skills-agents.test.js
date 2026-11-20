@@ -29,13 +29,16 @@ test('presupuesto de §2: ninguna skill pasa de 80 líneas y ningún agente de 1
   for (const a of agents) assert.ok(frontmatter(path.join(PLUGIN, 'agents', a)).lines <= 120, `agente ${a}`);
 });
 
-test('política de invocación de §4: init, setup, ship, worktree, sync y cerrar solo por la persona; el resto también por el modelo', () => {
+// ship pasó a ser invocable por el modelo en la 0.8.8: la persona dijo «Sí, entrégalo» y la respuesta fue
+// que escribiera el comando. La carga solo cuando se lo piden, y el push sigue exigiendo su sí.
+test('política de invocación de §4: init, setup, worktree, sync y cerrar solo por la persona; el resto también por el modelo', () => {
   const dmi = (s) => frontmatter(path.join(PLUGIN, 'skills', s, 'SKILL.md')).fm['disable-model-invocation'] === 'true';
-  const person = ['init', 'setup', 'ship', 'worktree', 'sync', 'cerrar'];
-  const model = ['plan', 'build', 'verify', 'review', 'memory', 'timeline'];
+  const person = ['init', 'setup', 'worktree', 'sync', 'cerrar'];
+  const model = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'timeline'];
   assert.deepEqual([...person, ...model].sort(), [...skills].sort(), 'cada skill está en una de las dos listas');
   for (const s of person) assert.ok(dmi(s), `${s} debe llevar disable-model-invocation: true`);
   for (const s of model) assert.ok(!dmi(s), `${s} debe ser invocable por el modelo`);
+  assert.match(frontmatter(path.join(PLUGIN, 'skills', 'ship', 'SKILL.md')).fm.description, /cuando la persona lo pide.*nunca por cuenta propia/, 'ship dice cuándo se carga');
 });
 
 test('agentes de §6.4 con su model y su effort; el reviewer en solo lectura, sin Bash, Edit ni Write', () => {

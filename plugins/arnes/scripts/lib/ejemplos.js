@@ -44,7 +44,7 @@ function evidencia(project) {
   } catch {
     return out;
   }
-  for (const l of text.split('\n')) {
+  for (const l of text.split(/\r?\n/)) {
     const m = l.match(LINE);
     if (!m) continue;
     const ok = /^comprobado\b/i.test(m[2].trim());

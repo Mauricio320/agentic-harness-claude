@@ -91,7 +91,7 @@ function planState(entries) {
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
   if (i < 0) return { open: false, approved: false, written: false };
   const after = entries.slice(i + 1);
-  const closed = (e) => (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && e.result === 'movido');
+  const closed = (e) => (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && (e.result === 'movido' || e.result === 'cancelado'));
   if (after.some(closed)) return { open: false, approved: false, written: false };
   const is = (e, event, result) => e.stage === 'plan' && e.event === event && (!result || e.result === result);
   return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
@@ -341,7 +341,7 @@ function main() {
   if (stage === 'ajuste') die('timeline: el ajuste de configuración lo anota ajuste.js, que comprueba que lo aprobó la persona');
   if (stage === 'turno') die('timeline: las notas del turno las anotan los hooks: la respuesta, UserPromptSubmit con el mensaje de la persona; el cierre, el Stop');
   const found = PREP.includes(stage) ? loadProject(dir) : null;
-  const root = found && !found.errors.length ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;
+  const root = found ? found.root : PREP.includes(stage) ? dir : requireProject(dir).root;
   append(root, {
     event,
     stage,

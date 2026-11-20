@@ -421,14 +421,21 @@ function remoteBlocked(project, ws) {
   if (!remote.length) return false;
   const all = read(project.root);
   const run = all.slice(all.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true) + 1).filter((e) => !e.ws || e.ws === ws.name);
-  if (run.some((e) => e.stage === 'app' && e.result === 'base-aceptada')) return false;
+  // Ya aceptada en este plan: arranca, y dice contra cuál, que puede no ser la que la persona aceptó (un
+  // .env editado después).
+  const told = () => console.log(`${ws.name}: su .env apunta a ${remote.join(', ')}, que no es una base local: dile a la persona contra cuál quedó`);
+  if (run.some((e) => e.stage === 'app' && e.result === 'base-aceptada')) {
+    told();
+    return false;
+  }
   const i = run.map((e) => e.stage === 'app' && e.result === 'base-remota').lastIndexOf(true);
   if (i >= 0 && run.slice(i + 1).some(personYes)) {
     append(project.root, { event: 'note', stage: 'app', result: 'base-aceptada', ws: ws.name, detail: remote.join(', ') });
+    told();
     return false;
   }
   append(project.root, { event: 'note', stage: 'app', result: 'base-remota', ws: ws.name, detail: remote.join(', ') });
-  console.log(`${ws.name}: no la levanto todavía: su .env apunta a ${remote.join(', ')}, que no es una base local, y lo que la app haga ahí (migraciones al arrancar, tareas programadas, los datos de la prueba) no se queda en este worktree. Pregúntale a la persona si la levanto contra esa base; con su sí en un mensaje suyo, vuelve a correr esto, y no vuelvo a preguntar en este plan.`);
+  console.log(`${ws.name}: no la levanto todavía: su .env apunta a ${remote.join(', ')}, que no es una base local, y lo que la app haga ahí (migraciones al arrancar, tareas programadas, los datos de la prueba) no se queda en este worktree. Pregúntale a la persona si la levanto contra esa base, diciéndole el host, el puerto y el nombre tal cual, que es lo que distingue producción de QA; con su sí en un mensaje suyo, vuelve a correr esto, y no vuelvo a preguntar en este plan.`);
   return true;
 }
 
@@ -459,7 +466,7 @@ function app(project, wsName, dry) {
   // porque editarlo para probar terminaría en el commit.
   const map = nativeMap(project);
   const ng = map.find((m) => m.ws === ws.name && m.from === ngPort(ws.dir));
-  if (ng) cmd = `${cmd}${/^npm run /.test(cmd) ? ' --' : ''} --port ${ng.to}`;
+  if (ng) cmd = `${cmd}${/^npm (run\s|start\b)/.test(cmd) ? ' --' : ''} --port ${ng.to}`;
   const others = map.filter((m) => m.ws !== ws.name);
   const fixed = others.length ? lines(git(ws.dir, ['grep', '-l', '-E', `:(${others.map((m) => m.from).join('|')})\\b`, '--', '.', ':!*.spec.*', ':!*.test.*', ':!*.md', ':!.env*']).stdout) : [];
   for (const file of fixed) console.log(`${ws.name}: ${file} fija el puerto de ${others.map((m) => `${m.ws} (${m.from}, aquí ${m.to})`).join(', ')}: le hablará a la app del checkout principal, no a la de este worktree; no lo edites para probar, que terminaría en el commit`);

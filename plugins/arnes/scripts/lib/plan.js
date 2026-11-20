@@ -12,7 +12,7 @@ const planPath = (project) => path.join(harnessDir(project), 'plan.md');
 // El texto del plan, o null si no hay.
 function readPlan(project) {
   try {
-    return fs.readFileSync(planPath(project), 'utf8');
+    return fs.readFileSync(planPath(project), 'utf8').replace(/\r\n/g, '\n');
   } catch {
     return null;
   }

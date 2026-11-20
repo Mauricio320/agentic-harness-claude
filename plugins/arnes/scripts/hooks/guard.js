@@ -58,7 +58,32 @@ const { nativeWorktree } = require('../lib/worktree-nativo.js');
 const { CONFIG_SPEC, configRoot, configHome, prepAt, AJUSTE, AJUSTE_JS } = require('../lib/configuracion.js');
 
 const CD = new Set(['cd', 'chdir', 'pushd', 'set-location', 'sl', 'push-location']);
-const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item']);
+const LISTERS = new Set(['ls', 'dir', 'rm', 'get-childitem', 'gci', 'remove-item', 'test', '[', 'stat', 'test-path', 'get-item', 'gi']);
+// Lo que solo da forma a una lista de nombres, y solo si va sin bloques ni expresiones (PLAIN): con un
+// bloque o un paréntesis puede abrir el archivo que recibe. Select-String y Where-Object no van: el primero
+// busca dentro de los archivos que le llegan por la tubería, y el segundo es un bloque de código.
+const NAMERS = new Set(['select-object', 'select', 'format-table', 'ft', 'format-list', 'fl', 'sort-object', 'sort', 'measure-object', 'measure', 'out-string', 'head', 'tail', 'wc', 'grep', 'findstr', 'uniq', 'cut', 'tr']);
+const PLAIN = /^[^{}()@$`]*$/;
+// Un formateador que toma de su entrada la lista de archivos a abrir (sort --files0-from=-, findstr /f:/).
+const FROM_INPUT = /files0-from|\/[fg]:/i;
+// Los que no abren ningún archivo: lo que nombran es texto.
+const TEXT_ONLY = new Set(['echo', 'printf', 'write-output', 'write-host']);
+// Opciones cuyo valor es texto libre, no una ruta: el mensaje de un commit, el título y el cuerpo de un MR.
+// Solo en los subcomandos de git que llevan mensaje y en gh y glab: en otros comandos -m o -t son otra cosa
+// (sort -m .env lee el archivo).
+const GIT_MESSAGE = new Set(['commit', 'tag', 'merge', 'stash', 'notes', 'revert', 'cherry-pick']);
+const HOST_TEXT = new Set(['-m', '--message', '--body', '--title', '--description', '-t', '-b']);
+const SEARCHERS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'findstr', 'select-string', 'sls']);
+// Las opciones de un buscador que no se llevan el argumento siguiente. Con cualquier otra delante (-e, -f,
+// --include, -Path, -Pattern), el primer argumento suelto puede no ser el patrón, y se cuenta como ruta.
+const SEARCH_FLAG = /^-[rRnivlcwxHhsqoEFPIazSU]+$|^--(recursive|line-number|ignore-case|invert-match|files-with-matches|count|color(=\w+)?|no-messages|word-regexp|fixed-strings|extended-regexp)$/;
+
+// ¿El texto puede ejecutar algo adentro? $(…), `…`, <(…), ${…} y, fuera de comillas, cualquier paréntesis
+// (en PowerShell un paréntesis es una expresión: (Get-Content .env)).
+function expands(text) {
+  if (/\$\(|`|<\(|\$\{/.test(text)) return true;
+  return /\(/.test(String(text).replace(/'[^']*'|"[^"]*"/g, ''));
+}
 const RUNNERS = [['npx'], ['bunx'], ['pnpm', 'exec'], ['pnpm', 'dlx'], ['yarn'], ['npm', 'exec']];
 
 // Git Bash escribe C:\x como /c/x; ~ es el home.
@@ -142,10 +167,34 @@ function judgeWorktreeRemove(dir, rest) {
   return `git worktree remove ${target}: su rama ${head.stdout.trim()} tiene ${commits.length} commit(s) que no están en ${branch}. Intégralos (git merge --no-ff) antes de borrarlo.`;
 }
 
-function judgeCommit(dir) {
+// El repositorio de git de una carpeta, por su ruta real: un worktree, un nombre corto de Windows o un
+// enlace llevan al mismo.
+function commonDir(d) {
+  const r = git(d, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (r.status !== 0 || !r.stdout.trim()) return null;
+  try {
+    const real = fs.realpathSync.native(r.stdout.trim());
+    return process.platform === 'win32' ? real.toLowerCase() : real;
+  } catch {
+    return null;
+  }
+}
+
+function judgeCommit(dir, args = []) {
   const { project, ws } = workspaceAt(dir);
   if (!project) return null;
-  if (!ws) return `git commit: no se sabe a qué workspace va (${dir} no está dentro de ninguno de ${project.name}). Usa git -C <repo> commit o cd al repo.`;
+  // Con --git-dir o --work-tree el commit va al repo que nombran, no al de la carpeta donde está la sesión:
+  // desde un repo con su verificación al día se commiteaba en otro sin ella.
+  if (args.some((a) => /^--(git-dir|work-tree)\b/.test(a))) return 'git commit con --git-dir o --work-tree: no se sabe a qué workspace va. Usa git -C <repo> commit o cd al repo.';
+  if (!ws) {
+    // Un commit en el repo de la carpeta (su CLAUDE.md, su .gitignore) no es de ningún workspace y pasa.
+    // Si el repositorio es el de un workspace (un worktree suyo fuera de su carpeta), o el comando lo
+    // redirige con --git-dir o --work-tree, o no se puede saber, se niega como siempre.
+    const mine = commonDir(dir);
+    const elsewhere = args.some((a) => /^--(git-dir|work-tree)\b/.test(a));
+    const ofWorkspace = !mine || elsewhere || project.workspaces.some((w) => commonDir(w.gitRoot) === mine);
+    return ofWorkspace ? `git commit: no se sabe a qué workspace va (${dir} no está dentro de ninguno de ${project.name}). Usa git -C <repo> commit o cd al repo.` : null;
+  }
   if (!ws.adoptable) return null;
   const r = checkFlag(project, ws);
   if (r.error || r.ok) return null;
@@ -191,13 +240,19 @@ const TO_LOSE = 'Si de verdad hace falta, lo corre la persona en su terminal; pa
 // Los archivos con cambios que se perderían, o [] si no hay nada o git falla. Un borrado no cuenta:
 // devolverlo no pierde nada. Sin vsHead, el árbol contra el índice; con vsHead, también se pierde lo
 // staged, así que suma el índice contra HEAD (un cambio staged con el árbol igual a HEAD también).
-function changed(dir, paths, vsHead) {
+function changed(dir, paths, vsHead, sides = false) {
   const diff = (extra) => {
     const r = git(dir, ['diff', '--name-only', '--diff-filter=d', ...extra, '--', ...paths]);
     return r.status === 0 ? lines(r.stdout) : [];
   };
-  return vsHead ? [...new Set([...diff(['HEAD']), ...diff(['--cached'])])] : diff([]);
+  const all = [...new Set(vsHead ? [...diff(['HEAD']), ...diff(['--cached'])] : diff([]))];
+  if (!sides || vsHead) return all;
+  const conflicted = new Set(lines(git(dir, ['diff', '--name-only', '--diff-filter=U', '--', ...paths]).stdout));
+  return all.filter((f) => !conflicted.has(f));
 }
+
+// --ours, --theirs, --merge o --conflict sobre rutas: resolver un conflicto, no descartar.
+const takesSide = (rest) => rest.some((a) => a === '--ours' || a === '--theirs' || a === '--merge' || a.startsWith('--conflict'));
 
 const lostText = (what, files) => `${what} descarta los cambios sin commitear de ${files.length} archivo(s) (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) sin vuelta. ${TO_LOSE}`;
 
@@ -222,7 +277,7 @@ function judgeRestore(dir, rest) {
     else if (!a.startsWith('-')) paths.push(a);
   }
   if (!paths.length) return null;
-  const files = changed(dir, paths, source || staged);
+  const files = changed(dir, paths, source || staged, takesSide(rest));
   return files.length ? lostText('git restore', files) : null;
 }
 
@@ -247,7 +302,7 @@ function judgeCheckout(dir, rest, sub) {
   const tree = words.length && isCommit(dir, words[0]);
   const paths = dd >= 0 ? rest.slice(dd + 1) : words.slice(tree ? 1 : 0).filter((a) => a === '.' || fs.existsSync(toPath(dir, a)));
   if (!paths.length) return null;
-  const files = changed(dir, paths, tree);
+  const files = changed(dir, paths, tree, takesSide(rest));
   return files.length ? lostText('git checkout de rutas', files) : null;
 }
 
@@ -283,7 +338,7 @@ function judgeGit(args, dir) {
   }
   if (sub === 'branch') return judgeBranchDelete(g.dir, rest);
   if (sub === 'worktree') return judgeWorktreeRemove(g.dir, rest);
-  if (sub === 'commit') return judgeConfigCommit(g.dir, rest) || judgeCommit(g.dir);
+  if (sub === 'commit') return judgeConfigCommit(g.dir, rest) || judgeCommit(g.dir, args);
   if (sub === 'add') return judgeAdd(g.dir, rest);
   return null;
 }
@@ -292,12 +347,27 @@ function judgeGit(args, dir) {
 
 // Las rutas que nombra un comando: cada pedazo de cada argumento que puede ser una ruta, sin el
 // destino de una redirección de salida ni el marcador de heredoc. Un `cat < .env` también la nombra.
-function namedPaths(args) {
+// No cuenta el texto libre: el valor de -m, --body o --title, el patrón de un buscador (su primer argumento
+// que no es opción) y todo lo que escribe un echo. «git commit -m "valida credentials"» se negaba por nombrar
+// un archivo de credenciales, y «grep -rn credentials src/», por lo mismo.
+// exe solo llega cuando el comando no puede leer nada por otro lado (judgeSecrets relax): sin él, todo cuenta.
+function namedPaths(args, exe = '', gitSub = '') {
+  if (TEXT_ONLY.has(exe)) return [];
   const out = [];
+  const message = exe === 'git' && GIT_MESSAGE.has(gitSub);
+  const text = message ? (a) => a === '-m' || a === '--message' : exe === 'gh' || exe === 'glab' ? (a) => HOST_TEXT.has(a) : () => false;
+  const texted = message || exe === 'gh' || exe === 'glab';
+  let pattern = SEARCHERS.has(exe);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (/^[0-9&]?>>?$/.test(a)) i++;
-    else if (!/^[0-9&]?>/.test(a) && a !== '<<HEREDOC') out.push(...a.replace(/^</, '').split(/[\s'"`()[\]{},;=|&<>$]+/).filter(Boolean));
+    else if (text(a)) i++;
+    else if (texted && /^--(message|body|title|description)=/.test(a)) continue;
+    else if (pattern && !/^[-/<]/.test(a)) pattern = false;
+    else {
+      if (pattern && !SEARCH_FLAG.test(a)) pattern = false;
+      if (!/^[0-9&]?>/.test(a) && a !== '<<HEREDOC') out.push(...a.replace(/^</, '').split(/[\s'"`()[\]{},;=|&<>$]+/).filter(Boolean));
+    }
   }
   return out;
 }
@@ -306,11 +376,18 @@ function namedPaths(args) {
 const COPIERS = new Set(['cp', 'copy', 'xcopy', 'robocopy', 'copy-item', 'cpi', 'install', 'rsync']);
 const EQUIPAR = path.join(__dirname, '..', 'worktree-carpeta.js').split(path.sep).join('/');
 
-function judgeSecrets(cmd, piece, dir) {
+function judgeSecrets(cmd, piece, dir, namesOnly = false, line = { calm: false, alone: false }) {
   const { project } = workspaceAt(dir);
-  const hit = namedPaths(cmd.args).map((p) => ({ p, abs: toPath(dir, p) })).find((x) => secretPath(x.abs, project));
+  // Lo aflojado (listar, el texto de un echo o de un mensaje, el patrón de un buscador) vale solo si nada
+  // puede abrir después lo que el comando nombra: la línea entera no usa variables ni expansiones (cat $_
+  // lee el último argumento del comando anterior), su salida no sigue por tubería más que a formateadores
+  // de nombres, y si la manda a un archivo, el comando va solo.
+  const toFile = cmd.args.some((a) => /^[0-9&]?>/.test(a));
+  const relax = line.calm && !expands(piece.text) && (piece.sep !== '|' || namesOnly) && (!toFile || line.alone);
+  const gitSub = cmd.exe === 'git' ? splitGit(cmd.args, dir).sub : '';
+  const hit = namedPaths(cmd.args, relax ? cmd.exe : '', gitSub).map((p) => ({ p, abs: toPath(dir, p) })).find((x) => secretPath(x.abs, project));
   if (!hit) return null;
-  if (LISTERS.has(cmd.exe) && piece.sep !== '|' && !/\$\(|<\(|`/.test(piece.text)) return null;
+  if (LISTERS.has(cmd.exe) && relax) return null;
   const shown = maskedFile(hit.abs, project);
   const copy = COPIERS.has(cmd.exe) ? ` Para llevar los .env a un worktree, corre node "${EQUIPAR}" equipar --dir <carpeta del worktree>: los copia del checkout principal sin mostrarlos.` : '';
   const why = secretPath(hit.abs, project);
@@ -322,7 +399,7 @@ function judgeSecrets(cmd, piece, dir) {
 // la lee; la redirección de salida hacia ella nunca. Uno que borra o mueve la carpeta que la tiene
 // (el repo o su .claude/), tampoco. Un commit no la lleva: ni lo staged, ni lo modificado con -a.
 
-const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'rg', 'select-string', 'sls', 'findstr', 'jq', 'wc', 'diff', 'ls', 'dir', 'get-childitem', 'gci', 'stat', 'test-path', 'echo', 'printf', 'write-output']);
+const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'rg', 'select-string', 'sls', 'findstr', 'jq', 'wc', 'diff', 'ls', 'dir', 'get-childitem', 'gci', 'stat', 'test-path', 'echo', 'printf', 'write-output', 'nl', 'cut', 'file', 'test', '[', 'get-item', 'gi']);
 const GIT_READS = new Set(['diff', 'log', 'show', 'status', 'blame', 'ls-files', 'cat-file', 'grep']);
 const MOVERS = new Set(['rm', 'rmdir', 'del', 'erase', 'rd', 'remove-item', 'ri', 'mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni']);
 
@@ -365,13 +442,17 @@ function liveConfig(list, dir, holder = false) {
 // ajuste.js del propio arnés nombra la configuración para proponer un cambio, y no la escribe: la abre
 // solo con la respuesta de la persona (lib/configuracion.js AJUSTE).
 const samePath = (a, b) => path.resolve(a).replace(/\\/g, '/').toLowerCase() === path.resolve(b).replace(/\\/g, '/').toLowerCase();
-const isAjuste = (cmd, dir) => cmd.exe === 'node' && Boolean(cmd.args[0]) && samePath(toPath(dir, cmd.args[0]), AJUSTE_JS);
+const MANIFEST_JS = path.join(__dirname, '..', 'lib', 'manifest.js');
+const isAjuste = (cmd, dir) => cmd.exe === 'node' && Boolean(cmd.args[0]) && [AJUSTE_JS, MANIFEST_JS].some((f) => samePath(toPath(dir, cmd.args[0]), f));
 
-function judgeConfig(cmd, dir) {
+function judgeConfig(cmd, dir, piece = { text: '' }) {
   const out = liveConfig(redirectTargets(cmd.args), dir);
   if (out) return `${cmd.raw} > ${out}: ${CONFIG_WHY}`;
-  const reads = cmd.exe === 'git' ? GIT_READS.has(splitGit(cmd.args, dir).sub) : READERS.has(cmd.exe) || isAjuste(cmd, dir);
-  const hit = reads ? null : liveConfig(namedPaths(cmd.args), dir);
+  const gitSub = cmd.exe === 'git' ? splitGit(cmd.args, dir).sub : '';
+  const reads = cmd.exe === 'git' ? GIT_READS.has(gitSub) : READERS.has(cmd.exe) || isAjuste(cmd, dir);
+  // El mensaje de un commit o el cuerpo de un MR que nombra la configuración no la toca.
+  const texted = ['git', 'gh', 'glab'].includes(cmd.exe) && !expands(piece.text);
+  const hit = reads ? null : liveConfig(namedPaths(cmd.args, texted ? cmd.exe : '', gitSub), dir);
   if (hit) return `${cmd.raw} ${hit}: ${CONFIG_WHY}`;
   const holder = MOVERS.has(cmd.exe) ? liveConfig(namedPaths(cmd.args), dir, true) : null;
   return holder ? `${cmd.raw} ${holder}: borra o mueve una carpeta con configuración del proyecto, y sin ella el arnés se apaga. Si de verdad hace falta, lo corre la persona en su terminal.` : null;
@@ -459,9 +540,18 @@ function noteGraph(cmd, dir) {
 
 function judge(text, dir, depth = 0, dialect = 'bash') {
   let cwd = dir;
-  for (const piece of pieces(text, dialect)) {
+  const all = [...pieces(text, dialect)];
+  const line = { calm: !/\$/.test(text) && !expands(text), alone: all.length === 1 };
+  for (let n = 0; n < all.length; n++) {
+    const piece = all[n];
     const cmd = command(piece.text, dialect);
     if (!cmd) continue;
+    // ¿Todo lo que recibe la salida de este comando por tubería solo da forma a nombres?
+    let namesOnly = piece.sep === '|';
+    for (let j = n; namesOnly && j < all.length && all[j].sep === '|'; j++) {
+      const next = all[j + 1] && command(all[j + 1].text, dialect);
+      namesOnly = Boolean(next && NAMERS.has(next.exe) && PLAIN.test(all[j + 1].text) && !FROM_INPUT.test(all[j + 1].text));
+    }
     if (CD.has(cmd.exe)) {
       const target = cmd.args.find((a) => !a.startsWith('-') && a.toLowerCase() !== '/d');
       if (target && target !== '-') cwd = toPath(cwd, target);
@@ -474,7 +564,7 @@ function judge(text, dir, depth = 0, dialect = 'bash') {
       continue;
     }
     noteGraph(cmd, cwd);
-    const why = judgeSecrets(cmd, piece, cwd) || judgeConfig(cmd, cwd) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
+    const why = judgeSecrets(cmd, piece, cwd, namesOnly, line) || judgeConfig(cmd, cwd, piece) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }
   return null;

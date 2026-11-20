@@ -47,7 +47,7 @@ function blockersOf(report) {
   for (const l of lines(report)) {
     const h = l.match(/^\*\*`(.+)`\*\*\s*$/);
     if (h) file = h[1];
-    else if (/^\s*-?\s*BLOQUEANTE\b/.test(l)) out.push(`${file ? `${file} · ` : ''}${l.replace(/^\s*-\s*/, '')}`);
+    else if (/^\s*(?:[-*]\s+)?[*_`]*BLOQUEANTE\b(?!S)/.test(l)) out.push(`${file ? `${file} · ` : ''}${l.replace(/^\s*[-*]\s+/, '').replace(/^[*_`]+(BLOQUEANTE)[*_`]+/, '$1')}`);
   }
   return out;
 }

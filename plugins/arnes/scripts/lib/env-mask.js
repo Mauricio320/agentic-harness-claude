@@ -108,7 +108,7 @@ function maskJson(text, reveal = []) {
     return { lines: [], json: false };
   }
   const walk = (v, key, inside) => {
-    if (Array.isArray(v)) return v.map((x) => walk(x, key, inside));
+    if (Array.isArray(v)) return v.map((x, i) => (typeof x === 'string' && x && typeof v[i - 1] === 'string' && /^-/.test(v[i - 1]) && SENSITIVE.test(v[i - 1]) ? maskValue(x) : walk(x, key, inside)));
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k, inside || /^(env|headers)$/i.test(k))]));
     if (typeof v !== 'string' || !v) return v;
     if (revealed(key, reveal) || (!SENSITIVE.test(key) && revealed(key, DEFAULT_REVEAL))) return v;

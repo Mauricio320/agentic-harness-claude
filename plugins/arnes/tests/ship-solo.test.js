@@ -212,6 +212,12 @@ test('sin nada que commitear y con commits sin subir, entregar es el push', () =
   const dir = repo();
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
   h.commitAll(dir, 'feat: a mano');
+  // Sin remoto no hay a dónde subir: antes todo commit contaba como sin subir, y cada /arnes:ship volvía a
+  // preguntar por un push que fallaba (informes-front y api-informes, en academico).
+  assert.match(check(dir).stdout, /sin tocados en ningún workspace adoptable; nada que entregar/);
+  const bare = h.tmp('solo-origen');
+  h.git(bare, 'init', '-q', '--bare');
+  h.git(dir, 'remote', 'add', 'origin', bare);
   const r = check(dir);
   assert.equal(r.status, 0, r.stdout);
   assert.match(r.stdout, /^resultado: LISTO PARA SUBIR$/m);

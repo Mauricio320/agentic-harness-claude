@@ -67,9 +67,9 @@ function added(ws, base = 'HEAD', project = null) {
 
 // Los borrados respecto de <base>: no son tocados, pero un commit tiene que llevarlos.
 function deleted(ws, base = 'HEAD') {
-  const diff = git(ws.dir, ['diff', '--name-only', '--diff-filter=D', '--relative', base, '--']);
+  const diff = git(ws.dir, ['diff', '--name-only', '--no-renames', '--diff-filter=D', '--relative', base, '--']);
   if (diff.status !== 0) return { error: `git diff falló en ${ws.name}: ${firstLine(diff.stderr)}` };
-  return { files: lines(diff.stdout).sort() };
+  return { files: lines(diff.stdout).filter((f) => !NEVER.test(f) && f !== OWN).sort() };
 }
 
 function withExt(ws, files, exts) {

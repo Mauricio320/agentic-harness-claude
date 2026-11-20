@@ -28,10 +28,10 @@ const { maskEnv, maskJson } = require('../lib/env-mask.js');
 const MAX_BYTES = 256 * 1024;
 
 const DIRS = ['.ssh', '.aws'];
-const ALLOWED = [/^\.env\.example$/i];
+const ALLOWED = [/^\.env\.(example|template|sample)$/i];
 const NAMES = [
   [/^\.env(\..+)?$|^\.envrc$/i, 'es un archivo .env'],
-  [/^(\.netrc|\.pgpass|\.git-credentials|credentials(\.[a-z]+)?)$/i, 'es un archivo de credenciales'],
+  [/^(\.netrc|\.pgpass|\.git-credentials|credentials(?!(\.[a-z0-9-]+)*\.(ts|tsx|js|jsx|mjs|cjs|vue|py|go|rb|rs|java|kt|cs|php|md)$)(\.[a-z0-9-]+)*)$/i, 'es un archivo de credenciales'],
   [/^id_(rsa|dsa|ecdsa|ed25519)$|\.(pem|key|p12|pfx|keystore|jks)$/i, 'es una llave privada o un certificado'],
   [/\.token$|^token\.json$/i, 'es un token'],
   [/^\.mcp\.json$/i, 'trae las credenciales de los servidores MCP'],
@@ -116,7 +116,6 @@ function readGuard(input) {
   const file = (p) => [p, secretPath(toPath(cwd, p), project), toPath(cwd, p)];
   if (input.tool_name === 'Read' && ti.file_path) checks.push(file(ti.file_path));
   if ((input.tool_name === 'Glob' || input.tool_name === 'Grep') && ti.path) checks.push(input.tool_name === 'Grep' ? file(ti.path) : [ti.path, secretPath(toPath(cwd, ti.path), project)]);
-  if (input.tool_name === 'Glob' && ti.pattern) checks.push([ti.pattern, secretGlob(ti.pattern)]);
   if (input.tool_name === 'Grep' && ti.glob) checks.push([ti.glob, secretGlob(ti.glob)]);
   const found = checks.find(([, why]) => why);
   if (!found) return null;

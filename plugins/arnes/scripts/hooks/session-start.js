@@ -38,6 +38,7 @@ const issues = require('../lib/issues.js');
 const { append } = require('../lib/timeline.js');
 const { LOCK_MAX_MS, claudePid, alive } = require('../lib/sesiones.js');
 const compat = require('../lib/compat.js');
+const { AJUSTE } = require('../lib/configuracion.js');
 
 const MAX_LINES = 40;
 const DECISIONS = 5;
@@ -205,6 +206,14 @@ function unlockSession(input) {
 
 // ---------- contexto ----------
 
+function equipLines(cwd) {
+  try {
+    return carpeta.equipNative(cwd).lines;
+  } catch (e) {
+    return [`no pude terminar de preparar este worktree (${String(e.message).split('\n')[0]}); lo demás sigue igual`];
+  }
+}
+
 function sessionStart(input, now = new Date()) {
   const cwd = path.resolve(input.cwd || process.cwd());
   carpeta.bringConfig(cwd);
@@ -218,11 +227,11 @@ function sessionStart(input, now = new Date()) {
     ].join('\n');
   }
   if (project.errors.length) {
-    return [`arnes: la configuración del arnés no es válida, así que no verifica nada hasta corregirla:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), 'Corrígela, o la persona la rehace con /arnes:init.'].join('\n');
+    return [`arnes: la configuración del arnés no es válida, así que no verifica nada hasta corregirla:`, ...project.errors.slice(0, 5).map((e) => `- ${e}`), AJUSTE].join('\n');
   }
   surface(project, input, cwd, now);
   const kind = project.kind === 'folder' ? `carpeta con ${project.workspaces.length} repo(s)` : 'repo';
-  const native = carpeta.equipNative(cwd).lines;
+  const native = equipLines(cwd);
   const w = nativeRoot(project);
   if (w && project.kind === 'folder') carpeta.protect(cwd);
   const pruned = carpeta.pruneOrphans(w ? loadProject(w.main) : project);
@@ -248,7 +257,7 @@ function entered(input) {
   carpeta.bringConfig(cwd);
   const project = loadProject(cwd);
   if (!project || project.errors.length) return null;
-  const native = carpeta.equipNative(cwd).lines;
+  const native = equipLines(cwd);
   const w = nativeRoot(project);
   if (!w) return null;
   const main = loadProject(w.main);

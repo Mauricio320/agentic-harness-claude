@@ -34,8 +34,13 @@ function treeOf(wt, exclude = []) {
   const rel = [...exclude.map((p) => posix(path.relative(wt, p))).filter((r) => r && !r.startsWith('..')), '.tmp/harness'];
   const ignored = new Set(lines(git(wt, ['check-ignore', '--', ...rel]).stdout).map((l) => l.replace(/\/$/, '')));
   const skip = rel.filter((r) => !ignored.has(r));
+  // Se parte de una copia del índice del worktree, que ya sabe qué archivos no cambiaron: con un índice
+  // vacío, git add releía el repo entero en cada cierre de turno y por cada repo traído (de 2,6 a 5,6 s en
+  // un repo de 4.000 archivos; con la copia, 0,2 s, y el mismo árbol).
+  const real = git(wt, ['rev-parse', '--path-format=absolute', '--git-path', 'index']).stdout.trim();
   try {
-    if (git(wt, ['read-tree', 'HEAD'], env).status !== 0) return null;
+    if (real && fs.existsSync(real)) fs.copyFileSync(real, tmp);
+    else if (git(wt, ['read-tree', 'HEAD'], env).status !== 0) return null;
     if (git(wt, ['add', '-A', '--', '.', ...skip.map((r) => `:(exclude)${r}`)], env).status !== 0) return null;
     const t = git(wt, ['write-tree'], env);
     return t.status === 0 ? t.stdout.trim() : null;

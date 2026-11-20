@@ -134,7 +134,7 @@ test('al entrar con EnterWorktree antes de planificar trae todos los repos y nad
   assert.match(h.run('ship.js', ['branch', 'talleres'], { cwd: wt }).stdout, /api: reutiliza feature\/talleres, la rama del worktree talleres: ahí va el commit/);
 });
 
-test('el check pide la rama en el checkout si la configuración lo dice o si no está commiteada', () => {
+test('el check pide la rama en el checkout si la configuración lo dice; sin commitear ya no, porque viaja sola al worktree', () => {
   const root = folder({ composition: { workInPlace: true } });
   h.write(root, '.tmp/harness/plan.md', '# Plan: Talleres\n\n## Workspaces y orden\n1. api\n');
   assert.match(h.run('issue-branch.js', ['check'], { cwd: root }).stdout, /^en el checkout: la configuración pide trabajar en el checkout/m);
@@ -142,7 +142,10 @@ test('el check pide la rama en el checkout si la configuración lo dice o si no 
   h.write(other, '.tmp/harness/plan.md', '# Plan: Talleres\n');
   h.git(other, 'rm', '-q', '--cached', '.claude/harness.json');
   h.git(other, 'commit', '-q', '-m', 'sin configuración');
-  assert.match(h.run('issue-branch.js', ['check'], { cwd: other }).stdout, /^en el checkout: la configuración del arnés no está commiteada en main, de donde nacería el worktree$/m);
+  assert.doesNotMatch(h.run('issue-branch.js', ['check'], { cwd: other }).stdout, /no está commiteada/, 'la configuración sin versionar llega al worktree con el arnés');
+  const door = h.run('plan-state.js', ['start', '--detail', 'talleres'], { cwd: other });
+  assert.equal(door.status, 3, door.stdout + door.stderr);
+  assert.match(door.stdout, /llama a EnterWorktree con name "talleres"/, 'el pedido va a su worktree, no al checkout');
 });
 
 test('ExitWorktree con remove: con cambios sin commitear en un repo no quita nada; commiteado, quita enlaces y worktrees y deja las ramas', () => {
@@ -450,4 +453,61 @@ test('un repo sin remoto nace en el worktree de la rama del checkout, donde est�
   const ctx = start(wt);
   assert.match(ctx, /^- front: lo traje a este worktree en la rama feature\/menu, desde feature\/crear-informe, la rama del checkout, porque el repo no tiene remoto/m);
   assert.ok(fs.existsSync(path.join(wt, 'front', 'src', 'sistema-diseno.tsx')), 'trae el design system que main no tiene');
+});
+
+// renova365, 2026-11-19: la sesión se abrió en la carpeta, el modelo hizo cd api antes de planificar, y
+// EnterWorktree creó el worktree dentro de api: un solo repo, con su registro de issues aparte.
+test('un worktree que quedó dentro de un repo de la carpeta manda al de la carpeta', () => {
+  const root = folder();
+  const wt = h.nativeWorktree(path.join(root, 'api'), 'pedido');
+  const r = h.run('plan-state.js', ['start', '--detail', 'pedido'], { cwd: wt });
+  assert.equal(r.status, 3, r.stdout + r.stderr);
+  assert.match(r.stdout, /^siguiente: este worktree quedó dentro de api, un repo de la carpeta \S+, y el pedido se planifica en el de la carpeta\. Sal con ExitWorktree y action "remove"; después cd "[^"]+", llama a EnterWorktree con name "pedido"/m);
+});
+
+// El incidente del 2026-11-19 en renova365, en su disposición real: una carpeta con dos repos, la sesión
+// parada dentro del worktree de su pedido, que acaba de subir su rama y abrir su MR, y un issue anterior
+// cuyo MR ya se mergeó. Con la 0.8.7, el anterior quedaba con la rama de esta sesión anotada, y al cerrarlo
+// se borraba de origin: GitHub cerró el PR un minuto después de abrirlo.
+test('en una carpeta, cerrar lo mergeado desde el worktree de otro pedido no toca la rama recién subida', () => {
+  const GLAB = "if (process.argv[2] === 'mr' && process.argv[3] === 'view') { console.log(JSON.stringify({ iid: Number(process.argv[4]), state: process.env['GLAB_STATE_' + process.argv[4]] || 'opened' })); process.exit(0); }\nprocess.exit(1);\n";
+  const bin = h.fakeBin(h.tmp('bin-carpeta'), 'glab', GLAB);
+  const env = h.withPath(bin, { GLAB_STATE_12: 'merged' });
+  const root = folder();
+  const api = path.join(root, 'api');
+  const origin = h.git(api, 'remote', 'get-url', 'origin');
+  const posix = (p) => p.split(path.sep).join('/');
+  // El issue anterior: su rama subida, su MR 12 mergeado con squash en origin, y su worktree ya borrado.
+  h.git(api, 'switch', '-q', '-c', 'feature/viejo');
+  h.write(api, 'src/viejo.ts', 'viejo\n');
+  h.commitAll(api, 'feat: viejo');
+  h.git(api, 'push', '-q', '-u', 'origin', 'feature/viejo');
+  h.git(api, 'switch', '-q', 'main');
+  const seed = h.tmp('carpeta-merge');
+  h.git(seed, 'clone', '-q', origin, 'api');
+  h.git(path.join(seed, 'api'), 'merge', '-q', '--squash', 'origin/feature/viejo');
+  h.git(path.join(seed, 'api'), 'commit', '-q', '-m', 'feat: viejo (!12)');
+  h.git(path.join(seed, 'api'), 'push', '-q', 'origin', 'main');
+  const issues = path.join(root, '.tmp', 'harness', 'issues');
+  h.write(root, '.tmp/harness/issues/viejo.json', JSON.stringify({ version: 1, slug: 'viejo', title: 'Viejo', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', state: 'subido', states: [{ state: 'subido', at: '2026-11-01T00:00:00.000Z' }], branches: [{ repo: posix(api), branch: 'feature/viejo' }], worktree: { path: posix(path.join(root, '.claude', 'worktrees', 'viejo')), name: 'viejo', main: posix(root), branch: 'worktree-viejo' }, sets: [], files: [], mr: [{ repo: posix(api), ref: '12' }] }));
+  // El pedido de esta sesión, en su worktree de carpeta: commit, push y su MR 13 abierto.
+  const wt = h.nativeWorktree(root, 'nuevo');
+  start(wt);
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Nuevo\n\n## Workspaces y orden\n1. api\n');
+  h.write(wt, 'api/src/nuevo-pedido.ts', 'nuevo\n');
+  h.commitAll(path.join(wt, 'api'), 'feat: nuevo');
+  const mine = h.git(path.join(wt, 'api'), 'rev-parse', '--abbrev-ref', 'HEAD');
+  h.git(path.join(wt, 'api'), 'push', '-q', '-u', 'origin', mine);
+  assert.match(h.run('issues.js', ['state', '--actual', 'subido', '--mr', '13', '--repo', api], { cwd: wt, env }).stdout, /nuevo: subido/);
+  const r = h.run('issues.js', ['cerrar', '--mergeados', '--write'], { cwd: wt, env });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const remote = h.git(api, 'ls-remote', '--heads', 'origin');
+  assert.match(remote, new RegExp(`refs/heads/${mine}$`, 'm'), `la rama de esta sesión sigue en origin, con su MR abierto:\n${r.stdout}`);
+  const viejo = JSON.parse(fs.readFileSync(path.join(issues, 'viejo.json'), 'utf8'));
+  assert.deepEqual(viejo.branches.map((b) => b.branch), ['feature/viejo'], 'el registro del issue anterior no gana la rama de quien lo consultó');
+  assert.equal(viejo.worktree.name, 'viejo');
+  assert.equal(viejo.state, 'cerrado', r.stdout);
+  assert.doesNotMatch(remote, /refs\/heads\/feature\/viejo$/m, 'la rama del issue mergeado sí se borró de origin');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(issues, 'nuevo.json'), 'utf8')).state, 'subido');
+  assert.ok(fs.existsSync(path.join(wt, 'api', 'src', 'nuevo-pedido.ts')), 'el worktree de la sesión sigue ahí');
 });

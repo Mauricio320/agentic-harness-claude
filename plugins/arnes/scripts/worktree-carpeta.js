@@ -140,7 +140,7 @@ function bring(f, state, ws, branch) {
   if (known) Object.assign(known, { status: 'quitado', removedAt: new Date().toISOString() });
   if (list(ws.repo).some((x) => key(x.path) === key(dst))) return { line: `${ws.name}: ya era un worktree de su repo; no lo toco`, entry: null };
   if (present(dst)) return { line: `${ws.name}: hay una carpeta ${repoRel} que no es un worktree de su repo; no la toco`, entry: null };
-  const def = ws.defaultBranch || 'main';
+  const def = ws.defaultBranch || mergeTargets(ws.repo).branch;
   const remote = git(ws.repo, ['remote']).stdout.trim();
   if (remote) {
     const r = fetchOrigin(ws.repo);
@@ -502,7 +502,7 @@ function equip(w) {
   try {
     ports = JSON.parse(fs.readFileSync(state, 'utf8'));
   } catch {
-    const files = wss.flatMap((ws) => envFiles(ws.dir).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
+    const files = wss.flatMap((ws) => envFiles(ws.dir).filter((f) => git(ws.dir, ['ls-files', '--error-unmatch', '--', f]).status !== 0).map((f) => ({ ws: ws.name, file: path.join(ws.dir, f) })));
     const ng = wss.map((ws) => ({ ws: ws.name, port: ngPort(ws.dir) })).filter((e) => e.port);
     if (files.length || ng.length) {
       const used = usedOffsets(w);

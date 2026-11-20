@@ -244,15 +244,23 @@ function configChanged(root) {
 // frena), solo si el turno no dejó otra cosa pendiente, que ya juzgan (a) a (d), y nunca un plan trivial,
 // que se construye sin build. Tampoco si approve no dejó la rama del issue en algún workspace (la última
 // nota "rama" trae faltan): la persona tiene que decidir antes, por ejemplo qué hacer con sus cambios.
-function buildPending(home, since) {
+// Construir es escribir el código, pase o no por la skill build: con una etapa posterior anotada (build,
+// verify, review o ship) o con código cambiado en el turno, no hay nada que esperar. El 2026-11-19 frenó
+// dos veces un turno que ya había escrito, verificado y revisado el cambio sin cargar build, y a la
+// persona le dijo que respondiera «construye».
+function buildPending(project, home, since) {
   const entries = read(home.root);
   if (!planState(entries).approved || since == null) return [];
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'note' && e.result === 'aprobado').lastIndexOf(true);
   if (i < 0 || Date.parse(entries[i].at) < since || /trivial/.test(entries[i].detail || '')) return [];
-  if (entries.slice(i + 1).some((e) => e.stage === 'build' && e.event === 'start')) return [];
+  if (entries.slice(i + 1).some((e) => ['build', 'verify', 'review', 'ship'].includes(e.stage) && e.event === 'start')) return [];
   const rama = entries.slice(i + 1).filter((e) => e.stage === 'plan' && e.result === 'rama').pop();
   if (rama && rama.faltan && rama.faltan.length) return [];
-  return [{ changed: true }];
+  const written = project.workspaces.filter((ws) => ws.adoptable).some((ws) => {
+    const t = touched(ws, 'HEAD', project);
+    return !t.error && codeChangedSince(project, ws, t.files.filter((f) => matchAny(ws.codeGlobs, f))).length > 0;
+  });
+  return written ? [] : [{ changed: true }];
 }
 
 const CONFIG_FAIL = /was not found by the project service|tsconfig|no eslint configuration|eslint.config|parserOptions|Cannot read file/i;
@@ -367,7 +375,7 @@ function stopGate(input) {
   const noPlan = unplanned(project, home, unseen);
   const mine = !planOwner(home, { session: input.session_id || null, pid: claudePid() });
   const w = { rules: rulesChanged(project, home), noPlan, code: mine ? unverified(project, noPlan.map((p) => p.ws)) : [], wts: mine ? pendingWorktrees(cwd, turnStart(project)) : [] };
-  w.build = !mine || w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(home, turnStart(project));
+  w.build = !mine || w.rules.length || w.noPlan.length || w.code.length || w.wts.length ? [] : buildPending(project, home, turnStart(project));
   // Lo que frena: (b) a (e). El código sin verificar no: la persona puede iterar sin pagar la
   // verificación en cada turno, y la entrega la exige igual.
   const stops = [...w.rules, ...w.noPlan, ...w.wts, ...w.build];

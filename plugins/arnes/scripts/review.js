@@ -66,6 +66,8 @@ const { unconfirmed } = require('./lib/plan.js');
 const { probar } = require('./conventions.js');
 
 const MAX_DIFF_LINES = 400;
+// Un archivo que no es código y trae un diff enorme (un lockfile, un json de datos) va con su cabecera.
+const OTHER_DIFF_CHARS = 12000;
 const MAX_ROUNDS = 3;
 // Topes de la entrada: el texto de las reglas, y el input entero; lo que no cabe se nombra.
 const MAX_RULES_CHARS = 40000;
@@ -186,6 +188,8 @@ function cappedDiff(ws, refs = ['HEAD']) {
     text: blocks
       .map((b) => {
         const ls = numbered(b.replace(/\n$/, '')).split('\n');
+        const file = (b.match(/^diff --git a\/(.+?) b\//) || [])[1];
+        if (file && !matchAny(ws.codeGlobs, file) && b.length > OTHER_DIFF_CHARS) return [...ls.slice(0, 4), `… ${ls.length - 4} líneas más de un archivo que no es código: léelo si hace falta`].join('\n');
         return ls.length <= MAX_DIFF_LINES ? ls.join('\n') : [...ls.slice(0, MAX_DIFF_LINES), `… diff truncado en ${MAX_DIFF_LINES} líneas: lee el archivo entero`].join('\n');
       })
       .join('\n'),
@@ -325,7 +329,7 @@ function roundOf(project, now, full) {
   const clean = prev.blockers === 0;
   if (prev.round >= MAX_ROUNDS) {
     if (clean) return first;
-    return { stop: `tope de rondas: la ronda ${prev.round} terminó con ${prev.blockers} bloqueante(s) después de dos rondas de corrección. No se corrige más: decide la persona (review.js input --completa vuelve a la ronda 1).` };
+    return { stop: `tope de rondas: la ronda ${prev.round} terminó con ${prev.blockers} bloqueante(s) después de dos rondas de corrección. No se corrige más: decide la persona (review.js round --completa vuelve a la ronda 1).` };
   }
   const round = prev.round + 1;
   const changed = {};
@@ -337,9 +341,8 @@ function roundOf(project, now, full) {
     changed[n] = lines(d.stdout);
   }
   if (names.every((n) => !changed[n].length)) {
-    return { stop: clean
-      ? `nada cambió desde la ronda ${prev.round}, que terminó sin bloqueantes: esa revisión sigue valiendo (review.js input --completa revisa de nuevo).`
-      : `nada cambió desde la ronda ${prev.round}, que terminó con ${prev.blockers} bloqueante(s): corrige antes de revisar.` };
+    if (clean) return { valid: prev.round };
+    return { stop: `nada cambió desde la ronda ${prev.round}, que terminó con ${prev.blockers} bloqueante(s): corrige antes de revisar.` };
   }
   // La acotada revisa todo el diff desde la marca anterior, archivos nuevos incluidos (los specs que
   // escribe test-writer para corregir). Escala a completa solo si el cambio toca riskPaths.
@@ -385,6 +388,18 @@ function input(project, full) {
     return { unmarked: true };
   }
   const r = roundOf(project, now, full);
+  // El mismo árbol que ya se revisó sin bloqueantes: la revisión sigue valiendo. La huella se pone al día,
+  // porque puede haber cambiado sin que cambie el contenido (un archivo que solo cambió sus fines de línea),
+  // y ship pedía revisar una y otra vez lo que esta función decía que no hacía falta.
+  if (r.valid) {
+    const rev = readJson(reviewFile(project));
+    for (const n of Object.keys(now)) rev.workspaces[n] = { ...rev.workspaces[n], head: now[n].st.head, touchedHash: now[n].st.touchedHash, contentHash: now[n].st.contentHash };
+    fs.writeFileSync(reviewFile(project), JSON.stringify(rev, null, 2) + '\n');
+    console.log(`nada cambió desde la ronda ${r.valid}, que terminó sin bloqueantes: esa revisión sigue valiendo`);
+    return { none: true, valid: true };
+  }
+  // Un reporte que quedó de una ronda que no se marcó no es el de esta.
+  fs.rmSync(reportFile(project), { force: true });
   if (r.stop) {
     process.stderr.write(`${r.stop}\n`);
     return { stop: r.stop };
@@ -486,8 +501,8 @@ function mark(project, blockers, clean = false) {
   const rep = reportFile(project);
   if (clean && !fs.existsSync(rep)) fs.writeFileSync(rep, cleanReport(inp));
   if (!fs.existsSync(rep)) die(`review: falta ${rep}: guarda ahí el reporte del reviewer, tal cual, antes de marcar`);
-  const said = [...fs.readFileSync(rep, 'utf8').matchAll(/^BLOQUEANTES:\s*(\d+)\s*$/gm)].pop();
-  if (said && Number(said[1]) !== blockers) die(`review: el reporte dice BLOQUEANTES: ${said[1]} y --blockers dice ${blockers}`);
+  const said = [...fs.readFileSync(rep, 'utf8').matchAll(/^\s*(?:[-*]\s+)?[*_`]*BLOQUEANTES[*_`]*\s*:\s*[*_`]*(\d+)[*_`]*\s*$/gm)].pop();
+  if (said && Number(said[1]) > blockers) die(`review: el reporte dice BLOQUEANTES: ${said[1]} y --blockers dice ${blockers}`);
   for (const [name, m] of Object.entries(inp.workspaces)) {
     const ws = project.workspaces.find((w) => w.name === name);
     const st = ws ? stateOf(project, ws) : { error: `workspace desconocido ${name}` };
@@ -521,7 +536,7 @@ function tasksLine(project) {
 function round(project, full) {
   const r = input(project, full);
   if (r.none) {
-    append(project.root, { event: 'note', stage: 'review', result: 'ok', detail: 'sin tocados' });
+    append(project.root, { event: 'note', stage: 'review', result: 'ok', detail: r.valid ? 'la revisión anterior sigue valiendo' : 'sin tocados' });
     return 0;
   }
   if (r.unmarked) {
@@ -538,15 +553,22 @@ function round(project, full) {
   return 0;
 }
 
+// La cuenta de bloqueantes del reporte, con o sin el énfasis de markdown que el reviewer a veces le pone
+// («**BLOQUEANTES: 1**», «- **BLOQUEANTE** [línea 3]»): sin tolerarlo la cuenta daba 0 y ship decía LISTO.
+// → el número, o null si el reporte no trae ni la línea de cuenta ni un bloqueante
+const COUNT = /^\s*(?:[-*]\s+)?[*_`]*BLOQUEANTES[*_`]*\s*:\s*[*_`]*(\d+)[*_`]*\s*$/gm;
+const ITEM = /^\s*(?:[-*]\s+)?[*_`]*BLOQUEANTE\b(?!S)/gm;
 function blockersIn(text) {
-  const said = [...text.matchAll(/^BLOQUEANTES:\s*(\d+)\s*$/gm)].pop();
-  return said ? Number(said[1]) : (text.match(/^\s*(?:[-*]\s*)?BLOQUEANTE\b(?!S)/gm) || []).length;
+  const said = [...text.matchAll(COUNT)].pop();
+  const items = (text.match(ITEM) || []).length;
+  return said ? Math.max(Number(said[1]), items) : items || null;
 }
 
 function closeRound(project, clean) {
   const rep = reportFile(project);
   if (!clean && !fs.existsSync(rep)) die(`review: falta ${rep}: guarda ahí el reporte del reviewer, tal cual, antes de marcar`);
   const n = clean ? 0 : blockersIn(fs.readFileSync(rep, 'utf8'));
+  if (n === null) die(`review: el reporte de ${rep} no trae la línea BLOQUEANTES: <n>; guarda el texto del reviewer tal como llegó, con esa línea al final`);
   const m = mark(project, n, clean);
   if (m.changed) {
     append(project.root, { event: 'end', stage: 'review', result: 'fail', detail: 'el árbol cambió' });

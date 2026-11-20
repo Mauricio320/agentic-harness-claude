@@ -60,7 +60,10 @@ const running = (env = process.env) => fromAgent(env) || fromExec(env);
 function line(env = process.env) {
   const run = running(env);
   const ok = tested().claudeCode;
-  if (!run || !ok || compare(run, ok) !== 1) return null;
+  // Solo cuando cambia el mayor o el menor: Claude Code saca un parche casi a diario, y con el parche la
+  // línea salía en todas las sesiones, donde ya nadie la leía.
+  const minor = (v) => v.split('.').slice(0, 2).join('.');
+  if (!run || !ok || compare(run, ok) !== 1 || minor(run) === minor(ok)) return null;
   return `esta sesión corre Claude Code ${run}, más nueva que la ${ok} con que se probó el arnés: si una etapa falla sin un motivo claro, díselo a la persona en una línea con las dos versiones, porque puede ser eso`;
 }
 

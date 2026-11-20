@@ -19,7 +19,7 @@ Lo normal ya no pasa por aquí: al subir, ship borra lo que creó para el issue,
    - con el MR mergeado, lo que haría al cerrarlo: la rama por defecto al día, la rama del issue borrada en local y en origin, y lo registrado que se borra, con su tamaño;
    - sin mergear, lo que se borraría, con su tamaño, y lo que se queda y por qué (un worktree con commits sin integrar, la rama del issue hasta el merge, cambios sin commitear, una sesión viva, un rescate de trabajo sin commitear que quedó sin su worktree);
    - al final, lo que hay en `.tmp` o en las carpetas de worktrees que ningún registro conoce.
-2. **Con `$ARGUMENTS` y su MR mergeado, no preguntes:** la persona lo pidió al escribir la skill, y vas al paso 3 con ese issue. Si dice que la sesión está dentro del worktree del issue, sal con ExitWorktree y `action: "remove"`, y vuelve al paso 1.
+2. **Con `$ARGUMENTS` y su MR mergeado, no preguntes:** la persona lo pidió al escribir la skill, y vas al paso 3 con ese issue. Si dice que la sesión está dentro del worktree del issue, sal con ExitWorktree y `action: "remove"`, y vuelve al paso 1. Si ExitWorktree no deja borrarlo porque la sesión no es su dueña, sal con `action: "keep"` y sigue: se borra desde el checkout principal.
    **Si no, una sola pregunta**, en un bloque numerado:
    - un punto por issue mergeado, con `Recomiendo:` cerrarlo;
    - un punto por issue entregado sin mergear, con lo que se borra y cuánto libera (la rama del issue se queda hasta el merge), y `Recomiendo:` borrarlo si está todo integrado;
@@ -32,6 +32,6 @@ Lo normal ya no pasa por aquí: al subir, ship borra lo que creó para el issue,
    - `--con-cambios` va solo con los issues en que la persona marcó descartar un rescate o perder cambios sin commitear, en un comando aparte del resto.
    - Si recuperó un rescate, di cómo seguir con la línea que imprime: en una carpeta vuelve el worktree de carpeta entero, y se sigue abriendo Claude Code en la carpeta con `--worktree <nombre>`.
    - Si algo no se pudo (por ejemplo, el checkout de la rama por defecto tiene cambios que chocan con lo que trae origin), di qué tiene que hacer la persona, y que vuelva a escribir `/arnes:cerrar <issue>`.
-   - Si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`: el arnés para la app, y quita primero sus enlaces y sus repos. Nunca borres a mano una carpeta del registro ni una desconocida.
+   - Si dice que falta el worktree de esta sesión, sal de él con ExitWorktree y `action: "remove"`: el arnés para la app, y quita primero sus enlaces y sus repos. Si ExitWorktree se niega porque la sesión no es su dueña, sal con `action: "keep"` y vuelve a correr el cierre, que ya puede borrarlo desde afuera. Nunca borres a mano una carpeta del registro ni una desconocida.
 
 Lo que lee la persona: una línea por issue con lo que se cerró, lo que se recuperó y dónde, lo que se borró y lo que se liberó, lo que se quedó y por qué, y lo desconocido que sigue ahí. El detalle de cada comando va al informe: `node "S/informe.js" path cerrar` da la ruta, y el chat la dice en una línea.

@@ -113,16 +113,25 @@ function localDb(ws) {
   return { ok: false, host, why: `${cond.env} apunta a ${host || 'un host que no se lee'}, que no es la base local del patrón` };
 }
 
-// Las bases que no son locales en los .env de un workspace (files, de lib/puertos.js envFiles): su host
-// y su puerto, nunca credenciales. Local es localhost, 127.0.0.1, ::1 o host.docker.internal; con
+// Las bases que no son locales en los .env de un workspace (files, de lib/puertos.js envFiles): su host,
+// su puerto y su nombre, nunca credenciales. Local es localhost, 127.0.0.1, ::1 o host.docker.internal; con
 // onlyIfLocalDb declarado, también un host local que no cumple su patrón (un proxy a QA en 127.0.0.1).
+// El puerto y el nombre son lo que distingue una base de otra en el mismo host: el 2026-11-19 el aviso
+// decía solo «100.64.87.88», la persona creyó que era QA (el 5455) y la app arrancó contra producción (el
+// 5432). Con el host en una variable suelta (DB_HOST), salen de sus hermanas (DB_PORT, DB_NAME).
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0|host\.docker\.internal)(:\d+)?$/i;
+const named = (target, name) => (name ? `${target} (base ${name})` : target);
 function remoteDbs(ws, files) {
   const out = new Set();
   for (const name of files) {
-    for (const { key, value } of parseEnv(fs.readFileSync(path.join(ws.dir, name), 'utf8'))) {
-      const host = DB_URL.test(value) ? hostOf(value) : DB_VAR.test(key) && /HOST$/i.test(key) ? value : null;
-      if (host && !LOCAL_HOST.test(host)) out.add(host);
+    const vars = parseEnv(fs.readFileSync(path.join(ws.dir, name), 'utf8'));
+    const sister = (key, ...ends) => ends.map((end) => vars.find((x) => x.key.toLowerCase() === key.replace(/HOST$/i, end).toLowerCase())).filter((x) => x && x.value).map((x) => x.value)[0];
+    for (const { key, value } of vars) {
+      const url = DB_URL.test(value);
+      const host = url ? hostOf(value) : DB_VAR.test(key) && /HOST$/i.test(key) ? value : null;
+      if (!host || LOCAL_HOST.test(host)) continue;
+      if (url) out.add(named(host, (value.match(/@[^/@?]+\/([^/?#]+)/) || [])[1]));
+      else out.add(named([host, sister(key, 'PORT')].filter(Boolean).join(':'), sister(key, 'NAME', 'DATABASE', 'DB')));
     }
   }
   const proxy = ws.afterBuild && ws.afterBuild.onlyIfLocalDb ? localDb(ws) : { ok: true };

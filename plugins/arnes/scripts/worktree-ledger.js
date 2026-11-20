@@ -228,16 +228,18 @@ function ownConfig(w, line) {
 }
 
 // Lo mismo para el repo de dir, sin manifiesto: la rama por defecto es la de origin/HEAD, o main.
-function nativeWork(dir, defaultBranch, now = new Date()) {
+// Con only, juzga solo ese worktree: al salir de uno se recorrían los 22 del repo, ocho git por cada uno.
+function nativeWork(dir, defaultBranch, now = new Date(), only = null) {
   const seen = new Set();
   const out = [];
   for (const w of nativeWorktrees(dir)) {
+    if (only && key(w.path) !== key(only)) continue;
     if (seen.has(key(w.path)) || !fs.existsSync(w.path)) continue;
     seen.add(key(w.path));
     const def = mergeTargets(w.main, defaultBranch).branch;
     const local = refExists(w.path, `refs/heads/${def}`) ? [def] : [];
     const unpushed = Number(git(w.path, ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
-    const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, ''))) && !ownConfig(w, l)).length;
+    const dirty = lines(git(w.path, ['status', '--porcelain']).stdout).filter((l) => l.slice(3) !== rescate.MARKER && !/^"?\.tmp\/harness\//.test(l.slice(3)) && !isLink(path.join(w.path, l.slice(3).replace(/\/$/, ''))) && !ownConfig(w, l)).length;
     if (!unpushed && !dirty) continue;
     let created = now;
     try {

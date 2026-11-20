@@ -104,7 +104,8 @@ function invalid(project, input) {
   if (person) {
     append(project.root, { event: 'note', stage: 'turno', result: 'respuesta', origen: origin, hash, marcas: marks || undefined, comando: COMMAND.test(text) || undefined, session: input.session_id || undefined });
   }
-  return `arnes: la configuración del proyecto no es válida, y ninguna etapa corre hasta arreglarla:\n${project.errors.map((e) => `- ${e}`).join('\n')}\n${AJUSTE}`;
+  const out = unsaid(project, input.session_id, [`arnes: la configuración del proyecto no es válida, y ninguna etapa corre hasta arreglarla:\n${project.errors.map((e) => `- ${e}`).join('\n')}\n${AJUSTE}`]);
+  return out.length ? out.join('\n') : null;
 }
 
 function promptContext(input) {
@@ -141,7 +142,7 @@ function promptContext(input) {
   const rows = other ? [] : adoptable.map((ws) => state(project, ws));
   const status = rows.map((r) => r.text).filter(Boolean);
   const entries = read(project.root);
-  if (person && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) status.unshift(PLAN_FIRST);
+  if (person && origin === 'texto' && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) status.unshift(PLAN_FIRST);
   else if (person && other) status.unshift(OTHER_PLAN);
   const out = unsaid(project, input.session_id, status);
   if (person && !graphed && worthGraph(project, text)) out.push(...askGraph(project, text));

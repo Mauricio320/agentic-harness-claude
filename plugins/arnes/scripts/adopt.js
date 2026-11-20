@@ -97,7 +97,7 @@ const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'mer
 const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
 
 function readJson(file) {
-  const text = fs.readFileSync(file, 'utf8');
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
   try {
     return JSON.parse(text);
   } catch (e) {

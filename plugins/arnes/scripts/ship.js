@@ -169,9 +169,11 @@ function unpushed(project) {
   const seen = new Set();
   return project.workspaces
     .filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))
-    .map((ws) => ({ ws, branch: branchOf(ws), n: Number(git(ws.gitRoot, ['rev-list', '--count', 'HEAD', '--not', '--remotes', '--']).stdout.trim()) || 0 }))
+    .map((ws) => ({ ws, branch: branchOf(ws), remote: hasOrigin(ws), n: Number(git(ws.gitRoot, ['rev-list', '--count', 'HEAD', '--not', '--remotes', '--']).stdout.trim()) || 0 }))
     .filter((x) => x.n && x.branch && x.branch !== 'HEAD' && x.branch !== defaultOf(x.ws));
 }
+
+const hasOrigin = (ws) => git(ws.gitRoot, ['remote', 'get-url', 'origin']).status === 0;
 
 const mergeMode = (project) => (project.integration && project.integration.merge) || 'mr';
 
@@ -221,11 +223,11 @@ function check(project) {
   if (!list.length) {
     const up = unpushed(project);
     const toMerge = mergeMode(project) === 'local' ? up.filter((x) => (unmerged(x.ws.gitRoot, x.branch, [defaultOf(x.ws)]) || []).length) : [];
-    if (!up.length) {
+    if (!toMerge.length && !up.some((x) => x.remote)) {
       console.log('ship: sin tocados en ningún workspace adoptable; nada que entregar');
       return 1;
     }
-    for (const x of up) console.log(`- ${x.ws.name} · rama ${x.branch} · ${x.n} commit(s) sin subir`);
+    for (const x of up.filter((y) => y.remote || toMerge.includes(y))) console.log(`- ${x.ws.name} · rama ${x.branch} · ${x.n} commit(s) sin ${x.remote ? 'subir' : 'mergear'}`);
     console.log(`entrega: ${mergeMode(project) === 'local' ? 'merge local en la rama por defecto, sin MR (integration.merge)' : 'push y MR'}`);
     if (toMerge.length) console.log('resultado: LISTO PARA MERGEAR\n  no hay nada que commitear: entregar es el merge local en la rama por defecto');
     else console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
@@ -447,11 +449,15 @@ const mergeFile = (project) => path.join(harnessDir(project), 'merge.json');
 function mergeStart(project) {
   const seen = new Set();
   const done = [];
-  for (const ws of project.workspaces.filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
-    const issue = branchOf(ws);
-    const def = defaultOf(ws);
-    if (!issue || issue === 'HEAD' || issue === def || !(unmerged(ws.gitRoot, issue, [def]) || []).length) continue;
-    if (lines(git(ws.gitRoot, ['status', '--porcelain', '--untracked-files=no']).stdout).length) die(`ship: ${ws.name} tiene cambios sin commitear; commitéalos antes de mergear`, 1);
+  const todo = project.workspaces
+    .filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))
+    .map((ws) => ({ ws, issue: branchOf(ws), def: defaultOf(ws) }))
+    .filter(({ ws, issue, def }) => issue && issue !== 'HEAD' && issue !== def && (unmerged(ws.gitRoot, issue, [def]) || []).length);
+  for (const { ws } of todo) {
+    const dirty = lines(git(ws.gitRoot, ['status', '--porcelain', '--untracked-files=no']).stdout).map((l) => l.slice(3).trim()).filter((f) => !configRoot(path.join(ws.gitRoot, f)));
+    if (dirty.length) die(`ship: ${ws.name} tiene cambios sin commitear (${dirty.slice(0, 3).join(', ')}); commitéalos antes de mergear`, 1);
+  }
+  for (const { ws, issue, def } of todo) {
     const before = git(ws.gitRoot, ['rev-parse', def]).stdout.trim();
     const sw = git(ws.gitRoot, ['switch', '-q', '--detach', def]);
     if (sw.status !== 0) die(`ship: no pude pararme en ${def} en ${ws.name}: ${firstLine(sw.stderr)}`);
@@ -583,13 +589,13 @@ function deliverPrepare(project, o, say) {
     return 0;
   }
   if (/LISTO PARA SUBIR/.test(c.out)) {
-    const order = unpushed(project).map((x) => x.ws.name);
+    const order = unpushed(project).filter((x) => x.remote).map((x) => x.ws.name);
     save({ order, committedAt: new Date().toISOString(), risk: {} });
     if (o.soloCommit) {
       finish(project, d, 'ok', 'nada que commitear', say, true);
       return 0;
     }
-    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR, y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); sin él, ship.js deliver --sin-push');
+    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR, y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship.js deliver; con un no, ship.js deliver --sin-push');
     return 0;
   }
   const list = shipping(project);
@@ -653,6 +659,7 @@ function deliverCommit(project, say) {
     const r = git(ws.dir, ['commit', '-m', String(m.asunto).trim(), ...(m.cuerpo && String(m.cuerpo).trim() ? ['-m', String(m.cuerpo).trim()] : [])]);
     if (r.status !== 0) {
       say(`FALLA ${name}: el commit no se hizo:\n${(r.stderr || r.stdout).trim()}`);
+      say('siguiente: si un hook del repo rechazó el mensaje (commitlint), corrige mensajes.json y repite ship.js deliver --commit una vez; si rechazó otra cosa, dilo en una línea y decide la persona');
       finish(project, d, 'fail', `el commit de ${name} falló`, say);
       return 1;
     }
@@ -680,6 +687,11 @@ function deliverCommit(project, say) {
     say('siguiente: el merge local: ship.js merge start, verify.js run --base HEAD^1, y merge finish en verde o merge abort en rojo');
     return 0;
   }
+  if (!done.some((name) => hasOrigin(project.workspaces.find((w) => w.name === name)))) {
+    say(`${done.join(', ')}: sin remoto origin, así que no hay push ni MR: la entrega termina en el commit`);
+    finish(project, d, 'ok', `commit, sin remoto: ${done.join(', ')}`, say);
+    return 0;
+  }
   for (const name of done) {
     const ws = project.workspaces.find((w) => w.name === name);
     const url = git(ws.gitRoot, ['remote', 'get-url', 'origin']);
@@ -690,7 +702,7 @@ function deliverCommit(project, say) {
   say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
   for (const l of unconfirmed(readPlan(project))) say(`aviso: el dev decidió algo que el plan no decía y nadie confirmó: ${l.replace(DEV, '').trim()}`);
   for (const l of (readJsonFile(path.join(harnessDir(project), 'review.json')) || {}).defectos || []) say(`aviso: la revisión vio un posible defecto de lógica, que no bloquea: ${l}`);
-  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba), y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); sin él, ship.js deliver --sin-push');
+  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba), y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship.js deliver; con un no, ship.js deliver --sin-push');
   return 0;
 }
 
@@ -768,13 +780,33 @@ function deliverPush(project, say, keep = false) {
   const answered = read(project.root).some((e) => e.stage === 'turno' && e.result === 'respuesta' && Date.parse(e.at) > Date.parse(d.committedAt));
   if (!answered) die('ship: el push y los MR necesitan el sí de la persona en un mensaje suyo, después del commit; pregúntale y espera su respuesta', 1);
   const msgs = readJsonFile(messagesFile(project)) || {};
-  const wss = d.order.map((n) => project.workspaces.find((w) => w.name === n)).filter(Boolean);
+  // Sube también lo que una vuelta anterior de esta entrega commiteó y no subió: tras un «corrige primero»,
+  // la vuelta nueva puede commitear en un solo repo, y el commit del otro se quedaba en local sin MR.
+  const sent = new Set(d.order.map((n) => project.workspaces.find((w) => w.name === n)).filter(Boolean).map(branchOf));
+  d.order = [...new Set([...d.order, ...unpushed(project).filter((x) => sent.has(x.branch)).map((x) => x.ws.name)])];
+  const all = d.order.map((n) => project.workspaces.find((w) => w.name === n)).filter(Boolean);
+  for (const ws of all.filter((w) => !hasOrigin(w))) say(`${ws.name}: sin remoto origin; su commit queda en local`);
+  const wss = all.filter(hasOrigin);
+  d.order = wss.map((w) => w.name);
+  // Las zonas de riesgo de lo que se sube sin haber pasado por el stage de esta entrega (un commit a mano,
+  // o el de una vuelta anterior): sin esto el MR salía sin su línea de revisión humana.
+  d.risk = d.risk || {};
+  for (const ws of wss) {
+    const sent = lines(git(ws.dir, ['log', '--format=', '--name-only', '--relative', 'HEAD', '--not', '--remotes', '--']).stdout);
+    d.risk[ws.name] = [...new Set([...(d.risk[ws.name] || []), ...sent.filter((f) => matchAny(ws.riskPaths, f))])];
+  }
+  for (const ws of wss.filter((w) => !msgs[w.name])) {
+    const [asunto, ...cuerpo] = git(ws.gitRoot, ['log', '--reverse', '--format=%s%n%b%x00', 'HEAD', '--not', '--remotes', '--']).stdout.split('\0')[0].trim().split('\n');
+    if (asunto) msgs[ws.name] = { asunto, cuerpo: cuerpo.join('\n').trim() };
+  }
   const seen = new Set();
   for (const ws of wss.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
     const p = git(ws.gitRoot, ['push', '-u', 'origin', branchOf(ws)]);
     addToReport(d.informe, `Push de ${ws.name}`, `${p.stdout}${p.stderr}`);
     if (p.status !== 0) {
-      say(`FALLA ${ws.name}: el push no salió: ${firstLine(p.stderr)}`);
+      const why = lines(p.stderr).find((l) => /rejected|error:|fatal:/i.test(l)) || firstLine(p.stderr);
+      say(`FALLA ${ws.name}: el push no salió: ${why.trim()}`);
+      if (/rejected|non-fast-forward|fetch first/i.test(p.stderr)) say('siguiente: la rama de origin tiene commits que esta no: dile a la persona que escriba /arnes:sync para traerla, y después /arnes:ship otra vez');
       finish(project, d, 'fail', `el push de ${ws.name} falló`, say);
       return 1;
     }
@@ -795,6 +827,17 @@ function deliverPush(project, say, keep = false) {
       continue;
     }
     const r = openMr(cli, ws, b.title, b.body);
+    const same = (p) => p.branch === branchOf(ws) && path.resolve(p.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase();
+    const prior = r.error && /already exists|ya existe|\b409\b/i.test(r.error) && I.list(project).filter((o) => o.slug !== (I.current(project) || {}).slug).find((o) => o.state === 'subido' && [...(o.pushed || []), ...(o.branches || [])].some(same) && (o.mr || []).some((m) => path.resolve(m.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase()));
+    const priorRef = prior ? prior.mr.find((m) => path.resolve(m.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase()).ref : null;
+    if (prior && I.mrState({ repo: mainOf(ws), ref: priorRef }) === 'open') {
+      const ref = priorRef;
+      I.record(project, { mr: [{ repo: mainOf(ws), ref }] });
+      I.setState(project, 'subido', `MR ${ref}`);
+      opened.push({ ws, cli, ref, prior: true });
+      say(`${ws.name}: el MR ${ref} de esta rama ya estaba abierto (${prior.slug}); el push lo actualizó`);
+      continue;
+    }
     if (r.error) {
       toPaste = true;
       addToReport(d.informe, `MR de ${ws.name}, para pegar: ${b.title}`, b.body);
@@ -807,9 +850,12 @@ function deliverPush(project, say, keep = false) {
     I.setState(project, 'subido', `MR ${r.ref}`);
     say(`${ws.name}: MR ${r.url}`);
   }
-  for (const o of opened.filter((x) => Object.keys(links).some((n) => n !== x.ws.name))) {
+  for (const o of opened.filter((x) => !x.prior && Object.keys(links).some((n) => n !== x.ws.name))) {
     if (!updateMr(o.cli, o.ws, o.ref, mrBodies(project, d, msgs, links)[o.ws.name].body)) say(`${o.ws.name}: no pude agregar al MR los enlaces de los otros repos`);
   }
+  // El MR recién abierto no se consulta en esta misma entrega: su registro queda como recién consultado.
+  const mine = opened.length && I.current(project) ? I.readIssue(project, I.current(project).slug) : null;
+  if (mine) fs.writeFileSync(I.fileOf(project, mine.slug), JSON.stringify({ ...mine, checkedAt: new Date().toISOString() }, null, 2) + '\n');
   finish(project, d, 'ok', opened.length ? `MR ${opened.map((o) => o.ref).join(', ')}` : 'push sin MR: cuerpos para pegar', say);
   // El sí del push cierra también lo local: subir es donde termina la sesión, y volver después a
   // escribir /arnes:cerrar era un paso que nadie daba.
@@ -819,7 +865,7 @@ function deliverPush(project, say, keep = false) {
   else if (keep) say('lo que se creó para este issue se queda, como pidió la persona; /arnes:cerrar lo borra cuando quiera');
   else say(issues(['clean', '--actual', '--write']));
   say(issues(['cerrar', '--mergeados', '--write']).replace(/^ningún issue mergeado.*$/m, ''));
-  if (!keep && !toPaste) say('siguiente: si arriba dice «falta … sal de él», sal del worktree con ExitWorktree y action "remove"; el informe se fue con lo del issue, así que a la persona dile los enlaces de los MR. No hay más pasos: cuando el MR se mergee, el issue se cierra solo con la próxima entrega');
+  if (!keep && !toPaste) say('siguiente: si arriba dice «falta … sal de él», sal del worktree con ExitWorktree y action "remove" (si no te deja porque la sesión no es su dueña, sal con action "keep" y no lo borres a mano: se borra solo cuando el issue cierre); el informe se fue con lo del issue, así que a la persona dile los enlaces de los MR. No hay más pasos: cuando el MR se mergee, el issue se cierra solo con la próxima entrega');
   return 0;
 }
 

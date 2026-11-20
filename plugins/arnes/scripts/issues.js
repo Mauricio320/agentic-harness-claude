@@ -59,6 +59,8 @@ const { unlink, isLink } = require('./lib/links.js');
 const { nativeWorktree, list: worktreeList, key, inside, lockOf, lockWhy, DIR } = require('./lib/worktree-nativo.js');
 const I = require('./lib/issues.js');
 const rescate = require('./lib/rescate.js');
+const { fetchOrigin } = require('./lib/fetch.js');
+const { slugOf } = require('./lib/plan.js');
 const apps = require('./lib/app.js');
 
 const ledger = require('./worktree-ledger.js');
@@ -98,6 +100,19 @@ function appFiles(r) {
   return [...new Map([...own, ...listed].map((f) => [key(f), f])).values()];
 }
 
+// ¿El archivo está en el estado del arnés de un checkout cuyo plan actual es de otro issue? El plan y los
+// reportes de la revisión tienen ruta fija: el registro de un issue viejo los sigue nombrando cuando ya son
+// los del pedido en curso.
+function foreign(f, slug) {
+  const m = posix(f).match(/^(.*\/\.tmp\/harness)\//);
+  if (!m) return false;
+  try {
+    return slugOf(fs.readFileSync(path.join(m[1], 'plan.md'), 'utf8')) !== slug;
+  } catch {
+    return false;
+  }
+}
+
 // Lo que se haría con cada cosa registrada. Con conCambios, también lo que tiene cambios sin commitear
 // en un repo traído al worktree de una carpeta, y los rescates. Las apps que levantó el arnés van
 // primero: se paran antes de borrar nada. → [{ what, label, size, action, why, run, done }]
@@ -124,8 +139,8 @@ function plan(project, r, conCambios = false) {
       const ahead = unmerged(ws.gitRoot, e.branch, [e.target]) || [];
       const slug = e.branch.split('/').pop();
       items.push(ahead.length
-        ? { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, size: I.sizeOf(s.path), why: `tiene ${ahead.length} commit(s) sin integrar en ${e.target}` }
-        : { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, size: I.sizeOf(s.path), action: 'se borra con su rama', run: () => ledger.close(main, slug) });
+        ? { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, at: s.path, why: `tiene ${ahead.length} commit(s) sin integrar en ${e.target}` }
+        : { what: 'carpeta', label: `${posix(s.path)} (rama ${e.branch})`, at: s.path, action: 'se borra con su rama', run: () => ledger.close(main, slug) });
     } else if (ws && refExists(ws.gitRoot, `refs/heads/${s.branch}`)) {
       const target = (e && e.target) || mergeTargets(ws.gitRoot, ws.defaultBranch).branch;
       const ahead = unmerged(ws.gitRoot, s.branch, [target]) || [];
@@ -136,18 +151,19 @@ function plan(project, r, conCambios = false) {
   }
   const w = r.worktree;
   if (w && exists(w.path)) {
-    const size = I.sizeOf(w.path);
+    const at = w.path;
     const nested = (carpeta.readState(loadProject(w.path) || { root: w.path }).repos || []).filter((x) => x.status === 'vivo' && exists(x.path));
     // La copia de la configuración que trajo el arnés no es un cambio sin commitear (lib/config-propia.js).
     const own = rescate.dirtyIn(w.path, [...ledger.liveLinks(w.path), ...carpeta.ownOf({ links: [], copies: [], copiedDirs: [], path: w.path, main: w.main })]);
     const kept = nested.map((x) => [x, rescate.dirtyIn(x.path, [...ledger.liveLinks(x.path), ...carpeta.ownOf(x)])]).filter(([, d]) => d.length);
     const lost = kept.map(([x, d]) => `${path.basename(x.repo)} tiene ${d.length} archivo(s) sin commitear (${d.slice(0, 3).join(', ')})`).join(' y ');
     const lock = lockOf(w.main, w.path);
-    if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, size, action: 'se borra saliendo de él', exit: true });
-    else if (lockWhy(lock)) items.push({ what: 'carpeta', label: posix(w.path), size, why: lockWhy(lock) });
-    else if (own.length) items.push({ what: 'carpeta', label: posix(w.path), size, why: `tiene cambios sin commitear (${own.slice(0, 3).join(', ')})` });
-    else if (kept.length && !conCambios) items.push({ what: 'carpeta', label: posix(w.path), size, why: `${lost}; se borra solo si dices que esos cambios se pierden`, dirty: true });
-    else items.push({ what: 'carpeta', label: posix(w.path), size, action: `${kept.length ? `se borra, y se pierde lo que ${lost.replace(/ tiene /g, ' tenía ')}` : 'se borra'}${lock ? `; estaba bloqueado por un proceso que ya no existe (${lock.pid}), y se desbloquea` : ''}`, run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
+    if (here(w.path)) items.push({ what: 'carpeta', label: `${posix(w.path)} (el worktree de esta sesión)`, at, action: 'se borra saliendo de él', exit: true });
+    else if (lockWhy(lock)) items.push({ what: 'carpeta', label: posix(w.path), at, why: lockWhy(lock) });
+    else if (tenant(project, r)) items.push({ what: 'carpeta', label: posix(w.path), at, why: `lo usa también ${tenant(project, r).slug}, que ${tenant(project, r).state === 'subido' ? 'espera su MR' : 'sigue en curso'}`, shared: true });
+    else if (own.length) items.push({ what: 'carpeta', label: posix(w.path), at, why: `tiene cambios sin commitear (${own.slice(0, 3).join(', ')})` });
+    else if (kept.length && !conCambios) items.push({ what: 'carpeta', label: posix(w.path), at, why: `${lost}; se borra solo si dices que esos cambios se pierden`, dirty: true });
+    else items.push({ what: 'carpeta', label: posix(w.path), at, action: `${kept.length ? `se borra, y se pierde lo que ${lost.replace(/ tiene /g, ' tenía ')}` : 'se borra'}${lock ? `; estaba bloqueado por un proceso que ya no existe (${lock.pid}), y se desbloquea` : ''}`, run: () => removeNative(w, (r.branches || []).some((b) => b.branch === w.branch), conCambios) });
   }
   // La rama del worktree de carpeta que se borró por fuera: Claude Code la habría borrado con él. Sin
   // commits propios se borra, salvo que quede trabajo rescatado de ese worktree por recuperar.
@@ -173,9 +189,9 @@ function plan(project, r, conCambios = false) {
     if (refExists(b.repo, `refs/heads/${b.branch}`)) items.push({ what: 'rama', label: `${b.branch} en ${path.basename(b.repo)}`, size: 0, why: 'es la rama del issue: se borra al cerrar, cuando su MR esté mergeado' });
   }
   for (const f of r.files || []) {
-    if (!exists(f)) continue;
+    if (!exists(f) || foreign(f, r.slug)) continue;
     if (isLink(f) || fs.lstatSync(f).isDirectory()) items.push({ what: 'archivo', label: posix(f), size: 0, why: 'no es un archivo; no lo toco' });
-    else items.push({ what: 'archivo', label: posix(f), size: I.sizeOf(f), action: 'se borra', run: () => fs.rmSync(f, { force: true }) });
+    else items.push({ what: 'archivo', label: posix(f), at: f, action: 'se borra', run: () => fs.rmSync(f, { force: true }) });
   }
   return items;
 }
@@ -229,8 +245,12 @@ function removeNative(w, isIssueBranch, conCambios = false) {
 }
 
 function show(items) {
-  for (const i of items) console.log(`- ${i.what} ${i.label}${i.size ? ` · ${I.human(i.size)}` : ''} · ${i.action || `se queda: ${i.why}`}`);
-  const total = items.filter((i) => i.action).reduce((t, i) => t + i.size, 0);
+  let total = 0;
+  for (const i of items) {
+    const size = i.at ? I.sizeOf(i.at) : 0;
+    if (i.action) total += size;
+    console.log(`- ${i.what} ${i.label}${size ? ` · ${I.human(size)}` : ''} · ${i.action || `se queda: ${i.why}`}`);
+  }
   console.log(`se liberan ${I.human(total)}`);
 }
 
@@ -290,7 +310,7 @@ function clean(project, slug, write, conCambios = false) {
     if (!ok) failed = true;
     console.log(`${ok ? i.done || 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
   }
-  for (const i of items.filter((x) => x.exit)) console.log(`falta ${i.what} ${i.label}: sal de él con ExitWorktree y action "remove"`);
+  for (const i of items.filter((x) => x.exit)) console.log(`falta ${i.what} ${i.label}: sal de él con ExitWorktree y action "remove"; si no te deja porque la sesión no es su dueña, sal con action "keep" y no lo borres a mano: se borra solo cuando el issue cierre`);
   for (const i of items.filter((x) => x.why)) console.log(`se queda ${i.what} ${i.label}: ${i.why}`);
   const left = I.readIssue(project, slug);
   left.files = (left.files || []).filter(exists);
@@ -319,19 +339,53 @@ function unknown(project) {
 }
 
 // Lo registrado del issue fuera de sus ramas, que close borra aparte.
-const leftovers = (project, r) => plan(project, r).filter((i) => i.what !== 'rama' || !(r.branches || []).some((b) => i.label.startsWith(`${b.branch} `)));
+const leftovers = (project, r, conCambios = false) => plan(project, r, conCambios).filter((i) => i.what !== 'rama' || !(r.branches || []).some((b) => i.label.startsWith(`${b.branch} `)));
 
-// Cada rama local del issue está entera en lo que ship subió, en algún remoto o en la rama por defecto.
-function pushedAll(r) {
-  return (r.branches || []).every((b) => {
-    if (!exists(b.repo) || !refExists(b.repo, `refs/heads/${b.branch}`)) return true;
-    const tip = git(b.repo, ['rev-parse', `refs/heads/${b.branch}`]).stdout.trim();
-    if ((r.pushed || []).some((p) => key(p.repo) === key(b.repo) && p.branch === b.branch && p.sha === tip)) return true;
-    const def = mergeTargets(b.repo).branch;
-    const local = def && refExists(b.repo, `refs/heads/${def}`) ? [def] : [];
-    return git(b.repo, ['rev-list', '--count', b.branch, '--not', '--remotes', ...local, '--']).stdout.trim() === '0';
-  });
+// Los commits de una rama local del issue que no están en lo que ship subió, en ningún remoto ni en la
+// rama por defecto.
+function unpushed(r, b, known = null) {
+  if (!exists(b.repo) || !refExists(b.repo, `refs/heads/${b.branch}`)) return 0;
+  const tip = git(b.repo, ['rev-parse', `refs/heads/${b.branch}`]).stdout.trim();
+  if ((r.pushed || []).some((p) => key(p.repo) === key(b.repo) && p.branch === b.branch && p.sha === tip)) return 0;
+  const def = known || mergeTargets(b.repo).branch;
+  const local = def && refExists(b.repo, `refs/heads/${def}`) ? [def] : [];
+  return Number(git(b.repo, ['rev-list', '--count', b.branch, '--not', '--remotes', ...local, '--']).stdout.trim()) || 0;
 }
+
+// En un mismo worktree se trabajan varios pedidos seguidos, cada uno con su registro y todos en la misma
+// rama (siete en un worktree de renova365). Los otros issues sin cerrar que tienen una rama de este:
+const sameBranch = (a, b) => a.branch === b.branch && key(a.repo) === key(b.repo);
+const sharing = (project, r) => I.list(project).filter((o) => o.slug !== r.slug && o.state !== 'cerrado' && (o.branches || []).some((x) => (r.branches || []).some((b) => sameBranch(x, b))));
+// - el que subió y espera su MR, y el que todavía se está trabajando (planeado, construido, verificado o
+//   revisado, tocado en la última semana): la rama y el worktree que comparten no se borran hasta que cierre;
+// - el que se commiteó sin MR propio y vive entero en las ramas de este: su trabajo viajó en este MR, y
+//   cierra con él (un ajuste commiteado sin subir que el pedido siguiente subió en la misma rama). También
+//   el que quedó a medias hace más de una semana: un plan al que se le cambió el título deja su registro
+//   viejo para siempre, y con él no cerraría nunca el worktree.
+const STALE_MS = 7 * 24 * 60 * 60 * 1000;
+const early = (o) => !['entregado', 'subido', 'mergeado'].includes(o.state);
+const recent = (o) => Date.now() - Date.parse(o.updatedAt || o.createdAt || 0) < STALE_MS;
+const holds = (o) => o.state === 'subido' || (early(o) && recent(o));
+const waiting = (project, r) => sharing(project, r).filter(holds);
+// El otro issue, en curso o esperando su MR, que tiene el mismo worktree.
+const tenant = (project, r) => (r.worktree ? I.list(project).find((o) => o.slug !== r.slug && o.state !== 'cerrado' && holds(o) && o.worktree && key(o.worktree.path) === key(r.worktree.path)) : null);
+const along = (project, r) => sharing(project, r).filter((o) => !holds(o) && o.state !== 'mergeado' && !(o.mr || []).length && o.branches.every((x) => (r.branches || []).some((b) => sameBranch(x, b))));
+
+// Los commits de la rama (la local, o la de origin si ya no hay local) que no están en la rama por defecto.
+function outside(b, def) {
+  const ref = [`refs/heads/${b.branch}`, `refs/remotes/origin/${b.branch}`].find((x) => refExists(b.repo, x));
+  if (!ref || !def) return 0;
+  fetchOrigin(b.repo);
+  const into = [`refs/remotes/origin/${def}`, `refs/heads/${def}`].filter((x) => refExists(b.repo, x));
+  return into.length ? Number(git(b.repo, ['rev-list', '--count', ref, '--not', ...into, '--']).stdout.trim()) || 0 : -1;
+}
+
+// El checkout principal del repo de un MR: los registros viejos, y el estado anotado a mano, guardan la
+// carpeta del worktree, que mientras exista no es la del repo de la rama.
+const mrMain = (r, m) => {
+  const p = I.mrRepo(r, m);
+  return p && exists(p) ? ledger.mainCheckout(p) : p;
+};
 
 // Lo mergeado se cierra solo, sin preguntar: con el MR mergeado y la rama local sin nada que no se haya
 // subido, no hay qué perder. Lo corre ship al subir, que es cuando la sesión termina; antes pedía volver
@@ -342,7 +396,7 @@ function mergeados(project) {
   I.refreshMerged(project, { max: 5 });
   const done = [];
   for (const r of I.list(project).filter((x) => x.state === 'mergeado')) {
-    if (rescuesOf(project, r).length || !pushedAll(r) || leftovers(project, r).some((i) => i.exit || i.why)) continue;
+    if (rescuesOf(project, r).length || waiting(project, r).length || leftovers(project, r).some((i) => i.exit || i.why)) continue;
     const log = console.log;
     console.log = () => {};
     let status = 1;
@@ -357,8 +411,9 @@ function mergeados(project) {
   return done;
 }
 
-// Cierra un issue mergeado, desde el checkout principal.
-function close(project, slug, write) {
+// Cierra un issue mergeado, desde el checkout principal. Con conCambios, también con commits sin subir en
+// su rama, que se pierden.
+function close(project, slug, write, conCambios = false) {
   const r = I.readIssue(project, slug);
   if (!r) die(`issues: no hay registro del issue ${slug}`);
   if (r.state === 'cerrado') {
@@ -377,21 +432,62 @@ function close(project, slug, write) {
     else console.log(`${slug}: el MR ${r.mr.map((m) => m.ref).join(', ')} no está mergeado (${states.map((s) => s || 'no se pudo consultar').join(', ')}); no lo cierro`);
   } else if (!merged) console.log(`${slug}: no tiene un MR registrado ni un merge local; no lo cierro`);
   if (!merged) return 1;
+  const localMerge = (r.states || []).some((s) => s.state === 'mergeado' && /local/.test(s.detail || ''));
+  // Las cabezas de los MR mergeados, cuando el host las da: lo que haya en la rama de origin más allá de
+  // ellas (un commit subido a mano después del merge) no estaba en ningún MR.
+  let heads = [];
+  if (write && !localMerge && (r.mr || []).length) {
+    const infos = I.mrInfos(r);
+    const states = infos.map((i) => i.state);
+    heads = infos.map((i) => i.head).filter(Boolean);
+    if (!states.every((s) => s === 'merged')) {
+      console.log(`${slug}: no lo cierro: el MR ${r.mr.map((m) => m.ref).join(', ')} no está mergeado ahora (${states.map((s) => s || 'no se pudo consultar').join(', ')})`);
+      return 1;
+    }
+  }
   const main = loadProject(I.mainRoot(project)) || project;
+  const users = waiting(project, r);
   const steps = [];
-  for (const b of r.branches || []) {
+  const kept = [];
+  const blocked = [];
+  for (const b of (r.branches || []).filter((x) => exists(x.repo))) {
     const ws = main.workspaces.find((w) => key(w.gitRoot) === key(b.repo));
     const def = (ws && ws.defaultBranch) || mergeTargets(b.repo).branch;
     const name = path.basename(b.repo);
     const remote = Boolean(git(b.repo, ['remote']).stdout.trim());
-    steps.push({ label: `${name}: ${def} al día con origin`, run: () => {
+    steps.push({ repo: name, label: `${name}: ${def} al día con origin`, run: () => {
       if (!remote) return { status: 0 };
-      git(b.repo, ['fetch', '--quiet', 'origin']);
+      fetchOrigin(b.repo);
       const at = worktreeList(b.repo).find((x) => x.branch === def);
       return at ? git(at.path, ['merge', '--ff-only', '--quiet', `origin/${def}`]) : git(b.repo, ['fetch', '--quiet', 'origin', `${def}:${def}`]);
     } });
-    if (refExists(b.repo, `refs/heads/${b.branch}`)) {
-      steps.push({ label: `${name}: borro la rama ${b.branch}`, run: () => {
+    const user = users.find((o) => o.branches.some((x) => sameBranch(x, b)));
+    if (user) {
+      kept.push(`${name}: la rama ${b.branch} se queda: la usa también ${user.slug}, que ${user.state === 'subido' ? 'espera su MR' : 'sigue en curso'}`);
+      continue;
+    }
+    // El MR de este repo no quedó registrado (no abrió y se pegó a mano): que se mergeara el de otro repo
+    // no dice nada de esta rama. Solo se borra si todo lo suyo ya está en la rama por defecto.
+    // --con-cambios acepta perder lo que no se commiteó o no se subió, no lo que está subido en una rama sin MR.
+    const unknown = localMerge || (r.mr || []).some((m) => key(mrMain(r, m)) === key(b.repo)) ? 0 : outside(b, def);
+    if (unknown) {
+      blocked.push(unknown < 0 ? `${name}: no encuentro la rama por defecto ${def}, y sin ella no sé si lo de ${b.branch} ya está adentro` : `${name}: la rama ${b.branch} no tiene un MR registrado y lleva ${unknown} commit(s) que no están en ${def}`);
+      continue;
+    }
+    // Una rama con commits que nadie subió, o abierta en un worktree que no es el del issue, no es de un
+    // issue ya mergeado: no se borra ni aquí ni en origin, y el issue se queda para que lo mire la persona.
+    const ahead = conCambios ? 0 : unpushed(r, b, def);
+    const own = (p) => key(p) === key(b.repo) || (r.worktree && (key(p) === key(r.worktree.path) || inside(p, r.worktree.path)));
+    const open = worktreeList(b.repo).find((x) => x.branch === b.branch && exists(x.path) && !own(x.path));
+    // Abierta en el checkout principal con cambios sin commitear: alguien trabaja ahí, y no se le cambia de rama.
+    const busy = worktreeList(b.repo).some((x) => x.branch === b.branch && key(x.path) === key(b.repo)) && lines(git(b.repo, ['status', '--porcelain', '--untracked-files=no']).stdout).length > 0;
+    if (ahead) blocked.push(`${name}: la rama ${b.branch} tiene ${ahead} commit(s) que no se subieron`);
+    else if (open) blocked.push(`${name}: la rama ${b.branch} está abierta en ${posix(open.path)}`);
+    else if (busy) blocked.push(`${name}: la rama ${b.branch} está abierta en el checkout principal, con cambios sin commitear`);
+    if (ahead || open || busy) continue;
+    const local = () => refExists(b.repo, `refs/heads/${b.branch}`);
+    if (local()) {
+      steps.push({ repo: name, label: `${name}: borro la rama ${b.branch}`, run: () => {
         const at = worktreeList(b.repo).find((x) => x.branch === b.branch);
         if (at && key(at.path) === key(b.repo)) {
           const sw = git(b.repo, ['switch', '-q', def]);
@@ -400,33 +496,73 @@ function close(project, slug, write) {
         return git(b.repo, ['branch', '-D', b.branch]);
       } });
     }
-    if (remote && git(b.repo, ['ls-remote', '--exit-code', '--heads', 'origin', b.branch]).status === 0) {
-      steps.push({ label: `${name}: borro la rama ${b.branch} de origin`, run: () => git(b.repo, ['push', '--quiet', 'origin', '--delete', b.branch]) });
+    const there = remote ? firstLine(git(b.repo, ['ls-remote', 'origin', `refs/heads/${b.branch}`]).stdout).split(/\s+/)[0] : '';
+    const sent = (r.pushed || []).find((p) => sameBranch(p, b));
+    const inDefault = () => there && git(b.repo, ['merge-base', '--is-ancestor', there, `refs/remotes/origin/${def}`]).status === 0;
+    const later = there && !conCambios && ((sent && sent.sha !== there) || (heads.length && !heads.includes(there))) && (fetchOrigin(b.repo), !inDefault());
+    if (later) {
+      blocked.push(`${name}: la rama ${b.branch} de origin tiene commits posteriores a lo que se mergeó`);
+      continue;
+    }
+    if (there) {
+      steps.push({ repo: name, label: `${name}: borro la rama ${b.branch} de origin`, run: () => (local() ? { status: 1, stderr: 'la rama local sigue ahí' } : git(b.repo, ['push', '--quiet', 'origin', '--delete', b.branch])) });
     }
   }
-  const items = leftovers(project, r);
+  if (blocked.length) {
+    console.log(`${slug}: no lo cierro: ${blocked.join('; ')}`);
+    return 1;
+  }
+  // El worktree que también usa un issue que espera su MR se queda con su rama.
+  const theirs = r.worktree && users.find((o) => o.worktree && key(o.worktree.path) === key(r.worktree.path));
+  const items = leftovers(project, r, conCambios).filter((i) => !(theirs && i.what === 'carpeta'));
+  // Lo que no se puede borrar (un worktree con cambios sin commitear, un rescate por recuperar): el issue
+  // no cierra con eso en disco, porque cerrado ya no vuelve a salir en ninguna lista y quedaría huérfano.
+  const stays = items.filter((i) => ['carpeta', 'rescate'].includes(i.what) && (i.why || i.exit));
+  if (theirs && exists(r.worktree.path)) kept.push(`el worktree ${r.worktree.name} se queda: lo usa también ${theirs.slug}, que ${theirs.state === 'subido' ? 'espera su MR' : 'sigue en curso'}`);
+  const riders = along(project, r);
   if (!write) {
     console.log(`${slug} · mergeado: al cerrar`);
     for (const s of steps) console.log(`- ${s.label}`);
+    for (const k of kept) console.log(`- ${k}`);
+    for (const o of riders) console.log(`- ${o.slug} cierra con él: ${o.state === 'entregado' ? 'su trabajo viajó en la misma rama' : 'quedó a medias en la misma rama hace más de una semana'}`);
     show(items);
     return 0;
   }
+  if (stays.length) {
+    for (const i of stays) console.log(`se queda ${i.what} ${i.label}: ${i.why || 'es el worktree de esta sesión'}`);
+    console.log(`${slug}: no lo cierro mientras eso siga ahí`);
+    return 1;
+  }
   let failed = false;
   for (const i of items.filter((x) => x.run)) {
-    const res = i.run();
+    let res;
+    try {
+      res = i.run();
+    } catch (e) {
+      res = { status: 1, stderr: e.message };
+    }
     const ok = !res || Array.isArray(res) || res.status === 0 || res.status === undefined;
     failed = failed || !ok;
     console.log(`${ok ? i.done || 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine((res && (res.stderr || res.stdout)) || '')}`}`);
   }
+  const broken = new Set();
   for (const s of steps) {
+    if (broken.has(s.repo)) continue;
     const res = s.run();
     const ok = res.status === 0;
     failed = failed || !ok;
+    if (!ok) broken.add(s.repo);
     console.log(`${ok ? 'hecho' : 'no se pudo'} · ${s.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
   }
+  for (const k of kept) console.log(k);
   if (failed) return 1;
   I.setState(project, 'cerrado', null, slug);
   console.log(`${slug}: cerrado`);
+  for (const o of riders) {
+    for (const f of (o.files || []).filter((x) => exists(x) && !foreign(x, o.slug) && !isLink(x) && !fs.lstatSync(x).isDirectory())) fs.rmSync(f, { force: true });
+    I.setState(project, 'cerrado', `con ${slug}`, o.slug);
+    console.log(`${o.slug}: cerrado con ${slug}`);
+  }
   return 0;
 }
 
@@ -447,7 +583,7 @@ function cerrar(project, slugs, write, conCambios) {
       continue;
     }
     if (['subido', 'mergeado'].includes(r.state)) {
-      if (close(project, r.slug, write) === 0) continue;
+      if (close(project, r.slug, write, conCambios) === 0) continue;
       // No lo cerró: si es porque el MR no está mergeado, queda borrar lo que sobra; si no, ya dijo qué faltó.
       const inside = r.worktree && exists(r.worktree.path) && here(r.worktree.path);
       if (inside || I.readIssue(project, r.slug).state === 'mergeado') {
@@ -504,7 +640,7 @@ function main() {
     if (extra2 || !state || !I.STATES.includes(state) || (!slugArg && !o.actual)) die(`${usage}\n  estados: ${I.STATES.join(', ')}`);
     const slug = slugArg || (I.current(project) || {}).slug;
     if (!slug) die('issues: no hay plan en la corrida; nombra el issue');
-    if (o.mr) I.record(project, { mr: [{ repo: posix(path.resolve(o.repo || process.cwd())), ref: o.mr }] }, slug);
+    if (o.mr) I.record(project, { mr: [{ repo: posix(ledger.mainCheckout(path.resolve(o.repo || process.cwd()))), ref: o.mr }] }, slug);
     const r = I.setState(project, state, o.mr ? `MR ${o.mr}` : null, slug);
     console.log(`${slug}: ${r ? r.state : 'sin registro'}`);
     return;

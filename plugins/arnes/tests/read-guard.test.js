@@ -32,11 +32,11 @@ test('todo lo de ~/.ssh y ~/.aws queda fuera, con ~ o con la ruta completa', () 
   assert.match(reason(read(dir, 'Glob', { pattern: '*', path: '~/.ssh' })), /Ahí están las llaves y el acceso a servidores/);
 });
 
-test('Glob se juzga por path y por pattern; Grep por path y por glob', () => {
+test('Glob solo devuelve nombres: se juzga por su carpeta, no por el patrón; Grep por path y por glob', () => {
   const dir = h.tmp('read-busca');
-  assert.ok(denied(read(dir, 'Glob', { pattern: '**/.env*' })));
+  assert.equal(read(dir, 'Glob', { pattern: '**/.env*' }).out, null, 'saber qué .env hay no es leerlos');
   assert.ok(denied(read(dir, 'Glob', { pattern: '*', path: '~/.ssh' })));
-  assert.ok(denied(read(dir, 'Glob', { pattern: 'certs/*.pem' })));
+  assert.equal(read(dir, 'Glob', { pattern: 'certs/*.pem' }).out, null);
   assert.equal(read(dir, 'Glob', { pattern: '**/*.ts' }).out, null);
   assert.equal(read(dir, 'Glob', { pattern: '**/.env.example' }).out, null);
   assert.ok(denied(read(dir, 'Grep', { pattern: 'API_KEY', path: '.env.local' })));

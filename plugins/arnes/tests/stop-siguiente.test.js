@@ -73,6 +73,27 @@ test('con build empezado, con un plan trivial o con la aprobación de otro turno
   assert.equal((stop(t).out || {}).decision, undefined);
 });
 
+// renova365, 2026-11-19: Claude escribió el arreglo sin cargar build, lo verificó y lo revisó en el turno
+// de la aprobación, y el Stop lo frenó dos veces por «build no empezó».
+test('con el código escrito y verificado en el turno de la aprobación no se frena, aunque no haya pasado por build', () => {
+  const dir = repo();
+  planEscrito(dir);
+  say(dir, 'sí a todo');
+  tl.append(dir, { event: 'note', stage: 'plan', result: 'aprobado' });
+  fs.appendFileSync(path.join(dir, 'src', 'a.ts'), 'el arreglo\n');
+  assert.equal(h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: dir }).status, 0);
+  const r = stop(dir);
+  assert.equal((r.out || {}).decision, undefined, JSON.stringify(r.out));
+  assert.doesNotMatch(JSON.stringify(r.out || {}), /construye|sin construir/);
+
+  const v = repo();
+  planEscrito(v);
+  say(v, 'sí a todo');
+  tl.append(v, { event: 'note', stage: 'plan', result: 'aprobado' });
+  tl.append(v, { event: 'start', stage: 'verify' });
+  assert.equal((stop(v).out || {}).decision, undefined, 'con una etapa posterior anotada tampoco');
+});
+
 function rojo(dir, first) {
   tl.append(dir, { event: 'start', stage: 'plan' });
   tl.append(dir, { event: 'note', stage: 'plan', result: 'aprobado' });

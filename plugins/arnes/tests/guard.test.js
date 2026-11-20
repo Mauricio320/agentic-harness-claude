@@ -476,15 +476,47 @@ test('cualquier comando que nombre un secreto se deniega, no solo los lectores, 
     'node --env-file=.env -e "console.log(process.env)"',
     'cp .env copia.txt',
     'base64 ~/.ssh/id_rsa',
-    'echo "nunca hagas cat .env"',
+    'echo $(cat .env)',
+    'sort -m .env',
+    'cat -t .env',
+    'grep -f .env README.md',
+    'grep -eKEY .env',
+    'grep --include .env -r PASSWORD .',
+    'ls -a | grep .env | xargs cat',
+    'echo .env | xargs cat',
+    "echo 'cat .env' > leer.sh; bash leer.sh",
+    'printf .env | sort --files0-from=-',
+    'echo .env >/dev/null; cat $_',
+    'grep <.env KEY',
+    'ls .env | head -c 4 | sort --files0-from=-',
+    'test -f .env && cat "$_"',
+    'stat .env >/dev/null && cat "$_"',
     'ls .env | xargs cat',
     'ls $(cat .env)',
     'ls `cat .env`',
   ]) {
     assert.ok(denied(guard(dir, cmd)), cmd);
   }
-  for (const cmd of ['Select-String KEY .env', 'Get-Content .env | Select-Object -First 1', 'gci .env | Get-Content', "node -e \"require('fs').readFileSync('.env')\""]) {
+  for (const cmd of ['Select-String KEY .env', 'Get-Content .env | Select-Object -First 1', 'gci .env | Get-Content', 'gci .env | Select-String KEY', 'gci .env | Where-Object { (Get-Content $_) -match "KEY" }', 'Get-Item .env | Select-Object Name | Get-Content', 'Select-String -Path .env -Pattern "."', 'Get-ChildItem .env -Name | findstr /f:/ KEY', 'Get-Item .env -OutVariable f; Get-Content $f', 'cmd /c "echo .env|findstr /f:/ KEY"', 'Write-Output (Get-Content .env)', '(Get-Item .env).OpenText().ReadToEnd()', 'Get-ChildItem -Force | Where-Object { $_.Name -like ".env*" } | Get-Content', "Get-ChildItem -Force .env | Select-Object @{n='c';e={Get-Content $_.FullName -Raw}} | Format-List", "node -e \"require('fs').readFileSync('.env')\""]) {
     assert.ok(denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
+  }
+  // Nombrar un secreto en texto libre, listarlo o preguntar si existe no lo lee: todo esto se negaba, y en
+  // renova365 llevó a dejar los ejemplos sin comprobar por no poder ver qué .env había.
+  for (const cmd of [
+    'echo "nunca hagas cat .env"',
+    'echo ".env" >> .gitignore',
+    'git commit --allow-empty -m "fix: valida credentials del login y rota la api.key"',
+    'grep -rn "credentials" .',
+    'git status --short | grep -v .env',
+    'test -f .env && echo existe',
+    '[ -f .env ] && echo si',
+    'stat .env',
+    'ls -la .env* | head',
+  ]) {
+    assert.ok(!denied(guard(dir, cmd)), cmd);
+  }
+  for (const cmd of ['Get-ChildItem -Force .env* | Select-Object Name', 'Get-ChildItem -Force .env* | Sort-Object Name | Select-Object -First 3', 'Test-Path .env', 'Get-Item .env']) {
+    assert.ok(!denied(guard(dir, cmd, { tool: 'PowerShell' })), `PowerShell: ${cmd}`);
   }
   const r = reason(guard(dir, 'tail -n 3 .env'));
   assert.match(r, /^arnes guard: tail \.env: es un archivo \.env\. Los secretos no entran al transcript\./);

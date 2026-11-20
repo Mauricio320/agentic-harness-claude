@@ -228,8 +228,17 @@ test('tras una revisión sin bloqueantes, lo que cambió después es una ronda a
   report(dir, 0, '- sugerencia [línea 1] · usa una constante\n');
   review(dir, ['mark', '--blockers', '0']);
   let r = review(dir, ['input']);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /nada cambió desde la ronda 1, que terminó sin bloqueantes: esa revisión sigue valiendo/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /nada cambió desde la ronda 1, que terminó sin bloqueantes: esa revisión sigue valiendo/);
+  // La huella cambió sin que cambie el contenido (un archivo que solo cambió sus fines de línea): ship pedía
+  // revisar, la ronda decía que no hacía falta, y así hasta frenar la entrega.
+  const marca = path.join(dir, '.tmp', 'harness', 'review.json');
+  const rev = JSON.parse(fs.readFileSync(marca, 'utf8'));
+  rev.workspaces.api.contentHash = 'otra-huella';
+  fs.writeFileSync(marca, JSON.stringify(rev));
+  assert.equal(review(dir, ['round']).status, 0);
+  assert.notEqual(JSON.parse(fs.readFileSync(marca, 'utf8')).workspaces.api.contentHash, 'otra-huella', 'la marca queda con la huella de ahora');
+  assert.match(h.run('ship.js', ['check'], { cwd: dir }).stdout, /revisión: revisión hecha, sin bloqueantes/);
 
   fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const A = 2;\n');
   r = review(dir, ['input']);
@@ -340,4 +349,24 @@ test('mark --clean escribe el reporte mínimo si el reviewer no escribió el suy
   assert.match(rep, /^REVISIÓN HUMANA OBLIGATORIA: prisma\/migrations\/001\/migration\.sql\n\n### Resumen\n0 bloqueantes: se puede entregar\.\n\n### Hallazgos por archivo\nSin hallazgos\.\n\nBLOQUEANTES: 0\n$/);
   assert.equal(review(dir, ['check']).status, 0);
   assert.equal(review(dir, ['input', '--clean']).status, 2);
+});
+
+// El reviewer a veces devuelve «- **BLOQUEANTE** …» y «**BLOQUEANTES: 1**». Sin tolerar el énfasis la
+// cuenta daba 0, la revisión quedaba limpia y ship decía LISTO con un bloqueante sin corregir.
+test('el reporte con énfasis de markdown cuenta sus bloqueantes; sin la línea de cuenta ni un bloqueante, no se marca', () => {
+  const dir = changed();
+  assert.equal(review(dir, ['round']).status, 0);
+  h.write(dir, '.tmp/harness/review/report.md', '#### src/a.ts\n- **BLOQUEANTE** [línea 1] · 5 · literal de negocio\n\n**BLOQUEANTES: 1**\n');
+  let r = review(dir, ['round', '--marca']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^bloqueantes: 1$/m);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'review.json'), 'utf8')).blockers, 1);
+  assert.match(h.run('ship.js', ['check'], { cwd: dir }).stdout, /la revisión encontró 1 bloqueante/);
+
+  const otro = changed();
+  assert.equal(review(otro, ['round']).status, 0);
+  h.write(otro, '.tmp/harness/review/report.md', 'Se ve bien.\n');
+  r = review(otro, ['round', '--marca']);
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /no trae la línea BLOQUEANTES: <n>/);
 });

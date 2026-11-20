@@ -9,8 +9,8 @@ const path = require('path');
 const tl = require('../scripts/lib/timeline.js');
 const h = require('./helpers.js');
 
-// glab falso: el estado del MR sale de GLAB_STATE.
-const GLAB = "if (process.argv[2] === 'mr' && process.argv[3] === 'view') { console.log(JSON.stringify({ iid: Number(process.argv[4]), state: process.env.GLAB_STATE || 'opened' })); process.exit(0); }\nprocess.exit(1);\n";
+// glab falso: el estado del MR sale de GLAB_STATE, o de GLAB_STATE_<número> para uno solo.
+const GLAB = "if (process.argv[2] === 'mr' && process.argv[3] === 'view') { console.log(JSON.stringify({ iid: Number(process.argv[4]), state: process.env['GLAB_STATE_' + process.argv[4]] || process.env.GLAB_STATE || 'opened' })); process.exit(0); }\nprocess.exit(1);\n";
 const BIN = h.fakeBin(h.tmp('bin-ciclo'), 'glab', GLAB);
 
 // Un repo clonado de su origen bare, con su manifiesto y el plan del issue aprobado.
@@ -224,4 +224,151 @@ test('el MR de un issue cuyo worktree ya se borró se consulta desde el checkout
   fs.writeFileSync(file, JSON.stringify({ ...r, mr: [{ repo: gone, ref: '12' }], worktree: { path: gone, name: 'ido', main: dir.split(path.sep).join('/') } }, null, 2));
   assert.match(run(dir, 'issues.js', ['merged'], 'merged').stdout, /^cobros: el MR !12 ya está mergeado/m, 'antes quedaba «no se pudo consultar» para siempre');
   assert.equal(state(dir), 'mergeado');
+});
+
+// El 2026-11-19, en renova365, la entrega desde un worktree consultó los MR de otros issues, los que ya
+// estaban mergeados quedaron con la rama de esa sesión en su registro, y al cerrarlos se borró de origin
+// la rama recién subida: GitHub cerró el PR un minuto después de abrirlo.
+const record = (dir, slug) => JSON.parse(fs.readFileSync(path.join(dir, '.tmp', 'harness', 'issues', `${slug}.json`), 'utf8'));
+const save = (dir, r) => fs.writeFileSync(path.join(dir, '.tmp', 'harness', 'issues', `${r.slug}.json`), JSON.stringify(r, null, 2));
+const posix = (p) => p.split(path.sep).join('/');
+
+// Otro pedido, en su worktree y con su rama subida y su MR 13 abierto.
+function otherSession(dir) {
+  const wt = h.nativeWorktree(dir, 'pagos', 'feature/pagos');
+  h.write(wt, '.tmp/harness/plan.md', '# Plan: Pagos\n\n## Workspaces y orden\n1. api\n');
+  h.write(wt, 'src/p.ts', 'pago\n');
+  h.commitAll(wt, 'feat: pagos');
+  h.git(wt, 'push', '-q', '-u', 'origin', 'feature/pagos');
+  assert.match(run(wt, 'issues.js', ['state', '--actual', 'subido', '--mr', '13']).stdout, /pagos: subido/);
+  return wt;
+}
+
+test('cerrar lo mergeado desde el worktree de otro pedido no le anota la rama de esa sesión, y nunca la borra', () => {
+  const c = repo();
+  const { dir, bare } = c;
+  mergedInOrigin(c);
+  const wt = otherSession(dir);
+  const some = { GLAB_STATE_12: 'merged' };
+  let r = h.run('issues.js', ['cerrar', '--mergeados', '--write'], { cwd: wt, env: h.withPath(BIN, some) });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^cobros: su MR ya estaba mergeado; quedó cerrado/m);
+  assert.deepEqual(record(dir, 'cobros').branches.map((b) => b.branch), ['cobros'], 'el registro de cobros no gana la rama de quien lo consultó');
+  assert.equal(record(dir, 'cobros').worktree, null);
+  assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '', 'su rama sí se borra de origin');
+  assert.notEqual(h.git(bare, 'branch', '--list', 'feature/pagos'), '', 'la de la sesión sigue en origin, con su MR');
+  assert.equal(record(dir, 'pagos').state, 'subido');
+});
+
+test('un registro que ya quedó con una rama ajena no la borra: ni con su dueño esperando el MR, ni abierta en otro worktree', () => {
+  const c = repo();
+  const { dir, bare } = c;
+  mergedInOrigin(c);
+  const wt = otherSession(dir);
+  const some = { GLAB_STATE_12: 'merged' };
+  const at = (cwd, ...args) => h.run('issues.js', args, { cwd, env: h.withPath(BIN, some) });
+  // Como lo dejó la 0.8.7: cobros, mergeado, con la rama de pagos anotada.
+  const tainted = { ...record(dir, 'cobros'), state: 'mergeado', branches: [...record(dir, 'cobros').branches, { repo: posix(dir), branch: 'feature/pagos' }] };
+  save(dir, tainted);
+  let r = at(dir, 'cerrar', '--mergeados', '--write');
+  assert.match(r.stdout, /^ningún issue mergeado que se pueda cerrar sin preguntar$/m, 'comparte rama con un issue que espera su MR: no se cierra solo');
+  r = at(dir, 'close', 'cobros');
+  assert.match(r.stdout, /^- api: la rama feature\/pagos se queda: la usa también pagos, que espera su MR$/m);
+  assert.doesNotMatch(r.stdout, /borro la rama feature\/pagos/);
+  // Sin el registro de pagos, la rama sigue abierta en su worktree: no se cierra ni se borra nada.
+  const pagos = record(dir, 'pagos');
+  fs.rmSync(path.join(dir, '.tmp', 'harness', 'issues', 'pagos.json'));
+  r = at(dir, 'close', 'cobros', '--write');
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^cobros: no lo cierro: api: la rama feature\/pagos está abierta en .*\/\.claude\/worktrees\/pagos$/m);
+  assert.notEqual(h.git(bare, 'branch', '--list', 'feature/pagos'), '');
+  assert.notEqual(h.git(bare, 'branch', '--list', 'cobros'), '', 'no se borró nada a medias');
+  assert.equal(record(dir, 'cobros').state, 'mergeado');
+  // Con su dueño de vuelta, cobros cierra y la rama compartida se queda.
+  save(dir, pagos);
+  r = at(dir, 'close', 'cobros', '--write');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '');
+  assert.notEqual(h.git(bare, 'branch', '--list', 'feature/pagos'), '');
+  assert.notEqual(h.git(wt, 'rev-parse', '--abbrev-ref', 'HEAD'), '', 'el worktree de pagos sigue ahí');
+  assert.equal(record(dir, 'cobros').state, 'cerrado');
+});
+
+test('el pedido que se commiteó sin subir y viajó en el MR del siguiente cierra con él', () => {
+  const c = repo();
+  const { dir } = c;
+  mergedInOrigin(c);
+  const cobros = record(dir, 'cobros');
+  save(dir, { ...cobros, slug: 'ajuste', title: 'Ajuste', state: 'entregado', states: [{ state: 'entregado', at: cobros.createdAt }], mr: [], files: [] });
+  let r = run(dir, 'issues.js', ['close', 'cobros'], 'merged');
+  assert.match(r.stdout, /^- ajuste cierra con él: su trabajo viajó en la misma rama$/m);
+  r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(record(dir, 'cobros').state, 'cerrado');
+  assert.equal(record(dir, 'ajuste').state, 'cerrado');
+  assert.match(run(dir, 'issues.js', ['cerrar'], 'merged').stdout, /^ningún issue entregado, subido o mergeado: nada por cerrar$/m);
+});
+
+// Con dos repos, el MR de uno puede no quedar registrado (no abrió y se pegó a mano). Que se mergee el otro
+// no dice nada de esa rama: se borraba en local y en origin con su MR abierto.
+test('una rama cuyo repo no tiene MR registrado no se borra por el merge de otro repo', () => {
+  const c = repo();
+  const { dir, bare, seed } = c;
+  mergedInOrigin(c);
+  save(dir, { ...record(dir, 'cobros'), mr: [{ repo: posix(seed), ref: '12' }] });
+  let r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.match(r.stdout, /^ningún issue mergeado que se pueda cerrar sin preguntar$/m);
+  assert.notEqual(h.git(bare, 'branch', '--list', 'cobros'), '', 'la rama sigue en origin');
+  assert.notEqual(h.git(dir, 'branch', '--list', 'cobros'), '');
+  r = run(dir, 'issues.js', ['close', 'cobros', '--write'], 'merged');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^cobros: no lo cierro: api: la rama cobros no tiene un MR registrado y lleva 1 commit\(s\) que no están en main$/m);
+});
+
+// En un mismo worktree, otro pedido con el plan aprobado y nada escrito: cerrar el anterior no se lo lleva.
+// Uno que quedó a medias hace más de una semana (un plan al que se le cambió el título) sí cierra con él.
+test('el pedido en curso que comparte la rama la retiene; el que quedó a medias hace más de una semana cierra con ella', () => {
+  const c = repo();
+  const { dir, bare } = c;
+  mergedInOrigin(c);
+  const cobros = record(dir, 'cobros');
+  const otro = { ...cobros, slug: 'recaudos', title: 'Recaudos', state: 'planeado', states: [{ state: 'planeado', at: new Date().toISOString() }], mr: [], files: [], updatedAt: new Date().toISOString() };
+  save(dir, otro);
+  let r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.match(r.stdout, /^ningún issue mergeado que se pueda cerrar sin preguntar$/m);
+  assert.notEqual(h.git(bare, 'branch', '--list', 'cobros'), '');
+  assert.equal(record(dir, 'recaudos').state, 'planeado');
+  r = run(dir, 'issues.js', ['close', 'cobros'], 'merged');
+  assert.match(r.stdout, /^- api: la rama cobros se queda: la usa también recaudos, que sigue en curso$/m);
+  save(dir, { ...otro, updatedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() });
+  r = run(dir, 'issues.js', ['close', 'cobros'], 'merged');
+  assert.match(r.stdout, /^- recaudos cierra con él: quedó a medias en la misma rama hace más de una semana$/m);
+  r = run(dir, 'issues.js', ['cerrar', '--mergeados', '--write'], 'merged');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(record(dir, 'cobros').state, 'cerrado');
+  assert.equal(record(dir, 'recaudos').state, 'cerrado');
+  assert.equal(h.git(bare, 'branch', '--list', 'cobros'), '');
+});
+
+// Con más issues subidos que consultas por entrega, se consultaban siempre los mismos.
+test('la consulta de los MR empieza por los que llevan más tiempo sin consultarse', () => {
+  const c = repo();
+  const { dir } = c;
+  shipped(dir);
+  const base = record(dir, 'cobros');
+  const old = new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString();
+  for (let i = 1; i <= 4; i++) save(dir, { ...base, slug: `a${i}`, branches: [], checkedAt: old });
+  save(dir, { ...base, slug: 'z-nunca', branches: [] });
+  const I = require('../scripts/lib/issues.js');
+  const { loadProject } = require('../scripts/lib/manifest.js');
+  const before = process.env.PATH;
+  process.env.PATH = `${BIN}${path.delimiter}${before}`;
+  try {
+    I.refreshMerged(loadProject(dir), { max: 2 });
+  } finally {
+    process.env.PATH = before;
+  }
+  assert.ok(record(dir, 'z-nunca').checkedAt, 'el que nunca se consultó va primero');
+  assert.ok(record(dir, 'cobros').checkedAt, 'y el otro sin consultar');
+  assert.equal(record(dir, 'a1').checkedAt, old);
 });

@@ -1,11 +1,12 @@
 ---
 name: ship
-description: Entregar el cambio. Resuelve solo lo que falta (integrar los worktrees del issue, verificar, revisar) y se detiene únicamente con el gate en rojo, una revisión con bloqueantes o una zona de riesgo sin revisión humana. Commitea back antes que front con la convención del repo y, solo con confirmación explícita, hace push, abre los MR/PR cruzados y, con ese mismo sí, borra lo que creó para el issue y cierra los issues anteriores ya mergeados, sin dejar un paso para después. Con --solo-commit se detiene después de commitear.
+description: Entregar, subir o commitear el cambio cuando la persona lo pide («entrégalo», «súbelo», «commitea», «abre el PR») o escribe /arnes:ship; nunca por cuenta propia al terminar de construir o de verificar. Resuelve solo lo que falta (integrar los worktrees del issue, verificar, revisar) y se detiene únicamente con el gate en rojo, una revisión con bloqueantes o una zona de riesgo sin revisión humana. Commitea back antes que front con la convención del repo y, solo con confirmación explícita, hace push, abre los MR/PR cruzados y, con ese mismo sí, borra lo que creó para el issue y cierra los issues anteriores ya mergeados, sin dejar un paso para después. Con --solo-commit se detiene después de commitear.
 argument-hint: "[--solo-commit] [--revisado <nombre>] [<rama>]"
-disable-model-invocation: true
 ---
 
 # arnes:ship
+
+Esta skill se carga cuando la persona pide entregar, con sus palabras o escribiendo el comando. Si nadie lo pidió, no la cargues: termina en `Listo para /arnes:ship`. Si pidió solo commitear, va con `--solo-commit`.
 
 Argumentos: `$ARGUMENTS`. Con `--solo-commit` no hay push ni MR. `--revisado <nombre>` lo escribe la persona cuando alguien revisó una zona de riesgo. Otra palabra es el nombre de la rama.
 
@@ -29,7 +30,7 @@ Corre `node "S/ship.js" deliver`, con `--solo-commit` y `--rama <rama>` si viene
 
 1. **Los mensajes**, con la convención del repo que mostró `deliver`: commitlint si lo encontró (léelo); si no, el CLAUDE.md del repo; si no, la forma de los últimos asuntos, en su idioma. Asunto: qué cambia, no cómo. Cuerpo: el porqué, en pocas líneas. Si dijo que la línea base de tests cambia, el asunto empieza con `gates: `. Sin `--solo-commit`, agrega a cada uno su `mr`: un título y una descripción corta de qué cambia; el resto del cuerpo del MR lo arma el arnés.
 2. Escríbelos con Write en `.tmp/harness/ship/mensajes.json`, como dijo `deliver`: `{ "<ws>": { "asunto": "…", "cuerpo": "…", "mr": { "titulo": "…", "descripcion": "…" } } }`.
-3. Corre `node "S/ship.js" deliver --commit`. Commitea cada workspace en su orden, solo con su verificación vigente; comprueba que cada commit lleva lo verificado, y deja en el informe el `log --stat` de cada uno. Si dice `FALLA`, di en una línea lo que pasó (sin verificación vigente, un hook del repo que rechazó el commit, o archivos que cambió después de verificar) y termina: la etapa ya quedó cerrada, y decide la persona. Las notas (un archivo que quedó fuera, uno que solo cambió sus fines de línea) no son fallas: dilas.
+3. Corre `node "S/ship.js" deliver --commit`. Commitea cada workspace en su orden, solo con su verificación vigente; comprueba que cada commit lleva lo verificado, y deja en el informe el `log --stat` de cada uno. Si dice `FALLA` porque un hook del repo rechazó el mensaje (commitlint: largo, tipo, alcance), corrige `mensajes.json` y repite `deliver --commit` una vez, sin preguntar. Con cualquier otra `FALLA` (sin verificación vigente, un hook que rechazó el contenido, o archivos que cambió después de verificar), di en una línea lo que pasó y termina: la etapa ya quedó cerrada, y decide la persona. Las notas (un archivo que quedó fuera, uno que solo cambió sus fines de línea) no son fallas: dilas.
 
 **Con `--solo-commit`:** `deliver --commit` cierra la etapa; di los commits en una línea por repo y termina.
 
@@ -39,8 +40,9 @@ Corre `node "S/ship.js" deliver`, con `--solo-commit` y `--rama <rama>` si viene
 
 1. **Pide confirmación** en un solo mensaje, antes de cualquier push o MR: la rama y, por repo, el commit y el remoto que dio `deliver --commit`, el título de cada MR (los cuerpos están en el informe) y cada línea `aviso:` de la comprobación, en palabras simples; los ejemplos sin comprobar van uno por uno, con lo que la persona tendría que probar antes de decir que sí. Dile en una línea que con su sí también se borra el worktree de este issue, porque todo queda en origin, y que si lo quiere conservar para seguir probando lo diga. Es la única pregunta de la entrega. Termina el turno ahí: el push exige una respuesta de la persona después del commit.
 2. **Con el sí:** `node "S/ship.js" deliver --push`, con `--dejar` si pidió conservar el worktree. Sube cada repo, back primero y nunca con `--force`; abre cada MR con glab o gh si están, con `REVISIÓN HUMANA OBLIGATORIA` primero si hay riskPaths, los criterios y la prueba manual del plan, el resultado de verify con la frase y la revisión, y enlaza los MR de los otros repos; en GitLab el MR queda marcado para borrar su rama al mergear. Sin glab ni gh, los cuerpos quedan en el informe para pegar: dilo y muestra el enlace que dio el push. Deja el issue subido, cierra la etapa y, sin otra pregunta, borra lo que el arnés creó para este issue y cierra los issues anteriores cuyo MR ya se mergeó.
-3. **Después del push:** si la salida dice `falta … sal de él`, sal del worktree con ExitWorktree y `action: "remove"`. Lo que diga `se queda` (cambios sin commitear en un repo, una app que no se pudo parar), dilo en una línea con su porqué. No hay más pasos para la persona: cuando el MR se mergee, el arnés cierra el issue solo en la próxima entrega; `/arnes:cerrar` es para no esperar o para lo que pida una decisión.
-4. **Sin el sí:** `node "S/ship.js" deliver --sin-push`. No se borra nada.
+3. **Después del push:** si la salida dice `falta … sal de él`, sal del worktree con ExitWorktree y `action: "remove"`. Si ExitWorktree no deja borrarlo porque la sesión no es su dueña, sal con `action: "keep"` y no lo borres a mano: el arnés lo borra cuando el issue cierre. Lo que diga `se queda` (cambios sin commitear en un repo, una app que no se pudo parar), dilo en una línea con su porqué. No hay más pasos para la persona: cuando el MR se mergee, el arnés cierra el issue solo en la próxima entrega; `/arnes:cerrar` es para no esperar o para lo que pida una decisión.
+4. **Si en vez del sí pide una corrección:** no cierres la entrega. El plan sigue aprobado: corrige, y vuelve a la sección 1. `deliver` pide verificar y revisar lo nuevo, lo commitea aparte en la misma rama y vuelve a esta pregunta; el push sube los dos commits.
+5. **Con un no:** `node "S/ship.js" deliver --sin-push`. No se borra nada.
 
 ## Reporte
 

@@ -22,7 +22,7 @@ const SCHEMA = require('../../schema/harness.schema.json');
 const { globToRegExp } = require('./glob.js');
 
 const MANIFEST = path.join('.claude', 'harness.json');
-const DEFAULT_CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,php,sql}'];
+const DEFAULT_CODE_GLOBS = ['**/*.{ts,tsx,js,jsx,vue,svelte,php,sql,py,go,cs,java,kt,rb,rs}'];
 
 // ---------- validación: el subconjunto de JSON Schema que usa el schema del arnés ----------
 
@@ -148,7 +148,7 @@ function rootOf(file) {
 function read(file) {
   let data;
   try {
-    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
   } catch (e) {
     return { file, errors: [`${file}: JSON ilegible (${e.message})`], ignored: [] };
   }

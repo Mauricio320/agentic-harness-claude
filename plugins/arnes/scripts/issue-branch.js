@@ -46,7 +46,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
-const { refExists } = require('./lib/branches.js');
+const { refExists, mergeTargets } = require('./lib/branches.js');
 const { append } = require('./lib/timeline.js');
 const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
@@ -106,7 +106,7 @@ function nameOf(project, plan, wanted) {
 }
 
 function stateOf(ws) {
-  const def = ws.defaultBranch || 'main';
+  const def = ws.defaultBranch || mergeTargets(ws.gitRoot).branch;
   const branch = branchOf(ws);
   const dirty = lines(git(ws.gitRoot, ['status', '--porcelain', '--untracked-files=no']).stdout).length;
   const origin = `origin/${def}`;
@@ -136,13 +136,7 @@ function worktreeRoute(project) {
   if (top.status !== 0 || path.resolve(top.stdout.trim()).toLowerCase() !== path.resolve(project.root).toLowerCase()) {
     return { ok: false, noRepo: true, why: `${project.kind === 'folder' ? 'la carpeta' : 'la raíz del proyecto'} no es un repo de git, y un worktree necesita uno` };
   }
-  if (git(project.root, ['remote']).stdout.trim()) fetchOrigin(project.root);
-  const head = git(project.root, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
-  const def = head.status === 0 ? head.stdout.trim() : ['origin/main', 'origin/master', 'main', 'master'].find((r) => refExists(project.root, r)) || 'HEAD';
-  if (git(project.root, ['cat-file', '-e', `${def}:.claude/harness.json`]).status !== 0) {
-    return { ok: false, why: `la configuración del arnés no está commiteada en ${def}, de donde nacería el worktree` };
-  }
-  return { ok: true, base: def };
+  return { ok: true };
 }
 
 // Cómo se hace repo de carpeta una carpeta que no lo es (docs/PLAN.md §8). Lo hace la persona: el commit
@@ -220,7 +214,7 @@ function enterNative(project, w, say = console.log) {
   notePlan(project, `${here.join(', ')}: la del worktree nativo de Claude Code`);
   append(project.root, { event: 'note', stage: 'plan', result: 'rama', detail: `worktree nativo ${w.name}: ${here.join(', ')}`, faltan: missing.length ? missing : undefined });
   issues.record(project, {
-    branches: workspaces(project, plan).map((ws) => ({ repo: posix(ws.gitRoot.replace(path.resolve(w.path), path.resolve(w.main))), branch: branchOf(ws) })),
+    branches: workspaces(project, plan).map((ws) => ({ repo: posix(path.join(w.main, path.relative(w.path, ws.gitRoot))), branch: branchOf(ws) })),
     worktree: { path: posix(w.path), name: w.name, main: posix(w.main), branch: w.branch },
     files: [planPath(project)],
   });

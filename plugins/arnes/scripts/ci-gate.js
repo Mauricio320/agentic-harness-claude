@@ -35,7 +35,7 @@ const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/m
 const { matchAny } = require('./lib/glob.js');
 const { git, sh, quote, runExpanded, firstLine, tail, help, die } = require('./lib/exec.js');
 const { link, unlink } = require('./lib/links.js');
-const { touched } = require('./touched-files.js');
+const { touched, deleted } = require('./touched-files.js');
 const tb = require('./typecheck-baseline.js');
 const tbl = require('./test-baseline.js');
 const conventions = require('./conventions.js');
@@ -242,18 +242,26 @@ function main() {
     console.log(`  base       ${base.hash.slice(0, 10)} (${base.how}) · ${t.files.length} tocado(s), ${code.length} de código`);
     // Un spec borrado no sale en los tocados (--diff-filter=d), pero la base lo sigue contando; una
     // base ilegible tampoco es código, y sin este corte pasaría como "sin cambios".
-    if (!code.length && !gone.length && !bl.error) {
+    // Código borrado: el typecheck dice si alguien lo seguía usando. Y un archivo que no es código pero
+    // tiene su spec (la plantilla .html de un componente) corre ese spec: antes pasaba en verde sin correr nada.
+    const dropped = (deleted(ws, base.hash).files || []).filter((f) => matchAny(ws.codeGlobs, f));
+    const picks = code.length || dropped.length ? null : tbl.planTests(ws, files);
+    const onlyTests = Boolean(picks && !picks.error && !picks.all && (picks.specs || []).some((s) => matchAny(ws.codeGlobs, s)));
+    if (!code.length && !dropped.length && !onlyTests && !gone.length && !bl.error) {
       console.log('  ok         sin cambios de código');
       writeLast(project, ws, base.hash, { result: 'pass', steps: [] });
       continue;
     }
     const steps = [];
+    const whole = () => (tbl.planTests(ws, files) || {}).all;
     for (const [name, step] of [
       ['typecheck', () => stepTypecheck(project, ws, base)],
       ['convenciones', () => stepConventions(ws, code, base)],
       ['lint', () => stepLint(ws, code)],
-      ['tests', () => stepTests(ws, files)],
-    ]) {
+      // Con un paso anterior en rojo, la suite entera no se corre para confirmar un rojo que ya se sabe:
+      // eran 30 minutos antes de decir lo que falló en el primer minuto.
+      ['tests', () => (steps.some((s) => s.status === 'falla') && whole() ? { status: 'omitido', detail: 'es la suite completa: se corre cuando lo anterior pase' } : stepTests(ws, files))],
+    ].filter(([name]) => !onlyTests || name === 'tests')) {
       const r = step();
       if (r.status === 'falla') red = true;
       steps.push({ name, status: r.status, detail: r.detail, ...(r.first ? { first: { step: name, ...r.first } } : {}) });

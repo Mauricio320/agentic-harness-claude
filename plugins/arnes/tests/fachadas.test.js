@@ -102,7 +102,7 @@ test('la puerta: desde un repo de adentro pide cd a la raíz; un nombre ocupado 
   h.write(dir, 'src/sub/x.ts', 'x\n');
   const sub = run(path.join(dir, 'src'), 'plan-state.js', ['start', '--detail', 'CRUD de talleres']);
   assert.equal(sub.status, 3);
-  assert.match(sub.stdout, /siguiente: este pedido se planifica en su propio worktree: cd "[^"]+" \(EnterWorktree crea el worktree del repo donde está parada la sesión\) y llama a EnterWorktree/);
+  assert.match(sub.stdout, /siguiente: este pedido se planifica en su propio worktree: primero cd "[^"]+", porque EnterWorktree crea el worktree del repo donde está parada la sesión; después llama a EnterWorktree/);
   h.nativeWorktree(dir, 'crud-talleres');
   assert.match(run(dir, 'plan-state.js', ['start', '--detail', 'CRUD de talleres']).stdout, /^worktree: crud-talleres-2$/m, 'no retoma la carpeta ni la rama de otra sesión');
 
@@ -236,9 +236,19 @@ test('verify.js run: sin spec se detiene para el test-writer; con --tras-tests c
   r = run(dir, 'verify.js', ['run']);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /^api: VERDE · bandera vigente, no se corrió de nuevo$/m, 'el mismo contenido verde no se vuelve a correr, ni pide el test-writer');
+  // La bandera lleva la huella de lo que el gate lee de la configuración. Reescribir el manifiesto igual
+  // (lo hace el arnés al llevarlo a un worktree) o cambiar lo que el gate no lee no obliga a correrlo.
+  const manifest = path.join(dir, '.claude', 'harness.json');
   const later = new Date(Date.now() + 5000);
-  fs.utimesSync(path.join(dir, '.claude', 'harness.json'), later, later);
-  assert.match(run(dir, 'verify.js', ['run', '--tras-tests']).stdout, /^api: VERDE · bandera escrita/m, 'un manifiesto más nuevo que la bandera obliga a correrlo');
+  fs.utimesSync(manifest, later, later);
+  assert.match(run(dir, 'verify.js', ['run', '--tras-tests']).stdout, /^api: VERDE · bandera vigente, no se corrió de nuevo$/m, 'el mismo manifiesto con otra fecha no vence la bandera');
+  const m = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  m.workspaces[0].forbidden = [...(m.workspaces[0].forbidden || []), 'npm run db:drop'];
+  fs.writeFileSync(manifest, JSON.stringify(m, null, 2));
+  assert.match(run(dir, 'verify.js', ['run', '--tras-tests']).stdout, /^api: VERDE · bandera vigente, no se corrió de nuevo$/m, 'lo prohibido no lo lee el gate');
+  m.workspaces[0].conventions = [...(m.workspaces[0].conventions || []), { id: 'sin-prohibido', pattern: 'palabra_prohibida', message: 'no va' }];
+  fs.writeFileSync(manifest, JSON.stringify(m, null, 2));
+  assert.match(run(dir, 'verify.js', ['run', '--tras-tests']).stdout, /^api: VERDE · bandera escrita/m, 'una convención nueva sí obliga a correrlo');
   h.write(dir, 'src/a.spec.ts', 'pass|A|debe sumar\nfail|A|debe restar\n');
   r = run(dir, 'verify.js', ['run', '--tras-tests']);
   assert.equal(r.status, 1, r.stdout);
@@ -357,6 +367,39 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.equal(events(dir).pop(), 'end ship ok');
 });
 
+// renova365, 2026-11-19: a la pregunta del push la persona respondió «corrige primero». El modelo cerró la
+// entrega con --sin-push, la corrida quedó sin plan y el guard negó la corrección.
+test('una corrección pedida en la pregunta del push se hace en la misma entrega: el plan sigue aprobado y el push sube los dos commits', () => {
+  const { dir, bare } = shippable();
+  assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
+  let r = run(dir, 'ship.js', ['deliver', '--commit']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship\.js deliver; con un no, ship\.js deliver --sin-push$/m);
+  const first = h.git(dir, 'rev-parse', 'HEAD');
+  person(dir, 'corrige primero el redondeo');
+  const edit = h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'src/a.ts') }, cwd: dir });
+  assert.equal(edit.out, null, `el plan sigue aprobado: ${JSON.stringify(edit.out)}`);
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'c\n');
+  r = run(dir, 'ship.js', ['deliver']);
+  assert.match(r.stdout, /^resultado: FALTA RESOLVER\n  verificar api\n  revisar$/m);
+  assert.equal(run(dir, 'verify.js', ['run']).status, 0);
+  assert.equal(run(dir, 'review.js', ['round']).status, 0);
+  assert.equal(run(dir, 'review.js', ['round', '--marca', '--limpio']).status, 0);
+  assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+  assert.equal(events(dir).filter((e) => e === 'start ship').length, 1, 'es la misma entrega');
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'fix: redondeo de los cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
+  r = run(dir, 'ship.js', ['deliver', '--commit']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(h.git(dir, 'rev-parse', 'HEAD^'), first, 'un commit más, sobre el primero');
+  assert.equal(run(dir, 'ship.js', ['deliver', '--push']).status, 1, 'el sí tiene que venir después del commit nuevo');
+  person(dir, 'sí, súbela');
+  r = run(dir, 'ship.js', ['deliver', '--push']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(h.git(bare, 'rev-parse', 'feature/cobros'), h.git(dir, 'rev-parse', 'HEAD'), 'los dos commits en origin');
+  assert.equal(fs.readdirSync(path.join(dir, '.tmp', 'harness', 'issues')).length, 1, 'un solo issue');
+});
+
 test('las desviaciones del dev y los posibles defectos de lógica llegan a la pregunta del push y al cuerpo del MR', () => {
   const { dir } = shippable();
   const plan = path.join(dir, '.tmp/harness/plan.md');
@@ -452,4 +495,44 @@ if (path.basename(process.execPath).toLowerCase().startsWith('glab')) {
   assert.doesNotMatch(c.stdout, /siguiente: pregunta/);
   assert.equal(events(solo).pop(), 'end ship ok');
   assert.equal(tl.read(solo).filter((e) => e.stage === 'ship').pop().detail, 'solo commit: api');
+});
+
+// Un cambio que solo borra archivos no tenía salida: verify decía «nada que verificar», el commit se negaba
+// por falta de bandera y ship pedía verificar. Y borrar algo después del verde no vencía la bandera.
+test('un cambio que solo borra archivos se verifica y deja su bandera; otro borrado después la vence', () => {
+  const { dir } = approved(undefined, undefined, { 'src/viejo.ts': 'v\n', 'docs/nota.md': 'nota\n' });
+  fs.rmSync(path.join(dir, 'src/viejo.ts'));
+  const r = run(dir, 'verify.js', ['run']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: VERDE · bandera escrita/m);
+  assert.equal(run(dir, 'gate-flag.js', ['check', 'api']).status, 0);
+  fs.rmSync(path.join(dir, 'docs/nota.md'));
+  assert.notEqual(run(dir, 'gate-flag.js', ['check', 'api']).status, 0, 'la lista de borrados es parte de lo verificado');
+});
+
+// La plantilla de un componente no es código para el gate, pero su spec la prueba: un cambio solo ahí
+// pasaba en verde sin correr nada.
+test('un archivo que no es código y tiene su spec corre ese spec', () => {
+  const { dir } = approved(undefined, undefined, { 'src/vista.html': '<p>a</p>\n', 'src/vista.spec.ts': 'pass|Vista|muestra el texto\n' });
+  fs.writeFileSync(path.join(dir, 'src/vista.html'), '<p>b</p>\n');
+  let r = run(dir, 'verify.js', ['run']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /tests\s+ok · 1 spec\(s\)/);
+  fs.writeFileSync(path.join(dir, 'src/vista.spec.ts'), 'fail|Vista|muestra el texto\n');
+  fs.writeFileSync(path.join(dir, 'src/vista.html'), '<p>c</p>\n');
+  r = run(dir, 'verify.js', ['run', '--tras-tests']);
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: ROJO · tests: /m);
+});
+
+// Una carpeta entre los tocados (un repo anidado sin trackear) reventaba la huella: el gate daba rojo con
+// todos sus pasos en ok, y el guard del commit dejaba pasar sin bandera.
+test('una carpeta entre los tocados no rompe la huella de la bandera', () => {
+  const { dir } = approved();
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
+  h.repo(path.join(dir, 'anidado'), { 'x.txt': 'x\n' });
+  const r = run(dir, 'verify.js', ['run']);
+  assert.doesNotMatch(r.stdout + r.stderr, /EISDIR/);
+  assert.match(r.stdout, /^api: VERDE · bandera escrita/m);
+  assert.equal(run(dir, 'gate-flag.js', ['check', 'api']).status, 0);
 });
