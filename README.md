@@ -40,15 +40,15 @@ Una pieza que se retira sale con su test y su línea en esta tabla, y el changel
 
 ## Instalación
 
-El repo vive en GitLab. El formato corto `owner/repo` siempre apunta a github.com, así que se instala con la URL completa y el tag al final:
+El repo vive en GitHub (`Mauricio320/agentic-harness-claude`). Se instala con la URL del repositorio (o el formato corto `Mauricio320/agentic-harness-claude#vX.Y.Z`) y el tag o la rama al final:
 
 ```
-claude plugin install arnes --marketplace https://gitlab.com/preupdv/apps/agentic-harness.git#vX.Y.Z
+claude plugin install arnes --marketplace https://github.com/Mauricio320/agentic-harness-claude.git#vX.Y.Z
 claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 ```
 
-El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop, y en los dos sirve la terminal integrada. Claude Code clona con `git` sin preguntar credenciales: la credencial de GitLab tiene que estar guardada de antemano (Git Credential Manager) o, por SSH, usar `git@gitlab.com:preupdv/apps/agentic-harness.git#vX.Y.Z` con la clave cargada en el agente.
+El primer comando añade el marketplace `agentic-harness` fijado a ese tag (scope `user`) e instala `arnes`. Los otros dos son opcionales e independientes; `arnes-mod` declara `arnes` como dependencia. `arnes-ui` se ve solo en la terminal: no en el chat de la extensión de VS Code ni en el de Claude Desktop, y en los dos sirve la terminal integrada.
 
 Para fijar la versión en un proyecto, en el `.claude/settings.json` de su repo de carpeta (abajo), o en el del repo si es de un solo repo. En una carpeta lo escribe `adopt.js folder-settings`, con los tres plugins y fijado a `main`, donde se publica cada versión (`--ref vX.Y.Z` para un tag):
 
@@ -56,7 +56,7 @@ Para fijar la versión en un proyecto, en el `.claude/settings.json` de su repo 
 {
   "extraKnownMarketplaces": {
     "agentic-harness": {
-      "source": { "source": "git", "url": "https://gitlab.com/preupdv/apps/agentic-harness.git", "ref": "vX.Y.Z" }
+      "source": { "source": "git", "url": "https://github.com/Mauricio320/agentic-harness-claude.git", "ref": "vX.Y.Z" }
     }
   },
   "enabledPlugins": { "arnes@agentic-harness": true, "arnes-ui@agentic-harness": true, "arnes-mod@agentic-harness": true }

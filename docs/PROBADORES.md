@@ -8,10 +8,10 @@ Hay dos caminos:
 
 ## 1. Instalar
 
-Claude Code clona con `git` sin preguntar credenciales: la de GitLab tiene que estar guardada antes (Git Credential Manager). Después, en cualquier terminal:
+En cualquier terminal:
 
 ```
-claude plugin install arnes --marketplace "https://gitlab.com/preupdv/apps/agentic-harness.git#main"
+claude plugin install arnes --marketplace "https://github.com/Mauricio320/agentic-harness-claude.git#main"
 claude plugin install arnes-ui@agentic-harness
 claude plugin install arnes-mod@agentic-harness
 claude plugin list
