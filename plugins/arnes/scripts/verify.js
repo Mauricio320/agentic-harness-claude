@@ -188,6 +188,10 @@ function run(project, base, afterTests, integration = false) {
   for (const r of results) say(r.section);
   for (const r of results) say(`${r.ws.name}: ${r.kept ? 'VERDE · bandera vigente, no se corrió de nuevo' : r.ok ? 'VERDE · bandera escrita' : `ROJO · ${firstRed(r.section)}`}${r.left.length ? ` · sin spec: ${r.left.join(', ')}` : ''}`);
   for (const n of capped) say(`tope: ${n} lleva ${RED_CAP} verificaciones en rojo desde el último mensaje de la persona; para, dile qué sigue fallando y qué propones, y espera su respuesta`);
+  const evFile = path.join(harnessDir(project), 'evidencia.md');
+  if (ok && results.some((r) => !r.kept) && fs.existsSync(evFile)) {
+    say(`ejemplos: ${posix(evFile)} quedó anterior a esta verificación; comprueba de nuevo los ejemplos que toque este cambio y actualízala antes de commitear`);
+  }
   say(`informe: ${posix(rep.file)}`);
   say(rep.first ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
   listTasks();

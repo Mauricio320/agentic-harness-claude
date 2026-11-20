@@ -2,6 +2,19 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.9] - 2026-11-20
+
+Sin graphify y cierre de entrega limpio. Sale de auditar dos sesiones reales de la 0.8.8: `15d4cfa4` en renova365 (investigación en QA + filtros y traslados programados en la Cola de Pagos del Día, PR `#653`) y `5e65c7be` en academico (migración de 234 archivos de `informes-front` a componentes oficiales de shadcn y registry `@pdv`, MR `!7`). En ambas sesiones el modelo corrió `graphify query` por trámite y diseñó el plan leyendo el código directamente con `Read` y `Grep`; y al final de las dos entregas `ExitWorktree` con `action: "remove"` falló por `Worktree has 1 uncommitted file` porque Claude Code valida `git status` antes de disparar `PreToolUse:ExitWorktree`.
+
+### Eliminado
+- La dependencia e integración con `graphify` (`scripts/lib/grafo.js`, `tests/grafo.test.js`, las consultas automáticas en `plan-state.js`, `prompt-context.js`, `guard.js`, `adopt.js`, `setup.js`, `worktree-carpeta.js`, `arnes-mod` y `arnes-ui`). `touched-files.js` sigue ignorando `graphify-out/` y `harness.schema.json` conserva `memory.graphify` por compatibilidad con repos ya adoptados.
+
+### Corregido
+- `issues.js clean --actual --write` actualiza primero `carpeta.protect` (que retira `.arnes-trabajo-pendiente` cuando todo quedó subido) y suelta la copia llevada de `.claude/harness.json` (`config.drop`) antes de pedir `ExitWorktree`, para que la validación interna de Claude Code vea el worktree limpio y permita `action: "remove"`.
+- `ship.js` incluye en el stage y en el commit los archivos de configuración versionados en el repo (`.claude/rules/**`, `.claude/harness.json`) cuyo cambio aprobó explícitamente la persona con `ajuste.js aprueba` durante la entrega actual; la configuración no aprobada o sin versionar sigue quedando fuera del commit.
+- `verify.js run` avisa cuando `.tmp/harness/evidencia.md` ya existía y quedó anterior a la nueva bandera de verificación, para que los ejemplos afectados se actualicen antes de `review.js round` y `ship.js deliver --commit`.
+- `ajuste.js aprueba` indica la ruta correcta `lib/manifest.js show` al pedir validar el manifiesto editado.
+
 ## [0.8.8] - 2026-11-19
 
 Cierre seguro. Sale de las tres primeras sesiones reales con la 0.8.7 en renova365, el mismo día de publicarla, y de una revisión del arnés entero por áreas (hooks, plan y worktrees, verificación, entrega y adopción). En una de esas sesiones, al subir, el cierre automático de lo mergeado borró de origin la rama recién subida, y GitHub cerró el PR un minuto después de abrirlo: al consultar el MR de otro issue desde un worktree, el arnés le anotaba a ese issue la rama de la sesión, y al cerrarlo borraba «sus» ramas. Siete registros de renova365 quedaron así, dos desde el 2026-11-10. En las mismas sesiones la app arrancó dos veces contra producción porque el aviso de base no local decía solo el host, y el cierre de turno frenó dos veces por «build no empezó» con el cambio ya escrito, verificado y revisado. Probada en local con Claude Code 2.1.329 (el CI sigue en la 2.1.316 de `compat.json`) y Node 24, con `node --test` y `claude plugin validate --strict`; `validate --strict` de `arnes-ui` sigue avisando con la 2.1.329 de un tipo del host que su test no declara. `plugins/arnes/scripts` pasa de 14.513 a 14.931 líneas.

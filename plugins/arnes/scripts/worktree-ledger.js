@@ -286,7 +286,7 @@ function liveLinks(wtPath) {
   if (nativeWorktree(wtPath)) {
     const p = loadProject(wtPath);
     const dirs = p && !p.errors.length ? p.workspaces.map((w) => w.dir) : [wtPath];
-    return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].concat(posix(path.join(wtPath, 'graphify-out'))).filter(isLink);
+    return [...new Set([wtPath, ...dirs].map((d) => posix(path.join(d, 'node_modules'))))].filter(isLink);
   }
   return [];
 }

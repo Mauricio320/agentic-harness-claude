@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.8.8, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.8.9, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -17,7 +17,7 @@ claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.8`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.9`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -34,9 +34,8 @@ Va paso por paso, diciendo cada uno, y te pregunta antes de lo que cambia algo t
 4. copia `.env.example` a `.env` donde falte, te lista las variables vacías y te dice a qué host apunta cada conexión a base. Nunca inventa un valor: los llenas tú;
 5. prueba el comando de test sobre un spec;
 6. comprueba que la línea base de tests esté commiteada y, si falta, te ofrece capturarla;
-7. con graphify instalado, arma el grafo de cada repo y lo junta en la carpeta. Sin él, te dice cómo instalarlo y sigue;
-8. escribe el `CLAUDE.md` de la carpeta si falta y los permisos de §3 en `.claude/settings.local.json`, cada uno con tu sí;
-9. cierra con `/arnes:init --check` y una lista "pendiente tuyo": los valores de `.env`, los comandos contra la base y los permisos en el mantenedor de roles.
+7. escribe el `CLAUDE.md` de la carpeta si falta y los permisos de §3 en `.claude/settings.local.json`, cada uno con tu sí;
+8. cierra con `/arnes:init --check` y una lista "pendiente tuyo": los valores de `.env`, los comandos contra la base y los permisos en el mantenedor de roles.
 
 `/arnes:setup --check <url>` solo te dice qué haría, sin tocar nada. Nunca corre un comando de `forbidden` ni escribe credenciales.
 
@@ -58,7 +57,6 @@ Sin ellos el arnés funciona igual, pero pregunta en cada script. Los arman con 
       "Bash(git rev-parse *)", "Bash(git ls-files *)", "Bash(git merge-base *)",
       "Bash(npx tsc --noEmit *)", "Bash(npx tsc -p *)", "Bash(npx jest *)", "Bash(npx eslint *)",
       "PowerShell(npx jest *)", "PowerShell(npx eslint *)",
-      "Bash(graphify query *)", "Bash(graphify explain *)", "Bash(graphify path *)",
       "Bash(glab issue view *)", "Bash(gh issue view *)"
     ],
     "ask": ["Bash(npx eslint *--fix*)", "PowerShell(npx eslint *--fix*)"]
@@ -72,7 +70,7 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
 
 1. Haz `git fetch` y deja cada repo en su rama por defecto al día: la adopción sale de main. Si una rama remota ya trae `.claude/harness.json`, init no se cambia a ella: adopta desde cero en la rama en que estés y te la nombra al cerrar.
 2. Instala las dependencias del repo (`npm ci` o la que use): init no instala nada, y sin ellas no puede tomar la línea base.
-3. Abre Claude Code en el repo, o en la carpeta que contiene varios, y corre `/arnes:init`. No te pregunta nada: detecta el stack, los comandos, el formato de los specs y las rutas que exigen revisión humana, escribe la configuración de cada repo y la de la carpeta, completa la que ya existía sin pisarla, quita los hooks del arnés anterior y, en la misma pasada, deja los permisos de §3, el `.worktreeinclude` de cada repo, el `CLAUDE.md` y el `settings.json` de la carpeta, la línea base de tests y el grafo. Todo queda sin commitear: lo revisas en el diff y lo deshaces con git si algo no te sirve, porque init no commitea ni hace push. Cierra en un solo mensaje con lo que decidió solo y por qué. En la carpeta de prueba contable, con api y web y un cambio sin commitear en api, se ve así (resumido):
+3. Abre Claude Code en el repo, o en la carpeta que contiene varios, y corre `/arnes:init`. No te pregunta nada: detecta el stack, los comandos, el formato de los specs y las rutas que exigen revisión humana, escribe la configuración de cada repo y la de la carpeta, completa la que ya existía sin pisarla, quita los hooks del arnés anterior y, en la misma pasada, deja los permisos de §3, el `.worktreeinclude` de cada repo, el `CLAUDE.md` y el `settings.json` de la carpeta y la línea base de tests. Todo queda sin commitear: lo revisas en el diff y lo deshaces con git si algo no te sirve, porque init no commitea ni hace push. Cierra en un solo mensaje con lo que decidió solo y por qué. En la carpeta de prueba contable, con api y web y un cambio sin commitear en api, se ve así (resumido):
 
    ```
    Quedó lista la configuración de la carpeta contable y de sus dos repos, api y web. No
@@ -89,7 +87,6 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
      opción de worktree que lo acompañaba.
    - Estado de los tests: en web los 2 tests pasan y no hay fallas conocidas. En api todavía no
      se registró (ver abajo).
-   - Grafo del código: armé el de api, el de web y el de la carpeta, en 2 segundos.
 
    Lo que te toca:
    1. El estado de los tests de api no se pudo registrar porque src/moneda.js tiene cambios sin
@@ -111,7 +108,7 @@ Si el proyecto ya tiene manifiesto, no hace falta: es §2. init es para adoptarl
    ```
 
    Una corrección se pide con `/arnes:init --ajustar`, por ejemplo `/arnes:init --ajustar en web, src/api/** también exige revisión humana`: la sesión la aplica en el archivo, sin repetir init. Va por ahí, y no en un mensaje suelto, porque fuera de init la configuración del arnés no se escribe. En una carpeta con back y front, el contract hace que ship sepa que el back va primero; si init no lo pudo deducir, como aquí, pídelo con `--ajustar`.
-4. Lo que init no puede hacer solo lo deja primero en esa lista, con el comando, y hace lo demás igual: la línea base de un repo con cambios sin commitear (`/arnes:init --baseline` cuando los commitees o los guardes), graphify sin instalar (`uv tool install graphify` y otra vez `/arnes:init`, que con lo demás ya escrito solo arma el grafo) o un runner de tests que el arnés no sabe leer (el punto 7). Si la suite de tu repo se corta o no compila, la línea base se toma igual con su estado, y el cierre te lo dice. La línea base y las fallas que ya había, anotadas con la fecha de hoy en `tests/known-failures.txt`, las commiteas tú, con `gates:` al inicio del asunto.
+4. Lo que init no puede hacer solo lo deja primero en esa lista, con el comando, y hace lo demás igual: la línea base de un repo con cambios sin commitear (`/arnes:init --baseline` cuando los commitees o los guardes) o un runner de tests que el arnés no sabe leer (el punto 7). Si la suite de tu repo se corta o no compila, la línea base se toma igual con su estado, y el cierre te lo dice. La línea base y las fallas que ya había, anotadas con la fecha de hoy en `tests/known-failures.txt`, las commiteas tú, con `gates:` al inicio del asunto.
 5. En una carpeta multi-repo, haz de la carpeta un repo (`git init`), commitea lo que escribió init y súbelo: ese es el repo de carpeta que los demás usan con `/arnes:setup`.
 6. `/arnes:init --check` corre las ocho comprobaciones del mínimo de adopción (`docs/PLAN.md` §8). Cada una sale `ok`, `FALTA`, `MANUAL` (configuración del host git que no se ve desde local) o `NO ADOPTABLE` (un repo sin manifiesto propio, como uno PHP, que no bloquea).
 7. **Tus tests y el arnés.** El arnés lee los resultados de cada test (archivo, nombre completo y si pasó, falló o se saltó) para compararlos con la línea base. Lo hace solo con jest, vitest, `node --test` y, en Angular, con Karma.

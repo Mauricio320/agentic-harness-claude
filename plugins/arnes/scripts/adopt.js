@@ -3,18 +3,18 @@
 // preguntar (docs/PLAN.md §8). No instala dependencias ni commitea: deja los archivos sin commitear,
 // que se revisan en el diff y se revierten con git, y la persona decide qué commitear.
 //   all [--write]           init en una sola pasada, en este orden: complete, hooks, baseref,
-//                           permissions, worktreeinclude, claude-md, folder-settings, baseline de cada
+//                           permissions, worktreeinclude, claude-md, folder-settings y baseline de cada
 //                           workspace adoptable con tests que todavía no la tiene (una que existe no se
-//                           pisa: la vuelve a tomar /arnes:init --baseline) y graph. Cada paso va bajo
+//                           pisa: la vuelve a tomar /arnes:init --baseline). Cada paso va bajo
 //                           "== <paso>" y relee la configuración, porque el anterior pudo completarla.
 //                           Con --write, hooks y baseref quitan lo que encuentran. Un paso que no
-//                           puede avanzar (la línea base con el árbol sucio, un runner sin adaptador,
-//                           graphify o el marketplace sin instalar) lo dice con lo que lo resuelve y
+//                           puede avanzar (la línea base con el árbol sucio, un runner sin adaptador
+//                           o el marketplace sin instalar) lo dice con lo que lo resuelve y
 //                           no frena a los demás; sale con 1 si alguno quedó así. Con --write deja
 //                           su PID en .tmp/harness/adopcion.json mientras vive, para que el Stop no
 //                           cierre init con la línea base corriendo, y anota cada paso en la
-//                           timeline (lib/adopcion.js): manifiestos, hooks, permisos, worktreeinclude,
-//                           la línea base de cada workspace y el grafo de cada repo, con lo que tardó;
+//                           timeline (lib/adopcion.js): manifiestos, hooks, permisos, worktreeinclude
+//                           y la línea base de cada workspace, con lo que tardó;
 //                           al final, una línea "tiempos:" con cada paso. Un .claude/settings.json o
 //                           settings.local.json que no es JSON válido no corta la pasada: el paso que
 //                           lo lee, con --write, lo arregla si falta una coma o una comilla (una sola
@@ -31,7 +31,7 @@
 //   hooks [--remove]        los hooks del .claude/settings.json del proyecto y de cada repo que corren
 //                           scripts de .claude/hooks/, los del arnés anterior; --remove los quita
 //   permissions [--write]   el bloque de permisos recomendados (README) para este proyecto: los node
-//                           del plugin, git de lectura, los comandos del manifiesto, graphify y la
+//                           del plugin, git de lectura, los comandos del manifiesto y la
 //                           lectura del issue; --write agrega lo que falte a .claude/settings.local.json
 //                           de la raíz del proyecto, que no se commitea porque lleva la ruta del
 //                           plugin en esta máquina
@@ -48,11 +48,6 @@
 //                           del repo, lib/lint.js) y, en la composición, el contract de cada repo que no lo declara,
 //                           con los globs de su stack que sí tienen archivos. --write agrega solo eso,
 //                           sin tocar lo que ya está; --only limita a esos campos
-//   graph [--write]         el grafo de graphify de cada repo adoptable y, en una carpeta, el merge en
-//                           <raíz>/graphify-out, como el paso graph de setup, con el tiempo que tardó;
-//                           sin graphify, cómo instalarlo (uv tool install graphify). Antes, la línea
-//                           graphify-out/ en el .gitignore de cada repo que no lo ignora: el grafo nunca
-//                           es código del issue. Idempotente
 //   baseref [--remove]      los .claude/settings.json versionados del proyecto y de cada repo que fijan
 //                           worktree.baseRef en "head": un worktree nativo tiene que nacer de
 //                           origin/<rama por defecto>, no del HEAD de quien lo abre. --remove lo quita
@@ -81,7 +76,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, posix, validate } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
-const { git, help, die, onPath } = require('./lib/exec.js');
+const { git, help, die } = require('./lib/exec.js');
 const { touched } = require('./touched-files.js');
 const { detectRepo, contractFor, cloneUrl } = require('./init-draft.js');
 const { missingFromForbidden } = require('./lib/database.js');
@@ -94,7 +89,7 @@ const MARKETPLACE = 'agentic-harness';
 const MAIN = 'main';
 const PLUGINS = ['arnes', 'arnes-ui', 'arnes-mod'];
 const GIT_READ = ['status', 'diff', 'log', 'show', 'rev-parse', 'ls-files', 'merge-base'].map((c) => `Bash(git ${c} *)`);
-const EXTRA = ['Bash(graphify query *)', 'Bash(graphify explain *)', 'Bash(graphify path *)', 'Bash(glab issue view *)', 'Bash(gh issue view *)'];
+const EXTRA = ['Bash(glab issue view *)', 'Bash(gh issue view *)'];
 
 function readJson(file) {
   const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
@@ -367,24 +362,6 @@ function complete(project, only, write) {
   return 0;
 }
 
-// Los repos adoptables cuyo .gitignore no ignora graphify-out/.
-function graphIgnores(project) {
-  return [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))].filter((repo) => git(repo, ['check-ignore', '-q', 'graphify-out/graph.json']).status === 1);
-}
-
-function graph(project, write, timed) {
-  for (const repo of graphIgnores(project)) {
-    const file = path.join(repo, '.gitignore');
-    if (write) {
-      const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-      fs.writeFileSync(file, `${before}${before && !before.endsWith('\n') ? '\n' : ''}graphify-out/\n`);
-    }
-    console.log(`${write ? 'agregado' : 'falta'}  ${posix(file)}: graphify-out/, para que el grafo nunca cuente como código del issue${write ? '; commitéalo en el repo' : ''}`);
-  }
-  const { buildGraph } = require('./setup.js');
-  return buildGraph(project.root, [...new Set(project.workspaces.filter((w) => w.adoptable).map((w) => w.repo))], write, timed);
-}
-
 // Los settings versionados que fijan worktree.baseRef en "head" (docs/PLAN.md §7). → [archivo]
 function baseRefs(project) {
   return settingsFiles(project).filter((f) => {
@@ -550,13 +527,11 @@ function all(write) {
     console.log(`\n== ${title}`);
     if (timed(paso, () => guarded(again, () => step(requireProject())))) left++;
   }
-  console.log('\n== grafo');
-  if (graph(requireProject(), write, timed) || !onPath('graphify')) left++;
   if (times.length) console.log(`\ntiempos: ${times.join(' · ')}`);
   return left ? 1 : 0;
 }
 
-module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs, graphIgnores };
+module.exports = { recommended, compositionDraft, gaps, baseline, permissions, claudeMd, worktreeIncludes, baseRefs };
 
 function main() {
   let args;
@@ -574,16 +549,16 @@ function main() {
   if (args.values.help) help(__filename);
   const [mode, arg, extra] = args.positionals;
   const o = args.values;
-  const usage = 'uso: adopt.js all [--write] | probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | graph [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
-  if (extra || !['all', 'probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'graph', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
-  if ((o.write && !['all', 'baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'graph', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
+  const usage = 'uso: adopt.js all [--write] | probe [--ws n]... | baseline <ws> [--write] | hooks [--remove] | permissions [--write] | claude-md [--write] | complete [--only campo]... [--write] | baseref [--remove] | worktreeinclude [--write] | folder-settings [--marketplace <url>] [--ref <r>] [--write]';
+  if (extra || !['all', 'probe', 'baseline', 'hooks', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'baseref', 'folder-settings'].includes(mode) || (mode === 'baseline') !== Boolean(arg)) die(usage);
+  if ((o.write && !['all', 'baseline', 'permissions', 'claude-md', 'complete', 'worktreeinclude', 'folder-settings'].includes(mode)) || (o.remove && !['hooks', 'baseref'].includes(mode)) || (o.ws && mode !== 'probe')) die(usage);
   if ((o.marketplace || o.ref) && mode !== 'folder-settings') die(usage);
   if (o.only && (mode !== 'complete' || o.only.some((f) => !FIELDS.includes(f)))) die(`${usage}\n  campos de --only: ${FIELDS.join(', ')}`);
   const project = requireProject();
   const run = {
     all: () => all(o.write),
     probe: () => probe(project, o.ws), baseline: () => baseline(project, arg, o.write), hooks: () => hooks(project, o.remove), permissions: () => permissions(project, o.write),
-    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), graph: () => graph(project, o.write), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
+    'claude-md': () => claudeMd(project, o.write), complete: () => complete(project, o.only, o.write), worktreeinclude: () => worktreeInclude(project, o.write), baseref: () => baseRef(project, o.remove), 'folder-settings': () => folderSettings(project, o.marketplace, o.ref, o.write),
   };
   try {
     process.exit(run[mode]());

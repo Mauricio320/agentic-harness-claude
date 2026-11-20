@@ -64,7 +64,6 @@ test('la raíz es la puerta: start en la raíz manda al worktree sin anotar nada
   assert.match(s.stdout, /^proyecto: api · repo · raíz /m);
   assert.match(s.stdout, /^- api \(\.\) · sin stack · riskPaths: src\/auth\/\*\* · sin contrato · lee \S+\/CLAUDE\.md y 1 regla\(s\) en \S+\/\.claude\/rules$/m);
   assert.match(s.stdout, /^negocio:\ndecide: preguntar/m);
-  assert.match(s.stdout, /^grafo: no hay; ubica el código con Grep/m);
   assert.doesNotMatch(s.stdout, /sesión nueva/, 'el worktree todavía no entregó nada');
   h.write(wt, '.tmp/harness/plan.md', PLAN.replace(/## Ejemplos\n[^\n]*\n\n/, ''));
   const sinEjemplos = run(wt, 'plan-state.js', ['finish-draft']);
@@ -74,7 +73,6 @@ test('la raíz es la puerta: start en la raíz manda al worktree sin anotar nada
   h.write(wt, '.tmp/harness/plan.md', PLAN);
   const f = run(wt, 'plan-state.js', ['finish-draft']);
   assert.equal(f.status, 0, f.stdout + f.stderr);
-  assert.match(f.stdout, /^grafo: 0 consulta\(s\), sin grafo$/m);
   let a = run(wt, 'plan-state.js', ['approve']);
   assert.equal(a.status, 1, 'sin una respuesta de la persona no aprueba');
   person(wt, '/arnes:ship');

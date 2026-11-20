@@ -46,7 +46,7 @@ test('con los hooks reales: propuesta, «sí» de la persona, edición permitida
   say(dir, 'sí, cámbialo');
   const a = ajuste(dir, ['aprueba']);
   assert.equal(a.status, 0, a.stderr);
-  assert.match(a.stdout, /^configuración abierta solo este turno: \.claude\/harness\.json/);
+  assert.match(a.stdout, /^configuración abierta solo este turno: \.claude\/harness\.json.*valida con lib\/manifest\.js show/);
   assert.ok(!denied(edit(dir, '.claude/harness.json')), 'ese turno, la configuración se escribe');
   const m = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'harness.json'), 'utf8'));
   m.workspaces[0].lintGlobs = ['apps/**'];

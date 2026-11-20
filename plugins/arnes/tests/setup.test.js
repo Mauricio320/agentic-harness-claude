@@ -13,31 +13,7 @@ fs.appendFileSync('npm-log.txt', process.argv.slice(2).join(' ') + '\\n');
 fs.mkdirSync('node_modules', { recursive: true });
 fs.writeFileSync('node_modules/.package-lock.json', '{}');
 `;
-// graphify falso: --version, update <ruta> y merge-graphs <g>... --out <archivo>.
-const FAKE_GRAPHIFY = `const fs = require('fs');
-const path = require('path');
-const [cmd, ...rest] = process.argv.slice(2);
-if (cmd === '--version') { console.log('graphify 9.9'); process.exit(0); }
-if (cmd === 'update') {
-  fs.mkdirSync(path.join(rest[0], 'graphify-out'), { recursive: true });
-  fs.writeFileSync(path.join(rest[0], 'graphify-out', 'graph.json'), JSON.stringify({ backend: process.env.GRAPHIFY_BACKEND }));
-  process.exit(0);
-}
-if (cmd === 'merge-graphs') {
-  const out = rest[rest.indexOf('--out') + 1];
-  fs.writeFileSync(out, JSON.stringify({ merged: rest.slice(0, rest.indexOf('--out')).length }));
-  process.exit(0);
-}
-process.exit(3);
-`;
-const BIN = h.fakeBin(h.fakeBin(h.fakeBin(h.tmp('setup-bin'), 'npm', FAKE_NPM), 'jest', h.FAKE_JEST), 'graphify', FAKE_GRAPHIFY);
-
-// Un PATH sin graphify, el real incluido: para probar el camino de "no está instalado".
-function withoutGraphify() {
-  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
-  const dirs = process.env[key].split(path.delimiter).filter((d) => !['graphify', 'graphify.exe', 'graphify.cmd'].some((f) => fs.existsSync(path.join(d, f))));
-  return { [key]: dirs.join(path.delimiter) };
-}
+const BIN = h.fakeBin(h.fakeBin(h.tmp('setup-bin'), 'npm', FAKE_NPM), 'jest', h.FAKE_JEST);
 
 const bare = (work, dir) => {
   h.git(path.dirname(dir), 'clone', '-q', '--bare', work, dir);
@@ -197,19 +173,6 @@ test('probe y baseline: el test sobre un spec, y la línea base que falta se cap
   assert.equal(setup(dir, ['baseline']).status, 0);
 });
 
-test('graph: con graphify extrae por repo y mergea en la raíz; sin graphify dice cómo instalarlo y sigue', () => {
-  const { dir } = ready();
-  let r = setup(dir, ['graph']);
-  assert.match(r.stdout, /graphify 9\.9: extraería el grafo de api, front \(graphify update\) y lo mergearía en graphify-out\/graph\.json/);
-  r = setup(dir, ['graph', '--write']);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'api', 'graphify-out', 'graph.json'), 'utf8')), { backend: 'none' });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'graphify-out', 'graph.json'), 'utf8')), { merged: 2 });
-  r = setup(dir, ['graph', '--write'], withoutGraphify());
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /graphify no está instalado: sigue sin grafo\. Para tenerlo, instálalo con uv tool install graphify \(guía en https:\/\/github\.com\/Graphify-Labs\/graphify\)/);
-});
-
 test('claude-md, permissions y close: init --check y la lista de lo pendiente de la persona', () => {
   const { dir } = ready();
   assert.equal(setup(dir, ['claude-md']).status, 1);
@@ -237,23 +200,4 @@ test('parseEnv y dbHosts: comillas, export y comentarios; solo host y puerto', (
   const vars = parseEnv('# x\nexport A=1\nB="dos # no es comentario"\nC=tres # sí\nDB_HOST=10.0.0.5\nDB_PORT=3306\nREDIS_URL=redis://:pw@cache:6379\nVACIA=\n');
   assert.deepEqual(vars.map((v) => [v.key, v.value]), [['A', '1'], ['B', 'dos # no es comentario'], ['C', 'tres'], ['DB_HOST', '10.0.0.5'], ['DB_PORT', '3306'], ['REDIS_URL', 'redis://:pw@cache:6379'], ['VACIA', '']]);
   assert.deepEqual(dbHosts(vars), [{ key: 'DB_HOST', host: '10.0.0.5:3306' }, { key: 'REDIS_URL', host: 'cache:6379' }]);
-});
-
-test('init arma el grafo con adopt.js graph: el mismo paso que setup, con el tiempo, y adoption-check lo mira sin bloquear', () => {
-  const dir = h.tmp('adopt-graph');
-  h.repo(dir, { '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
-  const env = h.withPath(BIN);
-  let r = h.run('adopt.js', ['graph'], { cwd: dir, env });
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /graphify 9\.9: extraería el grafo de \. \(graphify update\)\n$/, 'un repo solo no se mergea consigo mismo');
-  assert.match(h.run('adoption-check.js', [], { cwd: dir, env }).stdout, /INFO\s+sin grafo de código: init lo arma si graphify está instalado \(uv tool install graphify\)/);
-  r = h.run('adopt.js', ['graph', '--write'], { cwd: dir, env });
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /grafo listo en \d+ s/);
-  assert.ok(fs.existsSync(path.join(dir, 'graphify-out', 'graph.json')));
-  assert.equal(h.run('adopt.js', ['graph', '--write'], { cwd: dir, env }).status, 0, 'idempotente');
-  assert.match(h.run('adoption-check.js', [], { cwd: dir, env }).stdout, /INFO\s+grafo de código en graphify-out/);
-  const sin = h.run('adopt.js', ['graph', '--write'], { cwd: dir, env: withoutGraphify() });
-  assert.equal(sin.status, 0);
-  assert.match(sin.stdout, /graphify no está instalado: sigue sin grafo\. Para tenerlo, instálalo con uv tool install graphify/);
 });

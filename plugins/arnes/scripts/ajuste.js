@@ -64,7 +64,7 @@ function aprueba(project) {
   const archivos = entries[i].archivos || [];
   append(project.root, { event: 'note', stage: 'ajuste', result: 'aprobado', detail: `${archivos.join(', ')} · respuesta ${last.hash.slice(0, 12)}`, archivos, hash: last.hash });
   append(project.root, { event: 'start', stage: 'ajuste', detail: archivos.join(', ') });
-  console.log(`configuración abierta solo este turno: ${archivos.join(', ')}. Aplica el cambio con Edit, valida con manifest.js show si es un harness.json, y di en una línea qué cambió; al terminar el turno se vuelve a cerrar.`);
+  console.log(`configuración abierta solo este turno: ${archivos.join(', ')}. Aplica el cambio con Edit, valida con lib/manifest.js show si es un harness.json, y di en una línea qué cambió; al terminar el turno se vuelve a cerrar.`);
   return 0;
 }
 

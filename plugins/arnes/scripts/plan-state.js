@@ -12,16 +12,11 @@
 //            y nunca bajo el plan de otra sesión viva. Dentro de un worktree que ya entregó un issue,
 //            sugiere en una línea una sesión nueva. Dice el proyecto con cada workspace, sus riskPaths, su
 //            contrato y lo que hay que leer (CLAUDE.md y .claude/rules); si hay un plan anterior sin entregar; si
-//            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); las referencias de
-//            negocio y los ambientes de prueba; y, si hay grafo y graphify, lo consulta él mismo con el
-//            texto de --detail (graphify query), en paralelo en la carpeta y en cada repo que lo tiene,
-//            y devuelve los nodos que encontró con su archivo y su línea (doce por grafo como mucho,
-//            sin repetir, sin docs ni .md), relativos a la raíz; cada consulta queda en la timeline
-//            como las del modelo (nota "consulta" de grafo), así que grafo y el panel la cuentan
+//            alguna rama va atrás de origin (issue-branch.js behind, con su fetch); y las referencias de
+//            negocio y los ambientes de prueba
 //   finish-draft
 //            con el plan escrito: si no trae «## Ejemplos» (E1…, o «sin ejemplos: <por qué>»,
-//            lib/ejemplos.js) lo dice y sale con 1 sin cerrar la etapa; si los trae, la nota "grafo"
-//            (como grafo, abajo), end plan ok, y dónde se va a
+//            lib/ejemplos.js) lo dice y sale con 1 sin cerrar la etapa; si los trae, end plan ok, y dónde se va a
 //            construir (issue-branch.js check): la rama del worktree, o la del checkout con su pregunta
 //            si un repo está en otra rama
 //   approve [--detail <texto>] [--desde-otra | --quedarse]
@@ -46,9 +41,6 @@
 //            del manifiesto (plan.references, de la composición y de cada repo) y si plan decide según
 //            ellas (decide: referencia) o pregunta (decide: preguntar, por defecto); y los ambientes de
 //            prueba manual (testEnvironments), donde la persona prueba lo que pide el plan
-//   grafo    al cerrar el plan: cuántas consultas al grafo hizo (las notas "consulta" que el guard anota
-//            por cada graphify query, explain o path desde el último start de plan) y si hay grafo en el
-//            proyecto; lo deja en la timeline (nota "grafo" de plan), que arnes-ui muestra en la etapa
 //   caminos "<texto>"
 //            los lugares del código que producen un texto que hoy sale en pantalla (un mensaje, un
 //            error), en cada workspace adoptable: donde está literal (git grep, sin specs ni docs) y,
@@ -70,7 +62,6 @@
 //      node plan-state.js status
 //      node plan-state.js tareas [--anota]
 //      node plan-state.js referencias
-//      node plan-state.js grafo
 //      node plan-state.js caminos "<texto>"
 //      node plan-state.js trivial --pedido <texto> --criterio <texto>
 //      node plan-state.js corto [--desde-otra | --quedarse]
@@ -89,7 +80,6 @@ const { planOwner, fromEnv } = require('./lib/sesiones.js');
 const { append, read, planState, tasks, personYes } = require('./lib/timeline.js');
 const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
-const { codeTerms, graphDirs, queryProject } = require('./lib/grafo.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree, key } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
@@ -118,22 +108,6 @@ function workspaceLine(ws) {
   const rules = fs.existsSync(rulesDir) ? fs.readdirSync(rulesDir).filter((f) => f.endsWith('.md')).length : 0;
   const docs = [fs.existsSync(path.join(ws.dir, 'CLAUDE.md')) && posix(path.join(ws.dir, 'CLAUDE.md')), rules && `${rules} regla(s) en ${posix(rulesDir)}`].filter(Boolean).join(' y ');
   return `- ${where} · ${ws.stack || 'sin stack'} · riskPaths: ${(ws.riskPaths || []).join(', ') || 'ninguna declarada'} · ${contract}${docs ? ` · lee ${docs}` : ''}`;
-}
-
-// Las consultas que start le hace al grafo con el texto del pedido (lib/grafo.js), solo si nombra un
-// término de código, y solo los nodos que lo nombran: con un pedido en lenguaje llano el grafo trae
-// nodos que nada tienen que ver (36 en una sesión de renova365). → líneas para la salida
-async function graphStart(project, detail) {
-  const dirs = graphDirs(project);
-  if (!dirs.length) return ['grafo: no hay; ubica el código con Grep por los nombres del pedido y abre un módulo parecido'];
-  const terms = codeTerms(detail);
-  if (!terms.length) return ['grafo: el pedido no nombra una clase, un archivo ni una ruta; ubica el código con Grep por sus nombres, o pregúntale al grafo con uno de ellos (graphify query)'];
-  const q = await queryProject(project, detail, 'start');
-  if (!q) return [`grafo: hay en ${dirs.map((d) => posix(path.relative(project.root, d)) || '.').join(', ')}, pero el comando graphify no está; ubica el código con Grep`];
-  const head = `grafo: start lo consultó con «${q.text}» en ${q.dirs.join(', ')}, en paralelo (${q.took}${q.late ? ', alguno pasó del tope' : ''})`;
-  const nodes = q.nodes.filter((n) => terms.some((t) => n.toLowerCase().includes(t)));
-  if (!nodes.length) return [`${head}; no encontró nodos que nombren ${terms.join(', ')}: ubica el código con Grep`];
-  return [`${head}; los nodos que nombran ${terms.join(', ')}, con su archivo y su línea, son el punto de partida:`, ...nodes, 'grafo: si te falta algo, pregúntale más con graphify query, explain o path desde la carpeta de cada uno'];
 }
 
 // La raíz es la puerta (docs/PLAN.md §7): un pedido se planifica en su propio worktree, que guarda su
@@ -200,7 +174,6 @@ async function start(project, detail, checkout) {
   branch.behind(project);
   console.log('negocio:');
   referencias(project);
-  for (const line of await graphStart(project, detail)) console.log(line);
   return 0;
 }
 
@@ -214,7 +187,6 @@ function finishDraft(project) {
     console.log('plan: faltan los ejemplos. Agrega «## Ejemplos» después de los criterios: E1, E2…, cada uno con el criterio que prueba, el dato real tal como lo ve quien usa la pantalla y lo que tiene que salir. Si el cambio no tiene un caso que correr, escribe «sin ejemplos: <por qué>». Después corre finish-draft otra vez.');
     return 1;
   }
-  grafo(project);
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan escrito' });
   console.log('plan: escrito; desde aquí espera la respuesta de la persona');
   branch.check(project);
@@ -367,7 +339,6 @@ function corto(project, opts = {}) {
   }
   const line = `Aprobado: ${today()} por reglas, carril corto (${c.ws}, ${c.files.length} archivo(s), sin zonas de riesgo ni preguntas)`;
   fs.writeFileSync(planPath(project), plan.replace(/^(#[^\n]*\n)/, `$1${line}\n`));
-  grafo(project);
   append(project.root, { event: 'end', stage: 'plan', result: 'ok', detail: 'plan corto escrito' });
   append(project.root, { event: 'note', stage: 'plan', result: 'aprobado', detail: `carril corto: aprobado por reglas (${c.ws}, ${c.files.length} archivo(s))` });
   issues.setState(project, 'planeado');
@@ -406,18 +377,6 @@ function referencias(project) {
   return 0;
 }
 
-function grafo(project) {
-  const entries = read(project.root);
-  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
-  const n = entries.slice(Math.max(i, 0)).filter((e) => e.stage === 'grafo' && e.result === 'consulta').length;
-  const present = graphDirs(project).length > 0;
-  const detail = `${n} consulta(s), ${present ? 'grafo presente' : 'sin grafo'}`;
-  append(project.root, { event: 'note', stage: 'plan', result: 'grafo', detail });
-  if (present && !n) console.log('grafo: presente y sin consultar en este plan; la sección Mapa consultado lo dice, y el panel lo marca');
-  else console.log(`grafo: ${detail}`);
-  return 0;
-}
-
 const I18N = /(^|\/)(i18n|locales?)\//i;
 const NOT_CODE = (f) => /\.(mdx?|txt|json|ya?ml|lock|snap)$/i.test(f) && !I18N.test(f);
 const SPEC = /(^|\/)(__tests?__\/|[^/]*\.(spec|test)\.[cm]?[jt]sx?$)/;
@@ -450,7 +409,7 @@ function caminos(project, texto) {
 function printCaminos(project, texto) {
   const list = caminos(project, texto);
   if (!list.length) {
-    console.log(`caminos de «${texto}»: ningún lugar del código lo trae textual; búscalo por sus palabras con el grafo o con Grep, y di en el plan cómo lo encontraste`);
+    console.log(`caminos de «${texto}»: ningún lugar del código lo trae textual; búscalo por sus palabras con Grep, y di en el plan cómo lo encontraste`);
     return 0;
   }
   console.log(`caminos de «${texto}»: ${list.length} lugar(es) que lo producen${list.length === 1 ? '; uno solo: dilo en el plan, y mira la condición que lo dispara (una consulta que no encuentra puede no encontrar por varios motivos: borrado, inactivo, de otra empresa), cada motivo es un camino' : ''}`);
@@ -459,7 +418,7 @@ function printCaminos(project, texto) {
   return 0;
 }
 
-module.exports = { status, start, finishDraft, approve, trivial, tareas, referencias, grafo, caminos };
+module.exports = { status, start, finishDraft, approve, trivial, tareas, referencias, caminos };
 
 function main() {
   let args;
@@ -483,9 +442,9 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [mode, extra] = args.positionals;
-  const usage = 'uso: plan-state.js start --detail t [--en-checkout] | finish-draft | approve [--detail t] [--desde-otra | --quedarse] | corto [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t [--en-checkout] | tareas [--anota] | referencias | grafo | caminos "<texto>"';
+  const usage = 'uso: plan-state.js start --detail t [--en-checkout] | finish-draft | approve [--detail t] [--desde-otra | --quedarse] | corto [--desde-otra | --quedarse] | status | trivial --pedido t --criterio t [--en-checkout] | tareas [--anota] | referencias | caminos "<texto>"';
   const placing = o['desde-otra'] || o.quedarse;
-  if ((extra && mode !== 'caminos') || (mode === 'caminos' && !(extra && extra.trim())) || !['start', 'finish-draft', 'status', 'approve', 'corto', 'trivial', 'tareas', 'referencias', 'grafo', 'caminos'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
+  if ((extra && mode !== 'caminos') || (mode === 'caminos' && !(extra && extra.trim())) || !['start', 'finish-draft', 'status', 'approve', 'corto', 'trivial', 'tareas', 'referencias', 'caminos'].includes(mode) || (o.anota && mode !== 'tareas')) die(usage);
   if ((placing && !['approve', 'corto'].includes(mode)) || (o['en-checkout'] && !['start', 'trivial'].includes(mode)) || (o['desde-otra'] && o.quedarse) || (o.detail && !['start', 'approve'].includes(mode))) die(usage);
   if (mode === 'start' && !(o.detail && o.detail.trim())) die(usage);
   if (mode === 'trivial' && !(o.pedido && o.pedido.trim() && o.criterio && o.criterio.trim())) die(usage);
@@ -496,7 +455,6 @@ function main() {
   if (mode === 'status') process.exit(status(project));
   if (mode === 'tareas') process.exit(tareas(project, o.anota));
   if (mode === 'referencias') process.exit(referencias(project));
-  if (mode === 'grafo') process.exit(grafo(project));
   if (mode === 'caminos') process.exit(printCaminos(project, extra.trim()));
   if (mode === 'corto') process.exit(corto(project, { fromOther: o['desde-otra'], stay: o.quedarse }));
   if (mode === 'approve') process.exit(approve(project, o.detail, { fromOther: o['desde-otra'], stay: o.quedarse }));

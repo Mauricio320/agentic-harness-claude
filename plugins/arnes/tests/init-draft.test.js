@@ -73,7 +73,7 @@ test('detecta los dos niveles: un manifiesto por repo adoptable y la composició
     { path: 'api', remote: 'https://gitlab.com/grupo/sub/api.git', branch: 'main' },
     { path: 'client', branch: 'main' },
   ], 'remote y rama de cada repo, para /arnes:setup');
-  assert.match(r.stderr, /gitignore\s+carpeta: le faltan \/academicoBitbuckett\/ \/api\/ \/client\/ \/\.tmp\/ \/\.claude\/settings\.local\.json \/\.claude\/worktrees\/ \/graphify-out\//);
+  assert.match(r.stderr, /gitignore\s+carpeta: le faltan \/academicoBitbuckett\/ \/api\/ \/client\/ \/\.tmp\/ \/\.claude\/settings\.local\.json \/\.claude\/worktrees\//);
 
   const [{ conventions, ...api }] = d['api/.claude/harness.json'].workspaces;
   assert.deepEqual(conventions.map((c) => c.id), ['sin-comentarios', 'sin-any', 'sin-console', 'sin-todo'], 'las convenciones mecánicas de un repo JS/TS');
@@ -186,7 +186,7 @@ test('--write escribe los tres, deja los existentes, y el resultado resuelve com
   const root = folder();
   h.write(root, '.gitignore', 'api/\n/.tmp');
   assert.equal(h.run('init-draft.js', ['--write'], { cwd: root }).status, 0);
-  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), 'api/\n/.tmp\n/academicoBitbuckett/\n/client/\n/.claude/settings.local.json\n/.claude/worktrees/\n/graphify-out/\n', 'agrega solo lo que falta');
+  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), 'api/\n/.tmp\n/academicoBitbuckett/\n/client/\n/.claude/settings.local.json\n/.claude/worktrees/\n', 'agrega solo lo que falta');
   for (const f of ['.claude/harness.json', 'api/.claude/harness.json', 'client/.claude/harness.json']) {
     assert.ok(fs.existsSync(path.join(root, f)), f);
   }
@@ -341,7 +341,7 @@ test('la composición trae integration y el contract de cada repo por sus carpet
   assert.deepEqual(comp.repos.map((r) => [r.path, r.contract]), [['api', { provides: ['src/t/dto/**'] }], ['front', { consumes: ['src/types/**'] }]]);
   const r = h.run('init-draft.js', ['--gitignore'], { cwd: root });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '/api/\n/front/\n/.tmp/\n/.claude/settings.local.json\n/.claude/worktrees/\n/graphify-out/\n');
+  assert.equal(fs.readFileSync(path.join(root, '.gitignore'), 'utf8'), '/api/\n/front/\n/.tmp/\n/.claude/settings.local.json\n/.claude/worktrees/\n');
   assert.ok(!fs.existsSync(path.join(root, '.claude', 'harness.json')), '--gitignore no escribe manifiestos');
   assert.match(h.run('init-draft.js', ['--gitignore'], { cwd: root }).stdout, /ya tiene todo/);
   assert.equal(h.run('init-draft.js', ['--gitignore', '--write'], { cwd: root }).status, 2);

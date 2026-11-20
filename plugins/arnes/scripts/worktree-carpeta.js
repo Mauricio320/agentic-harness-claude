@@ -170,20 +170,8 @@ function bring(f, state, ws, branch) {
   return { line: `${ws.name}: lo traje a este worktree en la rama ${branch}, ${how}`, entry };
 }
 
-// Enlaza src en dst si src existe y dst no, anotándolo antes en la lista. → true si quedó enlazado
-function linkInto(f, state, list, src, dst) {
-  if (!fs.existsSync(src) || present(dst)) return false;
-  list.push(posix(dst));
-  writeState(f.project, state);
-  if (link(src, dst) === 'link') return true;
-  list.pop();
-  fs.rmSync(dst, { recursive: true, force: true });
-  return false;
-}
-
-// node_modules enlazado y .env* copiados en cada workspace del repo traído, y el grafo del repo
-// enlazado para que plan lo consulte desde aquí. Cada enlace se anota en el registro antes de
-// crearlo, para que nunca quede uno sin registrar.
+// node_modules enlazado y .env* copiados en cada workspace del repo traído. Cada enlace se anota en
+// el registro antes de crearlo, para que nunca quede uno sin registrar.
 function equipRepo(f, state, entry) {
   const out = [];
   try {
@@ -191,7 +179,6 @@ function equipRepo(f, state, entry) {
   } catch {
     /* sin su configuración el repo queda como llegó: no frena el resto */
   }
-  linkInto(f, state, entry.links, path.join(entry.main, 'graphify-out'), path.join(entry.path, 'graphify-out'));
   for (const ws of f.main.workspaces.filter((w) => w.adoptable && key(w.repo) === key(entry.main))) {
     const dir = path.join(entry.path, path.relative(ws.repo, ws.dir));
     const src = path.join(ws.dir, 'node_modules');
@@ -265,7 +252,6 @@ function materialize(dir, { only } = {}) {
     if (entry) out.push(...equipRepo(f, state, entry));
   }
   state.links = state.links || [];
-  if (linkInto(f, state, state.links, path.join(f.main.root, 'graphify-out'), path.join(f.w.path, 'graphify-out'))) out.push('enlacé el grafo de código de la carpeta, para consultarlo desde aquí');
   out.push(...(state.notes || []));
   delete state.notes;
   writeState(f.project, state);
@@ -490,12 +476,6 @@ function equip(w) {
       links.push(posix(dst));
       lines.push(`${ws.name}: enlacé las dependencias del checkout principal; si el issue las regenera (como un cambio del schema de Prisma), hay que instalarlas aquí`);
     }
-  }
-  // El grafo de código del checkout principal, para que plan lo consulte desde aquí.
-  const graph = path.join(w.path, 'graphify-out');
-  if (fs.existsSync(path.join(w.main, 'graphify-out')) && !present(graph) && link(path.join(w.main, 'graphify-out'), graph) === 'link') {
-    links.push(posix(graph));
-    lines.push('enlacé el grafo de código del checkout principal, para consultarlo desde aquí');
   }
   const state = path.join(harnessDir(project), NATIVE_PORTS);
   let ports = null;

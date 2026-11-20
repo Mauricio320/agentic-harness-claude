@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Guardar o recordar la memoria del proyecto. decision escribe una decisión de arquitectura en docs/decisions, gotcha agrega una trampa conocida a docs/gotchas.md, y recall busca lo ya decidido (y en graphify si existe) antes de decidir algo parecido.
+description: Guardar o recordar la memoria del proyecto. decision escribe una decisión de arquitectura en docs/decisions, gotcha agrega una trampa conocida a docs/gotchas.md, y recall busca lo ya decidido antes de decidir algo parecido.
 argument-hint: "decision <título> | gotcha <texto> | recall <tema>"
 ---
 
@@ -46,7 +46,6 @@ Agrega una línea al final de `<gotchas>`. Si el archivo no existe, créalo con 
 ## recall <tema>
 
 1. Busca con Grep, sin distinguir mayúsculas, las palabras del tema en `<notes>/` y en `<gotchas>` de cada repo del proyecto. Lee las decisiones que coincidan.
-2. Si el repo tiene `graphify-out/graph.json` y `graphify --help` responde, corre `graphify query "<tema>"`, que también indexa los docs.
-3. Responde citando cada archivo con su fecha. Si no hay nada, dilo. recall no escribe nada.
+2. Responde citando cada archivo con su fecha. Si no hay nada, dilo. recall no escribe nada.
 
 No commitees. Di la ruta del archivo escrito: se versiona con el próximo commit del repo.

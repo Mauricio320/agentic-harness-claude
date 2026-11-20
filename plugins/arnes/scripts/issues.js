@@ -65,6 +65,7 @@ const apps = require('./lib/app.js');
 
 const ledger = require('./worktree-ledger.js');
 const carpeta = require('./worktree-carpeta.js');
+const config = require('./lib/config-propia.js');
 
 const exists = (p) => {
   try {
@@ -310,7 +311,13 @@ function clean(project, slug, write, conCambios = false) {
     if (!ok) failed = true;
     console.log(`${ok ? i.done || 'borrado' : 'no se pudo'} ${i.what} ${i.label}${ok ? '' : `: ${firstLine(res.stderr || res.stdout || '')}`}`);
   }
-  for (const i of items.filter((x) => x.exit)) console.log(`falta ${i.what} ${i.label}: sal de él con ExitWorktree y action "remove"; si no te deja porque la sesión no es su dueña, sal con action "keep" y no lo borres a mano: se borra solo cuando el issue cierre`);
+  for (const i of items.filter((x) => x.exit)) {
+    if (i.at) {
+      const p = carpeta.protect(i.at);
+      if (!p.pending.length) config.drop(i.at);
+    }
+    console.log(`falta ${i.what} ${i.label}: sal de él con ExitWorktree y action "remove"; si no te deja porque la sesión no es su dueña, sal con action "keep" y no lo borres a mano: se borra solo cuando el issue cierre`);
+  }
   for (const i of items.filter((x) => x.why)) console.log(`se queda ${i.what} ${i.label}: ${i.why}`);
   const left = I.readIssue(project, slug);
   left.files = (left.files || []).filter(exists);

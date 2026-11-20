@@ -166,6 +166,29 @@ test('stage y check: la configuración del proyecto se queda fuera del commit, t
   assert.deepEqual(staged.trim().split('\n'), ['src/a.ts', 'src/nuevo.ts'], 'el código entra; la configuración no, ni la nueva ni la que ya estaba en el stage');
 });
 
+test('stage y check: la configuración versionada que la persona aprobó con ajuste.js sí entra al stage y al commit', () => {
+  const { root, api } = folder();
+  h.write(api, '.claude/rules/codigo.md', 'regla v1\n');
+  h.commitAll(api, 'versiona regla');
+  fs.appendFileSync(path.join(api, 'src/a.ts'), 'cambio\n');
+  h.write(api, '.claude/rules/codigo.md', 'regla v2\n');
+  fs.appendFileSync(path.join(api, '.claude', 'harness.json'), '\n');
+  const tl = require('../scripts/lib/timeline.js');
+  tl.append(root, {
+    event: 'note',
+    stage: 'ajuste',
+    result: 'aprobado',
+    archivos: ['api/.claude/rules/codigo.md', 'api/.claude/harness.json'],
+  });
+  const chk = ship(root, ['check']);
+  assert.doesNotMatch(chk.stdout, /la configuración del proyecto se queda fuera del commit/);
+  const r = ship(root, ['stage', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /la configuración del proyecto se queda fuera del commit/);
+  const staged = h.git(api, 'diff', '--cached', '--name-only').trim().split('\n').sort();
+  assert.deepEqual(staged, ['.claude/harness.json', '.claude/rules/codigo.md', 'src/a.ts']);
+});
+
 test('stage en un monorepo: la configuración de la raíz que ya estaba en el stage también sale, y el reporte muestra el índice entero', () => {
   const dir = h.tmp('ship-mono');
   h.repo(dir, {

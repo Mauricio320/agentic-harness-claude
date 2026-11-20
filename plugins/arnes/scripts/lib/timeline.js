@@ -211,27 +211,19 @@ function format(entries) {
 }
 
 // La cronología de la corrida, la que dibuja arnes-ui (docs/PLAN.md §6.5b): desde el último start de
-// plan, o desde que empezó la sesión si no hubo plan; las etapas cerradas con su duración, su costo
-// (la nota "costo" que sigue a su fin) y, en plan, lo que consultó al grafo; la abierta más reciente; y
+// plan, o desde que empezó la sesión si no hubo plan; las etapas cerradas con su duración y su costo
+// (la nota "costo" que sigue a su fin); la abierta más reciente; y
 // la espera de la persona (las notas del turno). Si la corrida ya cerró con ship antes de la sesión, va
 // como last, y la de ahora empieza en la sesión. Los tiempos van en milisegundos.
 const STAGES = ['plan', 'build', 'verify', 'review', 'ship', 'memory', 'init', 'setup', 'sync', 'worktree', 'adopcion', 'ajuste'];
 const msOf = (e) => Date.parse(e.at) || 0;
 
-function graphNote(queries, closing) {
-  if (queries) return `grafo ${queries} consulta${queries === 1 ? '' : 's'}`;
-  return closing && /grafo presente/.test(closing) ? 'grafo sin consultar ⚠' : undefined;
-}
-
 function walk(list, from) {
   const open = new Map();
   const stages = [];
   const wait = { ms: 0, n: 0, since: null };
-  const graph = { queries: 0, closing: undefined };
   for (const x of list) {
     const at = msOf(x);
-    if (x.stage === 'grafo' && x.result === 'consulta') graph.queries++;
-    if (x.stage === 'plan' && x.event === 'note' && x.result === 'grafo') graph.closing = x.detail;
     if (x.stage === 'turno') {
       if (x.result === 'cerrado') wait.since = at;
       if (x.result === 'respuesta' && wait.since !== null) Object.assign(wait, { ms: wait.ms + at - wait.since, n: wait.n + 1, since: null });
@@ -246,11 +238,10 @@ function walk(list, from) {
     if (done && Number.isFinite(x.usd)) done.usd = x.usd;
   }
   const last = [...open.values()].sort((a, b) => msOf(b) - msOf(a))[0];
-  const note = (stage) => (stage === 'plan' ? graphNote(graph.queries, graph.closing) : undefined);
   return {
     since: from,
-    stages: stages.map(({ id, ...s }) => (note(s.stage) ? { ...s, note: note(s.stage) } : s)),
-    open: last ? { stage: last.stage, ...(last.ws ? { ws: last.ws } : {}), ...(note(last.stage) ? { note: note(last.stage) } : {}), startedAt: msOf(last), id: `${last.stage}|${last.ws || ''}` } : null,
+    stages: stages.map(({ id, ...s }) => s),
+    open: last ? { stage: last.stage, ...(last.ws ? { ws: last.ws } : {}), startedAt: msOf(last), id: `${last.stage}|${last.ws || ''}` } : null,
     wait,
   };
 }

@@ -33,9 +33,6 @@
 //   base (lib/database.js) con su propio motivo: los corre la persona desde su terminal ·
 //   git commit sin bandera vigente (gate-flag.js) para ese workspace, o sin workspace claro ·
 //   git add masivo (., -A, --all, :/, *) con .env o *.log sin trackear en su alcance
-// Además, sin juzgar nada, anota en la timeline del proyecto cada consulta al grafo (graphify query,
-// explain o path): la nota "consulta" de la etapa grafo, que plan cuenta en su sección Mapa
-// consultado y arnes-ui muestra en la etapa (docs/PLAN.md §6.3).
 // Salida: JSON con permissionDecision "deny" y el motivo; nada si permite. Siempre exit 0.
 
 'use strict';
@@ -44,7 +41,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { run, deny } = require('../lib/hook.js');
-const { append } = require('../lib/timeline.js');
 const { pieces, command, nestedCommand, tokenize } = require('../lib/shell.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git, lines } = require('../lib/exec.js');
@@ -520,22 +516,6 @@ function judgeForbidden(cmd, dir) {
   return null;
 }
 
-// ---------- evidencia del grafo ----------
-
-const GRAPH_QUERIES = new Set(['query', 'explain', 'path']);
-
-// Una consulta al grafo queda en la timeline del proyecto donde corre. Nunca frena el juicio.
-function noteGraph(cmd, dir) {
-  if (cmd.exe !== 'graphify' || !GRAPH_QUERIES.has(cmd.args[0])) return;
-  try {
-    const project = projectAt(dir);
-    const words = cmd.args.filter((a) => !/^\d?>>?(&\d)?$|^[<>|&]|^\d?>&/.test(a));
-    if (project) append(project.root, { event: 'note', stage: 'grafo', result: 'consulta', detail: words.join(' ').slice(0, 160) });
-  } catch {
-    /* la medición no frena el guard */
-  }
-}
-
 // ---------- recorrido ----------
 
 function judge(text, dir, depth = 0, dialect = 'bash') {
@@ -563,7 +543,6 @@ function judge(text, dir, depth = 0, dialect = 'bash') {
       if (why) return why;
       continue;
     }
-    noteGraph(cmd, cwd);
     const why = judgeSecrets(cmd, piece, cwd, namesOnly, line) || judgeConfig(cmd, cwd, piece) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }

@@ -114,7 +114,13 @@ test('el worktree nativo registrado se borra quitando antes sus enlaces; el de l
   assert.ok(isLink(path.join(wt, 'node_modules')));
   h.write(wt, '.tmp/harness/plan.md', PLAN);
   assert.equal(h.run('issue-branch.js', ['create'], { cwd: wt }).status, 0);
+  fs.appendFileSync(path.join(dir, '.claude', 'harness.json'), '\n');
+  fs.copyFileSync(path.join(dir, '.claude', 'harness.json'), path.join(wt, '.claude', 'harness.json'));
+  assert.match(h.git(wt, 'status', '--porcelain'), /M \.claude\/harness\.json/);
   assert.match(issues(wt, 'clean', 'cobros').stdout, /el worktree de esta sesión\) · .* · se borra saliendo de él/);
+  const inWt = issues(wt, 'clean', 'cobros', '--write');
+  assert.match(inWt.stdout, /falta carpeta .*sal de él con ExitWorktree/);
+  assert.equal(h.git(wt, 'status', '--porcelain'), '', 'la copia llevada de .claude/harness.json se quita antes de ExitWorktree');
   const r = issues(dir, 'clean', 'cobros', '--write');
   assert.match(r.stdout, /borrado carpeta .*cobros/, r.stdout + r.stderr);
   assert.ok(!fs.existsSync(wt));

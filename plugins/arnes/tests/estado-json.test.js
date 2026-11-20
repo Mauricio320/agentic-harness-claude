@@ -78,12 +78,9 @@ test('timeline.js summary --json: el plan en curso, init o setup, las tareas, la
   assert.equal(h.run('lib/timeline.js', ['summary', '--json', '--desde', 'ayer'], { cwd: root }).status, 2);
 });
 
-test('la cronología: la etapa del plan dice sus consultas al grafo; sin plan empieza en la sesión; la corrida cerrada en otra sesión va aparte', () => {
-  const g = (at) => line(at, 'note', 'grafo', { result: 'consulta' });
-  let c = tl.corrida([line('2026-10-19T10:00:00Z', 'start', 'plan'), g('2026-10-19T10:00:30Z'), g('2026-10-19T10:00:31Z'), g('2026-10-19T10:00:32Z')], 0);
-  assert.equal(c.open.note, 'grafo 3 consultas');
-  c = tl.corrida([line('2026-10-19T10:00:00Z', 'start', 'plan'), line('2026-10-19T10:01:00Z', 'note', 'plan', { result: 'grafo', detail: '0 consulta(s), grafo presente' }), line('2026-10-19T10:01:01Z', 'end', 'plan', { result: 'ok' })], 0);
-  assert.deepEqual(c.stages, [{ stage: 'plan', ms: 61000, note: 'grafo sin consultar ⚠' }]);
+test('la cronología: sin plan empieza en la sesión; la corrida cerrada en otra sesión va aparte', () => {
+  let c = tl.corrida([line('2026-10-19T10:00:00Z', 'start', 'plan'), line('2026-10-19T10:01:01Z', 'end', 'plan', { result: 'ok' })], 0);
+  assert.deepEqual(c.stages, [{ stage: 'plan', ms: 61000 }]);
   c = tl.corrida([line('2026-10-19T08:00:00Z', 'start', 'build', { ws: 'api' }), line('2026-10-19T11:00:00Z', 'start', 'verify')], Date.parse('2026-10-19T10:00:00Z'));
   assert.equal(c.open.stage, 'verify');
   assert.deepEqual(c.stages, []);

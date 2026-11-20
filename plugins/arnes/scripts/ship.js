@@ -95,23 +95,42 @@ const entrega = require('./lib/entrega.js');
 const { baselinePath, knownPath } = require('./test-baseline.js');
 const { suspicious } = require('./hooks/guard.js');
 const { configRoot } = require('./lib/configuracion.js');
+const { OWN } = require('./lib/config-propia.js');
 const ledger = require('./worktree-ledger.js');
-const { nativeWorktree, nativeRoot } = require('./lib/worktree-nativo.js');
+const { nativeWorktree, nativeRoot, key } = require('./lib/worktree-nativo.js');
 const { readPlan, section, slugOf, unconfirmed, DEV } = require('./lib/plan.js');
 const { estado } = require('./lib/ejemplos.js');
 
-// La configuración del proyecto (lib/configuracion.js) no entra al commit de un issue: la commitea la
-// persona, que decide si queda. ship corre git en su propio proceso y el guard no lo ve.
-const isConfig = (ws, f) => Boolean(configRoot(path.join(ws.dir, f)));
+// La configuración del proyecto (lib/configuracion.js) no entra al commit de un issue salvo que esté
+// versionada en el repo y la persona haya aprobado su ajuste en esta entrega (ajuste.js aprueba).
+function approvedAjusteSet(project) {
+  if (!project) return new Set();
+  const entries = read(project.root);
+  const lastShip = entries.map((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok').lastIndexOf(true);
+  const slice = lastShip >= 0 ? entries.slice(lastShip + 1) : entries;
+  const files = slice.filter((e) => e.stage === 'ajuste' && e.result === 'aprobado' && Array.isArray(e.archivos)).flatMap((e) => e.archivos);
+  return new Set(files.map((f) => key(path.resolve(project.root, f))));
+}
+
+function trackedIn(dir, rel) {
+  return git(dir, ['ls-files', '--error-unmatch', '--', rel]).status === 0;
+}
+
+function approvedConfigAt(project, gitRoot, absPath) {
+  const set = approvedAjusteSet(project);
+  return set.has(key(absPath)) && trackedIn(gitRoot, posix(path.relative(gitRoot, absPath)));
+}
+
+const isConfig = (ws, f, project = null) => Boolean(configRoot(path.join(ws.dir, f))) && !(project && approvedConfigAt(project, ws.gitRoot, path.join(ws.dir, f)));
 const CONFIG_OUT = 'la configuración del proyecto se queda fuera del commit; la commitea la persona si la quiere';
 
 const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint.config.mjs', 'commitlint.config.ts', '.commitlintrc', '.commitlintrc.json', '.commitlintrc.yml', '.commitlintrc.yaml', '.commitlintrc.js'];
 
 // Lo que el arnés deja en un repo y no es del issue: su configuración, el .worktreeinclude, la línea
 // base y las fallas conocidas, más lo que nunca entra a un commit (.env, logs).
-function harnessFile(ws, f) {
+function harnessFile(ws, f, project = null) {
   const rel = (p) => posix(path.relative(ws.dir, p));
-  return isConfig(ws, f) || f === '.worktreeinclude' || f === rel(baselinePath(ws)) || f === rel(knownPath(ws)) || suspicious(f);
+  return isConfig(ws, f, project) || f === '.worktreeinclude' || f === rel(baselinePath(ws)) || f === rel(knownPath(ws)) || suspicious(f);
 }
 
 // Workspaces adoptables con tocados, en orden de commit: proveen contrato (back) → sin contrato →
@@ -126,12 +145,14 @@ function shipping(project, left = null) {
     if (t.error) die(`ship: ${t.error}`);
     const d = deleted(ws, 'HEAD');
     if (d.error) die(`ship: ${d.error}`);
-    const all = [...t.files, ...d.files];
-    if (all.length && all.every((f) => harnessFile(ws, f))) {
+    const ownDirty = approvedConfigAt(project, ws.gitRoot, path.join(ws.dir, OWN)) && Boolean(git(ws.dir, ['diff', '--name-only', '--relative', 'HEAD', '--', OWN]).stdout.trim());
+    const tFiles = ownDirty && !t.files.includes(OWN) ? [...t.files, OWN].sort() : t.files;
+    const all = [...tFiles, ...d.files];
+    if (all.length && all.every((f) => harnessFile(ws, f, project))) {
       if (left) left.push({ ws, files: all });
       continue;
     }
-    if (all.length) out.push({ ws, files: t.files, gone: d.files });
+    if (all.length) out.push({ ws, files: tFiles, gone: d.files });
   }
   return out.map((x, i) => ({ ...x, i })).sort((a, b) => rank(a.ws) - rank(b.ws) || a.i - b.i);
 }
@@ -246,7 +267,7 @@ function check(project) {
     const red = last && last.current && last.result === 'fail';
     const rev = reviews.get(ws.name) || { ok: false, reason: 'sin revisión' };
     const bad = files.filter(suspicious);
-    const config = [...files, ...gone].filter((f) => isConfig(ws, f));
+    const config = [...files, ...gone].filter((f) => isConfig(ws, f, project));
     const risk = files.filter((f) => matchAny(ws.riskPaths, f));
     const baseline = files.includes(posix(path.relative(ws.dir, baselinePath(ws))));
     const conv = convention(ws);
@@ -374,9 +395,9 @@ function stage(project, wsName) {
   const item = shipping(project).find((x) => x.ws.name === ws.name);
   if (!item) die(`ship: ${ws.name} no tiene cambios que commitear`, 1);
   const bad = item.files.filter(suspicious);
-  const config = [...item.files, ...item.gone].filter((f) => isConfig(ws, f));
-  const keep = item.files.filter((f) => !suspicious(f) && !isConfig(ws, f));
-  const gone = item.gone.filter((f) => !isConfig(ws, f));
+  const config = [...item.files, ...item.gone].filter((f) => isConfig(ws, f, project));
+  const keep = item.files.filter((f) => !suspicious(f) && !isConfig(ws, f, project));
+  const gone = item.gone.filter((f) => !isConfig(ws, f, project));
   if (bad.length) console.log(`${ws.name}: se quedan fuera del commit, porque no deben entrar: ${bad.join(', ')}`);
   if (!keep.length && !gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
   // Un borrado puede seguir en el índice o haber salido ya (git rm --cached): rm --ignore-unmatch
@@ -390,7 +411,7 @@ function stage(project, wsName) {
   // El commit lleva el índice entero del repo, también lo que está fuera de la carpeta del workspace
   // (en un monorepo, la configuración vive en la raíz): la que alguien dejó en el stage antes también
   // sale, buscada desde la raíz y sin --relative. Las rutas del aviso y del reporte son desde ahí.
-  const before = lines(git(ws.gitRoot, ['diff', '--cached', '--name-only']).stdout).filter((f) => configRoot(path.join(ws.gitRoot, f)));
+  const before = lines(git(ws.gitRoot, ['diff', '--cached', '--name-only']).stdout).filter((f) => configRoot(path.join(ws.gitRoot, f)) && !approvedConfigAt(project, ws.gitRoot, path.join(ws.gitRoot, f)));
   if (before.length) {
     const r = git(ws.gitRoot, ['reset', '-q', '--', ...before]);
     if (r.status !== 0) die(`ship: no pude sacar del stage la configuración de ${ws.name}: ${firstLine(r.stderr)}`);

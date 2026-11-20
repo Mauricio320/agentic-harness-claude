@@ -229,7 +229,7 @@ function input(project, wsName, { para = 'dev', contrato, files, integracion = f
   const out = [
     `# Entrada de arnes:${para} · ${ws.name}`,
     '',
-    `Generada ${new Date().toISOString()} · proyecto ${project.name}. Lee esta entrada entera antes de nada: trae lo que necesitas del manifiesto, de las reglas y del plan. No abras \`.claude/harness.json\`, las reglas ni el plan por tu cuenta. Para el código, el módulo vecino y graphify.`,
+    `Generada ${new Date().toISOString()} · proyecto ${project.name}. Lee esta entrada entera antes de nada: trae lo que necesitas del manifiesto, de las reglas y del plan. No abras \`.claude/harness.json\`, las reglas ni el plan por tu cuenta. Para el código, abre un módulo vecino.`,
     '',
     `Carpeta del workspace: ${ws.dir}`,
     '',

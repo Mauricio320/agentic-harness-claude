@@ -291,8 +291,6 @@ function main() {
   const wi = worktreeIncludes(project);
   if (wi.length) for (const { file, add } of wi) say('INFO', `${file}: le falta ${add.join(' ')}; sin eso, un worktree nativo nace sin .env (adopt.js worktreeinclude)`);
   else say('INFO', 'los .env de cada repo llegan a los worktrees nativos (.worktreeinclude)');
-  const graphs = [project.root, ...wss.map((w) => w.repo)].filter((d, i, a) => a.indexOf(d) === i && fs.existsSync(path.join(d, 'graphify-out', 'graph.json')));
-  say('INFO', graphs.length ? `grafo de código en ${graphs.map((d) => posix(path.relative(project.root, path.join(d, 'graphify-out'))) || 'graphify-out').join(', ')}` : 'sin grafo de código: init lo arma si graphify está instalado (uv tool install graphify)');
 
   finish();
 }

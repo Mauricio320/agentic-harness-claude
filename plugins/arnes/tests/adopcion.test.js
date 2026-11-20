@@ -24,11 +24,6 @@ function until(fn, ms = 30000) {
   throw new Error('no llegó a tiempo');
 }
 
-function noGraphify() {
-  const key = Object.keys(process.env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
-  return { [key]: process.env[key].split(path.delimiter).filter((d) => !['graphify', 'graphify.exe', 'graphify.cmd'].some((f) => fs.existsSync(path.join(d, f)))).join(path.delimiter) };
-}
-
 const read = (root) => {
   try {
     return JSON.parse(fs.readFileSync(file(root), 'utf8'));
@@ -63,7 +58,7 @@ test('running: un archivo de este mismo proceso, de un PID muerto o de más de d
   const dir = h.tmp('adopcion-running');
   adopcion.begin(dir);
   assert.equal(adopcion.running(dir), null, 'el propio proceso no se espera a sí mismo');
-  h.write(dir, '.tmp/harness/adopcion.json', JSON.stringify({ pid: 999999, at: new Date().toISOString(), paso: 'grafo de api' }));
+  h.write(dir, '.tmp/harness/adopcion.json', JSON.stringify({ pid: 999999, at: new Date().toISOString(), paso: 'permisos' }));
   assert.equal(adopcion.running(dir), null);
   assert.ok(!fs.existsSync(file(dir)));
   const other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -106,17 +101,14 @@ test('con los hooks reales: adopt.js all --write colgado en la línea base no de
   assert.equal(tl.prepOpen(tl.read(dir)), null);
 });
 
-test('all --write termina con los tiempos de cada paso, también los del grafo de cada repo', () => {
+test('all --write termina con los tiempos de cada paso', () => {
   const dir = h.tmp('adopcion-tiempos');
-  h.repo(dir, { '.gitignore': '.tmp/\n.claude/settings.local.json\ngraphify-out/\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
-  const bin = h.fakeBin(h.tmp('bin-graphify'), 'graphify', `const fs = require('fs'); const path = require('path');
-if (process.argv[2] === 'update') { fs.mkdirSync(path.join(process.argv[3], 'graphify-out'), { recursive: true }); fs.writeFileSync(path.join(process.argv[3], 'graphify-out', 'graph.json'), '{}'); }
-else console.log('graphify 9.9');`);
-  const r = h.run('adopt.js', ['all', '--write'], { cwd: dir, env: h.withPath(bin) });
-  assert.match(r.stdout, /^tiempos: manifiestos \d+ s · hooks \d+ s · worktree\.baseRef \d+ s · permisos \d+ s · worktreeinclude \d+ s · CLAUDE\.md \d+ s · settings de la carpeta \d+ s · línea base de api \d+ s · grafo de [^ ]+ \d+ s$/m, r.stdout + r.stderr);
+  h.repo(dir, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  const r = h.run('adopt.js', ['all', '--write'], { cwd: dir });
+  assert.match(r.stdout, /^tiempos: manifiestos \d+ s · hooks \d+ s · worktree\.baseRef \d+ s · permisos \d+ s · worktreeinclude \d+ s · CLAUDE\.md \d+ s · settings de la carpeta \d+ s · línea base de api \d+ s$/m, r.stdout + r.stderr);
   assert.ok(!fs.existsSync(file(dir)), 'al salir el archivo se borra');
   const ends = tl.read(dir).filter((e) => e.stage === 'adopcion' && e.event === 'end');
-  assert.match(ends.pop().ws, /^grafo de /);
+  assert.equal(ends.pop().ws, 'línea base de api');
 });
 
 test('una coma o una comilla que falta la arregla el script, con copia .bak, y el paso sigue; otro JSON roto es un estado con archivo, línea y columna', () => {
@@ -124,19 +116,19 @@ test('una coma o una comilla que falta la arregla el script, con copia .bak, y e
   const broken = '{\n  "model": "opus"\n  "hooks": {}\n}\n';
   h.repo(dir, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), '.claude/settings.json': broken, 'src/a.ts': 'a\n' });
   h.write(dir, '.claude/settings.local.json', '{ "permissions": { "allow": ["Bash(ls *)"] ');
-  const r = h.run('adopt.js', ['all', '--write'], { cwd: dir, env: noGraphify() });
+  const r = h.run('adopt.js', ['all', '--write'], { cwd: dir });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stdout, /^JSON arreglado +\S+\.claude\/settings\.json: faltaba una coma en la línea 2; el original quedó en \S+\.claude\/settings\.json\.bak, y el paso sigue$/m);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')), { model: 'opus', hooks: {} });
   assert.equal(fs.readFileSync(path.join(dir, '.claude', 'settings.json.bak'), 'utf8'), broken);
   assert.doesNotMatch(r.stdout, /JSON inválido +\S+settings\.json,/, 'el paso de hooks siguió con el archivo arreglado');
   assert.match(r.stdout, /^JSON inválido +\S+\.claude\/settings\.local\.json, línea 1, columna \d+: .*corre solo este paso: adopt\.js permissions --write$/m, 'le faltan dos llaves: no se adivina');
-  assert.match(r.stdout, /== \.worktreeinclude[\s\S]*== CLAUDE\.md de la carpeta[\s\S]*== grafo/, 'los demás pasos corren');
+  assert.match(r.stdout, /== \.worktreeinclude[\s\S]*== CLAUDE\.md de la carpeta/, 'los demás pasos corren');
   assert.match(h.run('adopt.js', ['permissions', '--write'], { cwd: dir }).stdout, /^JSON inválido +\S+settings\.local\.json, línea 1/m, 'el paso solo también lo dice, sin traza');
 
   const q = h.tmp('adopcion-comilla');
   h.repo(q, { '.gitignore': '.tmp/\n.claude/settings.local.json\n', '.claude/harness.json': h.repoManifest('api'), '.claude/settings.json': '{\n  "model": "opus,\n  "hooks": {}\n}\n', 'src/a.ts': 'a\n' });
-  const c = h.run('adopt.js', ['all', '--write'], { cwd: q, env: noGraphify() });
+  const c = h.run('adopt.js', ['all', '--write'], { cwd: q });
   assert.match(c.stdout, /^JSON arreglado +\S+settings\.json: faltaba una comilla en la línea 2/m);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(q, '.claude', 'settings.json'), 'utf8')), { model: 'opus', hooks: {} });
 });

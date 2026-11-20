@@ -18,10 +18,6 @@
 // zona de riesgo que ship exige cuando la entrega va sin MR;
 // si nombró un modelo (opus, sonnet, haiku) o un effort, la nota los lleva: es lo único que deja
 // lanzar un agente del arnés con otro modelo o effort que los de su definición (lib/agentes.js).
-// Con una pregunta de la persona (signo de interrogación al inicio o al final) y grafo en el proyecto,
-// agrega los nodos que graphify query encuentra para su texto, con archivo y línea (lib/grafo.js, con el
-// mismo tope y presupuesto que plan-state start); con arnes-mod, que ya los agregó en su camino de
-// pregunta (el origen trae grafo), no consulta otra vez.
 // Sin plan en curso y sin código tocado, agrega una línea: un pedido de código empieza por el plan.
 // No la agrega mientras init o setup están en curso (timeline prepOpen), ni al mensaje que los
 // invoca: las respuestas a sus preguntas no son pedidos de código.
@@ -38,12 +34,8 @@ const { matchAny } = require('../lib/glob.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, writeTurn, takeOrigin } = require('../gate-flag.js');
 const { append, read, planState, prepOpen } = require('../lib/timeline.js');
-const { spawnSync } = require('child_process');
-const { worthGraph, GRAPH_TIMEOUT_MS } = require('../lib/grafo.js');
 const { planOwner, claudePid } = require('../lib/sesiones.js');
 const { AJUSTE } = require('../lib/configuracion.js');
-
-const GRAFO = path.join(__dirname, '..', 'lib', 'grafo.js');
 
 // El aviso con que un agente en segundo plano reabre el turno del hilo principal también pasa por
 // UserPromptSubmit (verificado en la primera corrida real), como el mensaje de otra sesión y la
@@ -91,8 +83,8 @@ function who(project, text) {
   const hash = crypto.createHash('sha256').update(text).digest('hex');
   const marks = MARKS.test(text);
   const hits = takeOrigin(project, hash);
-  if (hits) return { person: hits.every((o) => PERSON.has(o.kind)), origin: [...new Set(hits.map((o) => o.kind))].join('+'), hash, marks, graphed: hits.some((o) => o.grafo) };
-  return { person: !marks, origin: 'texto', hash, marks, graphed: false };
+  if (hits) return { person: hits.every((o) => PERSON.has(o.kind)), origin: [...new Set(hits.map((o) => o.kind))].join('+'), hash, marks };
+  return { person: !marks, origin: 'texto', hash, marks };
 }
 
 // Con el manifiesto inválido ninguna etapa corre. Lo único que sigue en pie es arreglarlo: la respuesta
@@ -114,7 +106,7 @@ function promptContext(input) {
   if (project.errors.length) return invalid(project, input);
   const adoptable = project.workspaces.filter((ws) => ws.adoptable);
   const text = String(input.prompt || '');
-  const { person, origin, hash, marks, graphed } = who(project, text);
+  const { person, origin, hash, marks } = who(project, text);
   // Solo un mensaje de la persona abre turno: la foto del árbol queda de ahí, y lo que escriban
   // después los agentes en segundo plano cuenta como cambio de ese turno cuando el Stop compara.
   if (person) {
@@ -145,7 +137,6 @@ function promptContext(input) {
   if (person && origin === 'texto' && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) status.unshift(PLAN_FIRST);
   else if (person && other) status.unshift(OTHER_PLAN);
   const out = unsaid(project, input.session_id, status);
-  if (person && !graphed && worthGraph(project, text)) out.push(...askGraph(project, text));
   return out.length ? out.join('\n') : null;
 }
 
@@ -174,13 +165,6 @@ function unsaid(project, session, lines) {
     /* sin poder anotarlo, se repite: nunca frena el mensaje */
   }
   return [...lines];
-}
-
-// Los nodos del grafo para una pregunta suelta (lib/grafo.js), en otro proceso que consulta en paralelo
-// y se corta en el tope: sin grafo, sin nodos o tarde, nada.
-function askGraph(project, text) {
-  const r = spawnSync(process.execPath, [GRAFO, 'consulta', '--texto', text], { cwd: project.root, encoding: 'utf8', timeout: GRAPH_TIMEOUT_MS + 3000, windowsHide: true });
-  return r.status === 0 && r.stdout.trim() ? [r.stdout.trim()] : [];
 }
 
 module.exports = { promptContext };

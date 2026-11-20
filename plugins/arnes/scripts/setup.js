@@ -17,9 +17,6 @@
 //                           base. Nunca escribe un valor ni imprime uno que no sea un host
 //   probe                   el comando de test de cada workspace sobre un spec (adopt.js probe)
 //   baseline [--ws n]...    la línea base de tests commiteada; con --write, la captura donde falta
-//   graph                   si graphify está instalado, extrae el grafo de cada repo (graphify
-//                           update) y los mergea en <carpeta>/graphify-out/graph.json; si no, dice
-//                           cómo instalarlo
 //   claude-md               el CLAUDE.md de la carpeta si falta (adopt.js claude-md)
 //   permissions             los permisos en .claude/settings.local.json (adopt.js permissions)
 //   close                   corre adoption-check (init --check) y lista lo pendiente de la persona:
@@ -36,7 +33,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { spawnSync } = require('child_process');
 const { MANIFEST, validate, requireProject, posix } = require('./lib/manifest.js');
-const { git, sh, quote, firstLine, lines, help, die } = require('./lib/exec.js');
+const { git, firstLine, lines, help, die } = require('./lib/exec.js');
 const { touchesDatabase, parseEnv, DB_URL, DB_VAR: DB_NAME } = require('./lib/database.js');
 const tb = require('./test-baseline.js');
 const adopt = require('./adopt.js');
@@ -46,8 +43,6 @@ const LOCKS = [
   { file: 'package-lock.json', cmd: 'npm ci', marker: '.package-lock.json' },
   { file: 'yarn.lock', cmd: 'yarn install --frozen-lockfile', marker: '.yarn-integrity' },
 ];
-const GRAPHIFY = 'https://github.com/Graphify-Labs/graphify';
-const INSTALL = 'instálalo con uv tool install graphify';
 
 const rel = (dir, p) => posix(path.relative(dir, p)) || '.';
 
@@ -342,53 +337,6 @@ function baseline(dir, names, write) {
   return pending ? 1 : 0;
 }
 
-// El grafo de cada repo (graphify update, con GRAPHIFY_BACKEND=none: solo código) y, con más de uno,
-// el merge en <raíz>/graphify-out/graph.json, con el tiempo que tardó. Sin graphify, una línea con
-// cómo instalarlo, y sigue. Lo usan el paso graph de setup y adopt.js graph, que pasa en timed cómo
-// anotar el grafo de cada repo y el merge como pasos de la adopción. → exit
-function buildGraph(dir, targets, write, timed = (paso, fn) => fn()) {
-  const v = sh('graphify --version', dir);
-  if (v.status !== 0) {
-    console.log(`graphify no está instalado: sigue sin grafo. Para tenerlo, ${INSTALL} (guía en ${GRAPHIFY}) y vuelve a correr este paso`);
-    return 0;
-  }
-  const out = path.join(dir, 'graphify-out', 'graph.json');
-  const merge = targets.length > 1 || (targets.length === 1 && path.resolve(targets[0]) !== path.resolve(dir));
-  if (!write) {
-    console.log(`${firstLine(v.out) || 'graphify'}: extraería el grafo de ${targets.map((t) => rel(dir, t)).join(', ')} (graphify update)${merge ? ` y lo mergearía en ${rel(dir, out)}` : ''}`);
-    return 0;
-  }
-  const began = Date.now();
-  const env = { ...process.env, GRAPHIFY_BACKEND: 'none' };
-  const graphs = [];
-  for (const t of targets) {
-    const g = path.join(t, 'graphify-out', 'graph.json');
-    const failed = timed(`grafo de ${path.basename(t)}`, () => {
-      const r = sh(`graphify update ${quote(t)}`, dir, env);
-      if (r.status !== 0 || !fs.existsSync(g)) return console.log(`${rel(dir, t)}: graphify update falló: ${firstLine(r.out)}`), 1;
-      return console.log(`${rel(dir, t)}: grafo en ${rel(dir, g)}`), 0;
-    });
-    if (failed) return 1;
-    graphs.push(g);
-  }
-  if (merge) {
-    const failed = timed('grafo de la carpeta', () => {
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      const m = sh(`graphify merge-graphs ${graphs.map(quote).join(' ')} --out ${quote(out)}`, dir, env);
-      if (m.status !== 0) return console.log(`graphify merge-graphs falló: ${firstLine(m.out)}`), 1;
-      return console.log(`grafo de la carpeta en ${rel(dir, out)}`), 0;
-    });
-    if (failed) return 1;
-  }
-  console.log(`grafo listo en ${Math.max(1, Math.round((Date.now() - began) / 1000))} s`);
-  return 0;
-}
-
-function graph(dir, write) {
-  const c = requireComposition(dir);
-  return buildGraph(dir, c.repos.map((e) => path.resolve(dir, e.path)).filter(isRepo), write);
-}
-
 function close(dir) {
   const c = requireComposition(dir);
   const project = requireProject(dir);
@@ -414,7 +362,7 @@ function close(dir) {
   return check.status === 0 ? 0 : 1;
 }
 
-module.exports = { parseEnv, dbHosts, installIn, buildGraph };
+module.exports = { parseEnv, dbHosts, installIn };
 
 function main() {
   let args;
@@ -432,7 +380,7 @@ function main() {
   const o = args.values;
   if (o.help) help(__filename);
   const [step, ...rest] = args.positionals;
-  const STEPS = ['clone', 'repos', 'deps', 'env', 'probe', 'baseline', 'graph', 'claude-md', 'permissions', 'close'];
+  const STEPS = ['clone', 'repos', 'deps', 'env', 'probe', 'baseline', 'claude-md', 'permissions', 'close'];
   const usage = `uso: setup.js <paso> [--dir carpeta] [--write]; pasos: ${STEPS.join(', ')} (clone [<url o ruta> [destino]])`;
   if (!STEPS.includes(step) || (step === 'clone' ? rest.length > 2 || o.dir : rest.length)) die(usage);
   if ((o.switch && step !== 'repos') || (o.repo && step !== 'deps') || (o.ws && step !== 'baseline') || (o.write && ['probe', 'close'].includes(step))) die(usage);
@@ -444,7 +392,6 @@ function main() {
     env: () => envStep(dir, o.write),
     probe: () => probe(dir),
     baseline: () => baseline(dir, o.ws || [], o.write),
-    graph: () => graph(dir, o.write),
     'claude-md': () => adopt.claudeMd(requireProject(dir), o.write),
     permissions: () => adopt.permissions(requireProject(dir), o.write),
     close: () => close(dir),

@@ -2,7 +2,7 @@
 
 Arnés multi-proyecto para Claude Code: un marketplace con el plugin `arnes` y dos mods opcionales, `arnes-ui` (interfaz) y `arnes-mod` (comportamiento). Hace que cualquier sesión, en cualquier proyecto, siga el mismo flujo (plan → build → verify → review → ship) con verificación determinista y revisión humana obligatoria en zonas de riesgo. El diseño completo está en [docs/PLAN.md](docs/PLAN.md).
 
-Estado: versión 0.8.8, tag `v0.8.8`, desde la rama `fix/0.8.8-cierre-seguro`. Lo que trae cada versión está en `CHANGELOG.md`, la guía para probarla en `docs/PROBADORES.md`, y la versión de Claude Code con que se probó en `plugins/arnes/compat.json`. Hoy existen:
+Estado: versión 0.8.9, tag `v0.8.9`, desde la rama `fix/0.8.9-sin-graphify-entrega`. Lo que trae cada versión está en `CHANGELOG.md`, la guía para probarla en `docs/PROBADORES.md`, y la versión de Claude Code con que se probó en `plugins/arnes/compat.json`. Hoy existen:
 - los manifiestos, uno por repo y una composición por carpeta multi-repo, y el repo de carpeta que los versiona;
 - los scripts deterministas y los hooks clásicos;
 - las doce skills: `/arnes:init`, `setup`, `plan`, `build`, `verify`, `review`, `ship`, `worktree`, `memory`, `sync`, `timeline` y `cerrar`;
@@ -65,7 +65,7 @@ Para fijar la versión en un proyecto, en el `.claude/settings.json` de su repo 
 
 ### El repo de carpeta
 
-Un proyecto de varios repos versiona su composición en un repo chico propio, el repo de carpeta. Lleva la composición `.claude/harness.json`, con el `remote` y la `branch` de cada repo, el `CLAUDE.md` de la carpeta, el `.claude/settings.json` de arriba y un `.gitignore` que ignora las carpetas de los repos, `.tmp/`, `.claude/settings.local.json`, `.claude/worktrees/` y `graphify-out/`. Los repos de verdad se clonan dentro, y git los ignora. Lo arma `/arnes:init` la primera vez. Quien llega después instala los plugins y corre `/arnes:setup <url del repo de carpeta>`: clona todo en su rama, instala dependencias, prepara el `.env` sin inventar valores y cierra con lo que queda pendiente de la persona (`docs/PROBADORES.md` §2).
+Un proyecto de varios repos versiona su composición en un repo chico propio, el repo de carpeta. Lleva la composición `.claude/harness.json`, con el `remote` y la `branch` de cada repo, el `CLAUDE.md` de la carpeta, el `.claude/settings.json` de arriba y un `.gitignore` que ignora las carpetas de los repos, `.tmp/`, `.claude/settings.local.json` y `.claude/worktrees/`. Los repos de verdad se clonan dentro, y git los ignora. Lo arma `/arnes:init` la primera vez. Quien llega después instala los plugins y corre `/arnes:setup <url del repo de carpeta>`: clona todo en su rama, instala dependencias, prepara el `.env` sin inventar valores y cierra con lo que queda pendiente de la persona (`docs/PROBADORES.md` §2).
 
 ### Los worktrees
 
@@ -108,9 +108,6 @@ Los hooks no piden permiso: corren fuera del sistema de permisos. Lo que sí pid
       "Bash(npx eslint *)",
       "PowerShell(npx jest *)",
       "PowerShell(npx eslint *)",
-      "Bash(graphify query *)",
-      "Bash(graphify explain *)",
-      "Bash(graphify path *)",
       "Bash(glab issue view *)",
       "Bash(gh issue view *)"
     ],
@@ -126,7 +123,7 @@ Cómo leerlas (sintaxis de code.claude.com/docs/en/permissions):
 - **El `*` admite cualquier texto, espacios incluidos, y lo que va antes se compara tal cual.** La ruta del plugin es la de la caché (`<config>/plugins/cache/<marketplace>/<plugin>/<versión>/`), con barras normales, porque Claude Code sustituye `${CLAUDE_PLUGIN_ROOT}` así también en Windows. El `*` después de `arnes/` cubre la versión y el script; un `..` dentro de la ruta escaparía de esa carpeta, así que la regla confía en que los comandos sean los de las skills. Con `CLAUDE_CONFIG_DIR` la raíz cambia (por ejemplo `.claude-pdv`), y con `claude --plugin-dir` la ruta es la del repo del arnés.
 - **Las formas de git de lectura sin `cd` ni `-C` ya corren sin preguntar.** Estas reglas cubren las que no: `git -C <ruta> status` no las cumple, porque el patrón compara el texto desde el inicio.
 - **`Bash(npx eslint *)` también dejaría pasar un `--fix`.** Por eso va la regla `ask`, que se evalúa antes que `allow` y obliga a preguntar.
-- **graphify y la lectura del issue son de solo lectura.** `/arnes:plan` y `/arnes:memory recall` consultan graphify con `query`, `explain` y `path`, y plan lee el issue con `glab issue view` o `gh issue view`. Los scripts nuevos de la fase 3 ya los cubre la regla de `node` sobre la carpeta del plugin. `git commit` y `git push` quedan fuera a propósito: los corre `/arnes:ship`, que pide confirmación antes de cualquier push.
+- **La lectura del issue es de solo lectura.** `/arnes:plan` lee el issue con `glab issue view` o `gh issue view`. Los scripts del arnés los cubre la regla de `node` sobre la carpeta del plugin. `git commit` y `git push` quedan fuera a propósito: los corre `/arnes:ship`, que pide confirmación antes de cualquier push.
 - **Los comandos de test son los de los manifiestos de academico.** Ajústalos a los `commands` de cada repo y no agregues comodines más amplios que el comando real.
 
 ## Versionado en dos capas
@@ -178,5 +175,6 @@ CLI y arnés se suben juntos, nunca uno solo. La versión del CLI probada vive e
 | v0.8.6 | 2.1.316 en el CI y 2.1.328 en local (`validate` y tests) | 24 | Sin trabas: un campo que el arnés no conoce se ignora en vez de invalidar el manifiesto; el código sin verificar no frena el cierre del turno, y la verificación la exige la entrega; la configuración del arnés llega sola a cada worktree y vuelve al checkout principal cuando la persona aprueba un cambio, sin contar como archivo tocado; `/arnes:cerrar` en dos comandos, uno mira y el otro hace; el estado por mensaje se dice una vez por estado; y con el manifiesto inválido la sesión tiene salida |
 | v0.8.7 | 2.1.316 en el CI y 2.1.328 en local (`validate` y tests) | 24 | Entrega y cierre en un solo sí: el sí del push también borra lo que el arnés creó para el issue, el MR de GitLab queda marcado para borrar su rama al mergear, y en cada entrega el arnés cierra solo los issues anteriores ya mergeados; `/arnes:cerrar` queda para lo que pide una decisión; el MR de un issue se consulta desde el checkout principal aunque su worktree ya no exista |
 | v0.8.8 | 2.1.316 en el CI y 2.1.329 en local (`validate` y tests) | 24 | Cierre seguro: cerrar lo mergeado ya no anota ni borra la rama de la sesión que lo consulta, ni una rama compartida con un issue abierto, con commits sin subir o abierta en otro worktree; el aviso de base no local dice puerto y nombre; el cierre de turno no frena por «build no empezó» con el código ya escrito; la guarda de secretos deja listar y nombrar; un cambio que solo borra archivos se verifica; una corrección pedida en la pregunta del push va en la misma entrega |
+| v0.8.9 | 2.1.316 en el CI y 2.1.329 en local (`validate`, `plugin test` y tests) | 24 | Sin graphify y entrega limpia: se elimina la integración con `graphify`; `issues.js clean` quita `.arnes-trabajo-pendiente` y la copia llevada de `.claude/harness.json` antes de `ExitWorktree`; `ship.js` incluye en el commit la configuración versionada aprobada con `ajuste.js aprueba`; `verify.js` avisa cuando `evidencia.md` queda anterior a una nueva verificación; `ajuste.js` apunta a `lib/manifest.js show` |
 
 La última versión probada es la 2.1.316. Desde la 2.1.309, `claude` no se abre dentro de otra sesión de Claude Code: se niega si ve `CLAUDECODE` en el entorno ("Claude Code cannot be launched inside another Claude Code session"). Para correr `claude -p` desde una sesión, como en las pruebas de punta a punta, se lanza sin las variables que lo atan a ella (`CLAUDECODE`, el socket de mensajes y los ids de sesión), como si se abriera desde una terminal.

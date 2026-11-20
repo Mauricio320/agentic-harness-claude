@@ -8,9 +8,6 @@ export const MODEL = 'haiku'
 export const TIMEOUT_MS = 8000
 export const SUMMARY = 'scripts/lib/timeline.js'
 export const AGENTS = 'scripts/lib/agentes.js'
-export const GRAPH = 'scripts/lib/grafo.js'
-// Lo que espera el mod la consulta al grafo de una pregunta: el tope del base (12 s) y un margen.
-export const GRAPH_TIMEOUT_MS = 16000
 
 // Los argumentos con que se le pregunta al plugin base si un lanzamiento de Agent vale (lib/agentes.js
 // lanzamiento), o null si no hay nada que preguntar: un agente que no es del arnés, o uno sin model ni
@@ -46,7 +43,7 @@ const PERSON = new Set(['composer', 'bridge', 'sdk'])
 // como mucho, para los prompts que esperan en cola su turno.
 export const ORIGIN = '_origen'
 const ORIGIN_MS = 60 * 60 * 1000
-export type Origin = { kind: string; hash: string; at: number; grafo?: true }
+export type Origin = { kind: string; hash: string; at: number }
 
 export function withOrigin(turn: unknown, o: Origin): Record<string, unknown> {
   const data = turn && typeof turn === 'object' && !Array.isArray(turn) ? { ...(turn as Record<string, unknown>) } : {}
@@ -68,10 +65,6 @@ export function candidate(e: Prompt): boolean {
   const text = e.text.trim()
   return !text.startsWith('/') && text.split(/\s+/).length >= MIN_WORDS
 }
-
-// Una pregunta de la persona, que el mod responde con los nodos del grafo (docs/PLAN.md §6.5): su Enter,
-// Remote Control o el host, sin comando, con signo de interrogación al inicio o al final.
-export const asksGraph = (e: Prompt) => !e.command && !e.isMeta && PERSON.has(e.origin.kind) && isQuestion(e.text)
 
 // El atajo determinista, solo para preguntas: un mensaje con signo de interrogación al inicio o al
 // final es una pregunta y no llama al modelo, aunque traiga un verbo de cambio ("¿cómo funciona el

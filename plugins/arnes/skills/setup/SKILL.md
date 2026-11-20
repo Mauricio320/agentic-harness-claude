@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Deja listo desde cero un proyecto ya adoptado a partir de su repo de carpeta. Clona la carpeta y sus repos en la rama declarada, instala dependencias, prepara el .env sin inventar valores, prueba los tests, revisa la línea base, arma el grafo y cierra con init --check y lo que queda pendiente de la persona. Con --check solo reporta.
+description: Deja listo desde cero un proyecto ya adoptado a partir de su repo de carpeta. Clona la carpeta y sus repos en la rama declarada, instala dependencias, prepara el .env sin inventar valores, prueba los tests, revisa la línea base y cierra con init --check y lo que queda pendiente de la persona. Con --check solo reporta.
 argument-hint: "[--check] <url o ruta del repo de carpeta> [destino]"
 disable-model-invocation: true
 ---
@@ -24,7 +24,7 @@ Reglas:
 2. **La etapa:** `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>"`. La etapa dura el turno: si no la cierras, la cierra el Stop al terminarlo, y la configuración vuelve a quedar protegida.
 3. **Los repos:** `node "S" repos --dir "<carpeta>" --write` clona los que faltan y hace fetch de los que existen. Un repo en otra rama no se mueve: va a la ronda.
 4. **El entorno:** `node "S" env --dir "<carpeta>" --write` copia `.env.example` donde no hay `.env`. Anota las variables vacías, que llena la persona, y a qué host y puerto apunta cada conexión a base; si es local o un túnel, avisa que puede ser QA.
-5. **Mirar lo demás, sin escribir:** `deps`, `baseline`, `graph`, `claude-md` y `permissions`, cada uno con `--dir "<carpeta>"` y sin `--write`.
+5. **Mirar lo demás, sin escribir:** `deps`, `baseline`, `claude-md` y `permissions`, cada uno con `--dir "<carpeta>"` y sin `--write`.
 
 ## 2. Una sola ronda de preguntas
 
@@ -32,14 +32,13 @@ Un solo mensaje, con un bloque numerado. Cada punto dice qué se hace y dónde, 
 - **Cambiar de rama** un repo que está en otra que la que declara la composición (solo sin cambios sin commitear).
 - **Instalar las dependencias** de cada repo, con el comando de su lockfile; tarda.
 - **Capturar la línea base de tests** de un repo que no la tiene, después de instalar; commitearla es de la persona.
-- **Armar el grafo** de cada repo, si graphify está instalado; si no, di dónde está la guía y sigue.
 - **El CLAUDE.md de la carpeta**, si falta, y **los permisos** en `.claude/settings.local.json`, que no se commitea.
 
 Cierra el bloque con: `Responde «sí a todo», o dime los números que cambias.` Termina el turno ahí.
 
 ## 3. Con la respuesta
 
-Anota otra vez `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>" --detail "respuesta"`: la etapa se cerró con el turno de la ronda. Aplica lo aceptado, en este orden y sin volver a preguntar: `repos --switch <ruta> --write`, `deps --write` (o `--repo <ruta>` por cada repo aceptado), `probe` (si dice FALTA por una dependencia, dilo), `baseline --ws <ws> --write`, `graph --write`, `claude-md --write` y `permissions --write`. Lo que la persona dijo que no, anótalo para el cierre.
+Anota otra vez `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/timeline.js" start setup --dir "<carpeta>" --detail "respuesta"`: la etapa se cerró con el turno de la ronda. Aplica lo aceptado, en este orden y sin volver a preguntar: `repos --switch <ruta> --write`, `deps --write` (o `--repo <ruta>` por cada repo aceptado), `probe` (si dice FALTA por una dependencia, dilo), `baseline --ws <ws> --write`, `claude-md --write` y `permissions --write`. Lo que la persona dijo que no, anótalo para el cierre.
 
 ## 4. El cierre
 
@@ -49,6 +48,6 @@ Termina con: "Para trabajar, escribe tu pedido en lenguaje normal; el arnés pla
 
 ## Con --check
 
-Corre clone, repos, deps, env, probe, baseline, graph, claude-md, permissions y close sin `--write` y sin preguntar. Si la carpeta todavía no existe, di qué clonaría y termina: lo demás no se puede correr. No modifiques ningún archivo.
+Corre clone, repos, deps, env, probe, baseline, claude-md, permissions y close sin `--write` y sin preguntar. Si la carpeta todavía no existe, di qué clonaría y termina: lo demás no se puede correr. No modifiques ningún archivo.
 
 setup es para un proyecto ya adoptado, con su repo de carpeta. Si la fuente no trae composición, dilo y sugiere `/arnes:init` para adoptarlo.

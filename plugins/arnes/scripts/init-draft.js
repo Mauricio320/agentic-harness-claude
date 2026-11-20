@@ -5,7 +5,7 @@
 //     get-url origin) de cada repo, su rama (compositionBranch: donde vive su manifiesto, o la por
 //     defecto; nunca la rama en que está la persona), el contract y la integración con feature/, y
 //     el .gitignore del repo de carpeta: las carpetas de los repos anidados, .tmp,
-//     settings.local.json, graphify-out y .claude/worktrees, donde Claude Code abre los suyos
+//     settings.local.json y .claude/worktrees, donde Claude Code abre los suyos
 //   - cwd que es la raíz de un repo, sin repos anidados: un manifiesto de repo
 // El contract (contractOf) sale de una sección de contrato del CLAUDE.md del repo con rutas entre
 // comillas de código, si la tiene, que manda; si no, de contar las carpetas trackeadas: un back
@@ -242,7 +242,7 @@ const INTEGRATION = { branchPrefix: 'feature/', sameBranchAcrossWorkspaces: true
 // Las líneas del .gitignore del repo de carpeta (docs/PLAN.md §8): los repos de verdad se clonan
 // dentro y git los ignora.
 function gitignoreLines(root, nested) {
-  return [...nested.map((d) => `/${posix(path.relative(root, d))}/`), '/.tmp/', '/.claude/settings.local.json', '/.claude/worktrees/', '/graphify-out/'];
+  return [...nested.map((d) => `/${posix(path.relative(root, d))}/`), '/.tmp/', '/.claude/settings.local.json', '/.claude/worktrees/'];
 }
 
 // Las que le faltan al .gitignore de la carpeta.
