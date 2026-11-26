@@ -2,6 +2,30 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.10] - 2026-11-26
+
+Lo chico sin ceremonia y la entrega como la usan. Sale de auditar doce sesiones reales del 23 al 26 de noviembre, ocho en renova365 y cuatro en academico, que corrieron todas con la 0.8.8 (la 0.8.9 no se había instalado). La persona resumió: los cambios chicos son engorrosos. Un Dockerfile de una línea pasó por plan completo, dev, revisor en opus y dos síes; un retoque después de entregar pidió un plan entero tras tres negaciones del guard. Y en academico las cuatro sesiones de código terminaron el push a mano, porque allí se sube sin MR: a `dev`, a la rama del issue o a `feature/base-main`.
+
+### Agregado
+- La entrega sin MR: `integration.merge: "push"` y `integration.targetBranch`. Con un sí, ship sube la rama del issue o la lleva a `targetBranch` como avance directo, sin force; no abre MR, el issue queda subido con lo que se hizo y el worktree se queda. La rama de cada issue nace de `origin/<targetBranch>`. Si origin ya tiene en esa rama commits que esta no trae, no sube y lo dice. Una zona de riesgo no detiene: va en la pregunta del push, y el sí de la persona es la revisión.
+- Por pedido de la persona, en cualquier proyecto: `ship.js deliver --push --sin-mr` sube la rama del issue sin MR, y `--push --a <rama>` la lleva a esa rama como avance directo. Los dos dejan el worktree. La pregunta del push lo ofrece.
+- El retoque después de entregar: cada entrega anota los archivos que entregó, y editar uno de ellos con el plan ya entregado no pide plan nuevo. El guard lo deja, el cierre de turno no lo cuenta como código sin plan, y ni el aviso del turno ni arnes-mod empujan a planificar. Se verifica y se entrega con ship, en un commit aparte. Un archivo que el issue no entregó sigue pidiendo plan, y el motivo lo dice.
+
+### Cambiado
+- El carril corto no pasa por el revisor: con el cambio dentro del carril (un repo, hasta cinco archivos, ninguna zona de riesgo), ship da la revisión por no necesaria y el MR lo dice. Si el cambio salió del carril, se revisa como siempre.
+- La revisión que sigue a un commit de lo revisado va acotada: si los commits desde la revisión anterior solo traen lo revisado, la ronda siguiente mira solo lo que cambió después, en sonnet. Antes un HEAD distinto volvía a la ronda 1 completa en opus.
+- Con el plan entregado, el aviso del turno ya no pide cargar el plan: un retoque no lo necesita, y un pedido nuevo lo pide el guard al escribir.
+- La configuración bajo `.claude/` no entra a la revisión: el reviewer la marcaba como cambio fuera del plan.
+- Con un lockfile distinto al del checkout principal, el worktree no enlaza `node_modules` y el arranque dice que hay que instalar adentro.
+
+### Corregido
+- El carril corto cuenta los archivos sin extensión (el Dockerfile): «## Archivos previstos» los dejaba fuera y el plan iba siempre por la aprobación de la persona.
+- Las zonas de riesgo se miden también sobre lo que la rama ya trae commiteado y su destino no tiene: un avance directo a otra rama metió el guard del token y la ACL de academico como «ninguna zona tocada».
+- El guard deja comparar la configuración (`cmp`, `fc`, `Compare-Object`, un hash), recorrerla en un bucle que solo lee y guardarla o devolverla con `git stash push`, `pop` o `apply`. Un bucle que la borra o la escribe se sigue negando.
+- Un `.env` que el repo ya versiona (el `.env.public.*` de Next.js) entra al commit; el que no se versiona sigue fuera.
+- Un certificado público (`BEGIN CERTIFICATE` sin llave adentro, o uno por crear con nombre de CA) se lee y se nombra; una llave privada se sigue negando.
+- La respuesta de la persona se anota aunque un `cd` del modelo haya dejado la sesión fuera del proyecto. En renova365 el «Sí, levántalo» de la base remota no contó por eso, y el modelo levantó el api por fuera del arnés.
+
 ## [0.8.9] - 2026-11-20
 
 Sin graphify y cierre de entrega limpio. Sale de auditar dos sesiones reales de la 0.8.8: `15d4cfa4` en renova365 (investigación en QA + filtros y traslados programados en la Cola de Pagos del Día, PR `#653`) y `5e65c7be` en academico (migración de 234 archivos de `informes-front` a componentes oficiales de shadcn y registry `@pdv`, MR `!7`). En ambas sesiones el modelo corrió `graphify query` por trámite y diseñó el plan leyendo el código directamente con `Read` y `Grep`; y al final de las dos entregas `ExitWorktree` con `action: "remove"` falló por `Worktree has 1 uncommitted file` porque Claude Code valida `git status` antes de disparar `PreToolUse:ExitWorktree`.

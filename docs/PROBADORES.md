@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.8.9, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.8.10, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -17,7 +17,7 @@ claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.9`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.10`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
