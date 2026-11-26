@@ -180,6 +180,18 @@ function sinPlan() {
   return root;
 }
 
+test('(c) el retoque de lo que el issue entregó no es código sin plan: solo avisa que falta verificar', () => {
+  const root = sinPlan();
+  for (const e of [{ event: 'start', stage: 'plan' }, { event: 'note', stage: 'plan', result: 'aprobado' }, { event: 'end', stage: 'ship', result: 'ok', entregados: { api: ['src/a.ts'] } }]) tl.append(root, e);
+  promptAt(root);
+  fs.appendFileSync(path.join(root, 'src/a.ts'), 'sin color se ve feo\n');
+  const r = stop(root);
+  assert.notEqual(r.out && r.out.decision, 'block', JSON.stringify(r.out));
+  assert.match(JSON.stringify(r.out), /hay cambios sin verificar en api/);
+  h.write(root, 'src/nuevo.ts', 'otro pedido\n');
+  assert.equal(stop(root).out.decision, 'block', 'un archivo que no entregó sí es código sin plan');
+});
+
 test('(c) código escrito por el shell sin plan: bloquea pidiendo el plan, no la verificación', () => {
   const root = sinPlan();
   fs.appendFileSync(path.join(root, 'src/a.ts'), 'sed -i\n');

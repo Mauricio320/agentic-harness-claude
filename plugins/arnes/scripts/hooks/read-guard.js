@@ -29,10 +29,11 @@ const MAX_BYTES = 256 * 1024;
 
 const DIRS = ['.ssh', '.aws'];
 const ALLOWED = [/^\.env\.(example|template|sample)$/i];
+const KEY_WHY = 'es una llave privada o un certificado';
 const NAMES = [
   [/^\.env(\..+)?$|^\.envrc$/i, 'es un archivo .env'],
   [/^(\.netrc|\.pgpass|\.git-credentials|credentials(?!(\.[a-z0-9-]+)*\.(ts|tsx|js|jsx|mjs|cjs|vue|py|go|rb|rs|java|kt|cs|php|md)$)(\.[a-z0-9-]+)*)$/i, 'es un archivo de credenciales'],
-  [/^id_(rsa|dsa|ecdsa|ed25519)$|\.(pem|key|p12|pfx|keystore|jks)$/i, 'es una llave privada o un certificado'],
+  [/^id_(rsa|dsa|ecdsa|ed25519)$|\.(pem|key|p12|pfx|keystore|jks)$/i, KEY_WHY],
   [/\.token$|^token\.json$/i, 'es un token'],
   [/^\.mcp\.json$/i, 'trae las credenciales de los servidores MCP'],
 ];
@@ -50,12 +51,28 @@ function secretName(name) {
   return null;
 }
 
+// Un certificado público no es un secreto: es el que se pega en una conexión para verificar el cifrado
+// (el CA de Cloud SQL), y el guard lo negaba como si fuera una llave, así que la persona corría el
+// comando en su terminal (sesión del 2026-11-24 en academico). Cuenta el que empieza por BEGIN
+// CERTIFICATE y no trae ninguna llave adentro; uno que todavía no existe, por su nombre (server-ca.pem).
+const CERT_NAME = /(^|[-_.])(ca|cert|certificate|chain|fullchain|root)([-_.]|$)/i;
+function publicCert(abs) {
+  const base = path.basename(abs);
+  if (!/\.(pem|crt|cer)$/i.test(base)) return false;
+  try {
+    const text = fs.readFileSync(abs, 'utf8').slice(0, MAX_BYTES);
+    return /^\s*-----BEGIN CERTIFICATE-----/.test(text) && !/PRIVATE KEY/.test(text);
+  } catch (e) {
+    return e.code === 'ENOENT' && CERT_NAME.test(base.replace(/\.(pem|crt|cer)$/i, ''));
+  }
+}
+
 function secretPath(abs, project) {
   const segs = abs.split(/[\\/]/).filter(Boolean);
   const dir = segs.find((s) => DIRS.includes(s.toLowerCase()));
   if (dir) return `está dentro de ${dir}`;
   const why = secretName(segs[segs.length - 1] || '');
-  if (why) return why;
+  if (why && !(why === KEY_WHY && publicCert(abs))) return why;
   const hit = project && resolveWorkspace(project, abs);
   if (hit && hit.rel && matchAny(hit.ws.secretPaths, hit.rel)) return `está en secretPaths de ${hit.ws.name}`;
   return null;

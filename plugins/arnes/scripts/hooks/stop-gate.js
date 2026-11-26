@@ -58,7 +58,7 @@ const crypto = require('crypto');
 const { run } = require('../lib/hook.js');
 const { loadProject, posix, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { append, read, planState, prepOpen, prepInTurn, redStreak, RED_CAP, PREP } = require('../lib/timeline.js');
+const { append, read, planState, retouchable, prepOpen, prepInTurn, redStreak, RED_CAP, PREP } = require('../lib/timeline.js');
 const { touched } = require('../touched-files.js');
 const { checkFlag, readTurn, turnStart, codeChangedSince, manifestsChanged, acceptManifests, readLast } = require('../gate-flag.js');
 const { checkReview } = require('../review.js');
@@ -95,13 +95,17 @@ function unverified(project, skip = []) {
 // el mismo que mira plan-guard. Cuenta archivo por archivo contra la foto del turno: el código que la
 // persona dejó tocado antes no entra, salvo que el turno lo vuelva a cambiar.
 function unplanned(project, home, unseen) {
-  const p = planState(read(home.root));
+  const entries = read(home.root);
+  const p = planState(entries);
   if (p.approved) return [];
+  // El retoque de lo que el issue ya entregó no es código sin plan (lib/timeline.js retouchable).
+  const r = p.delivered ? retouchable(entries) : null;
+  const retouch = (ws, f) => Boolean(r && r.files[ws.name] && r.files[ws.name].has(f));
   const out = [];
   for (const ws of project.workspaces.filter((w) => w.adoptable && !unseen(w))) {
     const t = touched(ws, 'HEAD', project);
     if (t.error) continue;
-    const code = codeChangedSince(project, ws, t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f)));
+    const code = codeChangedSince(project, ws, t.files.filter((f) => !/^\.(claude|tmp)\//.test(f) && matchAny(ws.codeGlobs, f) && !retouch(ws, f)));
     if (code.length) out.push({ ws: ws.name, files: code, reason: whyNoPlan(p), changed: true });
   }
   return out;

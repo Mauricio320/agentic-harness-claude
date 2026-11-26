@@ -21,6 +21,7 @@ const { parseArgs } = require('util');
 const { requireProject, selectWorkspaces, harnessDir, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { OWN } = require('./lib/config-propia.js');
+const { refExists, mergeTargets, targetBranch } = require('./lib/branches.js');
 
 // Lo que nunca es código del issue aunque el repo no lo ignore: el grafo de graphify, el estado del
 // arnés, las dependencias, en cualquier nivel (también un node_modules enlazado, que git ve como
@@ -77,7 +78,21 @@ function withExt(ws, files, exts) {
   return files.filter((f) => exts.includes(path.extname(f).toLowerCase()) && fs.existsSync(path.join(ws.dir, f)));
 }
 
-module.exports = { NEVER, GENERATED, touched, added, deleted, withExt };
+// Lo que la rama ya lleva commiteado y su rama destino no tiene (lib/branches.js targetBranch, en
+// origin o en local): los archivos del diff destino...HEAD, sin lo de NEVER ni el manifiesto propio.
+// Las zonas de riesgo se miden también sobre ellos. Antes se medían solo sobre los tocados contra HEAD,
+// y un cambio que llegó ya commiteado (el avance directo a otra rama, un commit a mano) pasaba como
+// «ninguna zona tocada»: en academico, el guard del token y la ACL (sesión del 2026-11-25).
+// → [rutas relativas al workspace]
+function ahead(ws, project = null) {
+  const def = targetBranch(project, ws) || mergeTargets(ws.gitRoot).branch;
+  const ref = [`origin/${def}`, def].find((r) => refExists(ws.gitRoot, r));
+  if (!ref) return [];
+  const d = git(ws.dir, ['diff', '--name-only', '--diff-filter=d', '--relative', `${ref}...HEAD`, '--']);
+  return d.status === 0 ? lines(d.stdout).filter((f) => !NEVER.test(f) && f !== OWN).sort() : [];
+}
+
+module.exports = { NEVER, GENERATED, touched, added, deleted, withExt, ahead };
 
 function main() {
   let args;

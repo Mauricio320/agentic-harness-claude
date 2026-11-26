@@ -45,7 +45,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { loadProject, harnessDir, posix } = require('./lib/manifest.js');
 const { git, firstLine, help, die } = require('./lib/exec.js');
-const { refExists, mergeTargets } = require('./lib/branches.js');
+const { refExists, mergeTargets, targetBranch } = require('./lib/branches.js');
 const { link, unlink, isLink, linksUnder, real } = require('./lib/links.js');
 const { nativeWorktree, nativeRoot, key, list, DIR } = require('./lib/worktree-nativo.js');
 const { readPlan, planWorkspaces } = require('./lib/plan.js');
@@ -140,7 +140,8 @@ function bring(f, state, ws, branch) {
   if (known) Object.assign(known, { status: 'quitado', removedAt: new Date().toISOString() });
   if (list(ws.repo).some((x) => key(x.path) === key(dst))) return { line: `${ws.name}: ya era un worktree de su repo; no lo toco`, entry: null };
   if (present(dst)) return { line: `${ws.name}: hay una carpeta ${repoRel} que no es un worktree de su repo; no la toco`, entry: null };
-  const def = ws.defaultBranch || mergeTargets(ws.repo).branch;
+  // Con la entrega push, la rama del issue nace de su destino (integration.targetBranch).
+  const def = targetBranch(f.main, ws) || mergeTargets(ws.repo).branch;
   const remote = git(ws.repo, ['remote']).stdout.trim();
   if (remote) {
     const r = fetchOrigin(ws.repo);
@@ -170,6 +171,17 @@ function bring(f, state, ws, branch) {
   return { line: `${ws.name}: lo traje a este worktree en la rama ${branch}, ${how}`, entry };
 }
 
+// ¿Las dependencias del checkout principal no sirven para este worktree? Si el lockfile de la rama no
+// es el del principal, enlazarlas deja paquetes de otra versión: en academico, informes-front no pudo
+// regenerar su registry hasta instalarlas adentro (2026-11-25). Instalar dentro del arranque puede
+// pasar el tiempo del hook, así que no se enlaza y se dice. → true si difieren
+const LOCKFILES = ['pnpm-lock.yaml', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'bun.lock', 'bun.lockb'];
+function staleDeps(mainDir, wtDir) {
+  const text = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n') : null);
+  return LOCKFILES.some((f) => text(path.join(mainDir, f)) !== text(path.join(wtDir, f)));
+}
+const staleLine = (name) => `${name}: no enlacé las dependencias del checkout principal, porque su lockfile no es el de esta rama y quedarían paquetes de otra versión; instálalas aquí antes de verificar (build.js deps --ws ${name} --write)`;
+
 // node_modules enlazado y .env* copiados en cada workspace del repo traído. Cada enlace se anota en
 // el registro antes de crearlo, para que nunca quede uno sin registrar.
 function equipRepo(f, state, entry) {
@@ -184,6 +196,7 @@ function equipRepo(f, state, entry) {
     const src = path.join(ws.dir, 'node_modules');
     const dst = path.join(dir, 'node_modules');
     if (!fs.existsSync(src)) out.push(`${ws.name}: el checkout principal no tiene las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
+    else if (!present(dst) && staleDeps(ws.dir, dir)) out.push(staleLine(ws.name));
     else if (!present(dst)) {
       entry.links.push(posix(dst));
       writeState(f.project, state);
@@ -469,6 +482,10 @@ function equip(w) {
     if (present(dst)) continue;
     if (!fs.existsSync(src)) {
       lines.push(`${ws.name}: ni este worktree ni el checkout principal tienen las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
+      continue;
+    }
+    if (staleDeps(path.dirname(src), ws.dir)) {
+      lines.push(staleLine(ws.name));
       continue;
     }
     if (link(src, dst) === 'copy') lines.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);

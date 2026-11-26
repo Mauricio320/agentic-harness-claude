@@ -505,3 +505,33 @@ test('en una carpeta, cerrar lo mergeado desde el worktree de otro pedido no toc
   assert.equal(JSON.parse(fs.readFileSync(path.join(issues, 'nuevo.json'), 'utf8')).state, 'subido');
   assert.ok(fs.existsSync(path.join(wt, 'api', 'src', 'nuevo-pedido.ts')), 'el worktree de la sesión sigue ahí');
 });
+
+// academico, 2026-11-25: informes-front enlazó las dependencias de un principal desactualizado y no
+// pudo regenerar su registry hasta instalarlas adentro.
+test('con un lockfile distinto al del checkout principal no enlaza node_modules y dice que hay que instalar adentro', () => {
+  const root = folder({ web: { 'package-lock.json': '{"lockfileVersion":3,"v":"rama"}\n' } });
+  h.write(path.join(root, 'web'), 'package-lock.json', '{"lockfileVersion":3,"v":"vieja"}\n');
+  const wt = h.nativeWorktree(root, 'deps');
+  const ctx = start(wt);
+  assert.match(ctx, /^- web: no enlacé las dependencias del checkout principal, porque su lockfile no es el de esta rama/m);
+  assert.ok(!fs.existsSync(path.join(wt, 'web', 'node_modules')), 'web sin enlace');
+  assert.ok(isLink(path.join(wt, 'api', 'node_modules')), 'api, con el mismo lockfile, se enlaza como siempre');
+});
+
+test('con la entrega push y targetBranch, cada repo llega al worktree desde origin/<targetBranch>', () => {
+  const root = folder({ composition: { merge: 'push', targetBranch: 'feature/base-main' } });
+  for (const name of ['api', 'web']) {
+    const repo = path.join(root, name);
+    h.git(repo, 'switch', '-q', '-c', 'feature/base-main');
+    h.write(repo, 'src/base.ts', 'lo de base-main\n');
+    h.commitAll(repo, 'base-main');
+    h.git(repo, 'push', '-q', 'origin', 'feature/base-main');
+    h.git(repo, 'switch', '-q', 'main');
+  }
+  const wt = h.nativeWorktree(root, 'pin');
+  const ctx = start(wt);
+  for (const name of ['api', 'web']) {
+    assert.match(ctx, new RegExp(`^- ${name}: lo traje a este worktree en la rama feature/pin, desde origin/feature/base-main al día`, 'm'));
+    assert.equal(head(path.join(wt, name)), head(path.join(root, name), 'origin/feature/base-main'));
+  }
+});

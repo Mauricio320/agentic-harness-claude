@@ -73,30 +73,14 @@ const { localDb, parseEnv, remoteDbs, DB_VAR } = require('./lib/database.js');
 const { isLink, unlink } = require('./lib/links.js');
 const { matchAny } = require('./lib/glob.js');
 const { append, read, tasks, personYes } = require('./lib/timeline.js');
-const { planWorkspaces } = require('./lib/plan.js');
+const { planWorkspaces, filesIn } = require('./lib/plan.js');
 const { informe } = require('./informe.js');
 const issues = require('./lib/issues.js');
 const { envFiles, ngPort, NATIVE_PORTS } = require('./lib/puertos.js');
 const { equipar } = require('./worktree-carpeta.js');
 const ledger = require('./worktree-ledger.js');
 
-const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
-// Un archivo en la raíz del repo: con extensión (middleware.ts), un punto al inicio (.env.example) o
-// uno de los nombres sin extensión de siempre (Dockerfile).
-const ROOT_FILE = /^(?:[\w@-][\w@.-]*\.[A-Za-z][A-Za-z0-9]{0,9}|\.[\w.-]+|Dockerfile|Makefile|Procfile|Jenkinsfile|Gemfile|Rakefile)$/;
-const fileLike = (t) => (t.includes('/') ? /\/[^/]+$/.test(t) && !/\s/.test(t) : ROOT_FILE.test(t));
-
 const namesOf = (w) => [w.name, w.rel].filter((x) => x && x !== '.');
-
-// Los archivos que nombra una línea del plan: las rutas con carpeta, lo que va entre comillas
-// invertidas y el primer término de un ítem de lista (- middleware.ts: …).
-function filesIn(line) {
-  const out = new Set(line.match(FILE_RE) || []);
-  for (const m of line.matchAll(/`([^`\s]+)`/g)) if (fileLike(m[1])) out.add(m[1]);
-  const item = /^\s*(?:[-*+]|\d+[.)])\s+([^\s:`,;]+)/.exec(line);
-  if (item && fileLike(item[1])) out.add(item[1]);
-  return [...out];
-}
 
 // El workspace al que pertenece una ruta del plan por su prefijo (el nombre o la carpeta del
 // workspace, como api/src/x.ts), con el más largo, o null si no lleva ninguno.

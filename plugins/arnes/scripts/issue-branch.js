@@ -46,7 +46,7 @@ const path = require('path');
 const { parseArgs } = require('util');
 const { requireProject, loadProject, posix } = require('./lib/manifest.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
-const { refExists, mergeTargets } = require('./lib/branches.js');
+const { refExists, mergeTargets, targetBranch } = require('./lib/branches.js');
 const { append } = require('./lib/timeline.js');
 const { nativeWorktree, nativeRoot, DIR } = require('./lib/worktree-nativo.js');
 const { planPath, readPlan: planText, slugOf, planWorkspaces } = require('./lib/plan.js');
@@ -105,8 +105,8 @@ function nameOf(project, plan, wanted) {
   return prefix && !slug.startsWith(prefix) ? `${prefix}${slug}` : slug;
 }
 
-function stateOf(ws) {
-  const def = ws.defaultBranch || mergeTargets(ws.gitRoot).branch;
+function stateOf(ws, project = null) {
+  const def = targetBranch(project, ws) || mergeTargets(ws.gitRoot).branch;
   const branch = branchOf(ws);
   const dirty = lines(git(ws.gitRoot, ['status', '--porcelain', '--untracked-files=no']).stdout).length;
   const origin = `origin/${def}`;
@@ -170,7 +170,7 @@ function check(project) {
   const names = new Set();
   for (const ws of wss) {
     const f = fetch(ws);
-    const s = stateOf(ws);
+    const s = stateOf(ws, project);
     console.log(`${ws.name}: en ${s.branch} · por defecto ${s.def}${s.dirty ? ` · ${s.dirty} archivo(s) sin commitear` : ''}${s.hasOrigin && s.behind ? ` · ${s.behind} commit(s) atrás de ${s.origin}` : ''}${f ? ` · ${f}` : ''}`);
     names.add(keeps(s) ? s.branch : name);
     if (keeps(s)) console.log(`  se construye en ${s.branch}: el repo no tiene remoto, y ${s.def} local no sirve de base`);
@@ -240,7 +240,7 @@ function create(project, wanted, fromOther, route) {
     }
     const f = fetch(ws);
     if (f) say(`${f}; sigo con lo que hay en local`);
-    const s = stateOf(ws);
+    const s = stateOf(ws, project);
     if (s.branch === name) {
       say(`reutiliza ${name} (ya es la actual)`);
       done.push(ws.name);
@@ -311,7 +311,7 @@ function stay(project) {
   const here = [];
   for (const ws of workspaces(project, plan)) {
     const f = fetch(ws);
-    const s = stateOf(ws);
+    const s = stateOf(ws, project);
     here.push(`${s.branch} en ${ws.name}`);
     if (f) console.log(`${ws.name}: ${f}`);
     if (s.behind) console.log(`${ws.name}: ${s.branch} va ${s.behind} commit(s) atrás de ${s.origin}; tráelos con /arnes:sync antes de construir si los necesitas`);
@@ -329,7 +329,7 @@ function behind(project) {
   for (const ws of project.workspaces.filter((w) => w.adoptable && !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
     const f = fetch(ws);
     if (f) console.log(`${ws.name}: ${f}; no sé si va atrás`);
-    const s = stateOf(ws);
+    const s = stateOf(ws, project);
     if (!s.hasOrigin || !s.behind) continue;
     late++;
     console.log(s.onDefault

@@ -82,6 +82,17 @@ test('input deja al reviewer lo que no saca sin Bash: HEAD, tocados, borrados, r
   assert.equal(h.git(dir, 'ls-tree', '-r', '--name-only', inp.workspaces.api.tree).includes('src/viejo.ts'), false, 'el árbol revisado no lleva los borrados');
 });
 
+test('input: la configuración bajo .claude/ no entra a la revisión, ni en los tocados ni en el diff', () => {
+  const dir = changed();
+  fs.appendFileSync(path.join(dir, '.claude/harness.json'), '\n');
+  fs.appendFileSync(path.join(dir, '.claude/rules/arquitectura.md'), 'Más.\n');
+  assert.equal(review(dir, ['input']).status, 0);
+  const md = fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8');
+  assert.doesNotMatch(md, /diff --git a\/\.claude/);
+  assert.doesNotMatch(md, /^- \.claude\//m);
+  assert.match(md, /diff --git a\/src\/a\.ts/);
+});
+
 test('input cita el plan si existe y corta un diff largo', () => {
   const dir = repo({ 'src/largo.ts': '' });
   h.write(dir, '.tmp/harness/plan.md', '# Plan\n');
@@ -289,6 +300,28 @@ test('la ronda de corrección acotada cubre los archivos nuevos; escala a comple
   h.write(dir, 'src/d.ts', 'otro\n');
   assert.match(review(dir, ['input']).stdout, /ronda 1 de 3 · completa\n/);
   assert.equal(h.git(dir, 'status', '--porcelain', '--', 'src'), '?? src/d.ts', 'el árbol revisado no toca el índice');
+});
+
+test('después de commitear lo revisado, un retoque va en ronda acotada aunque el HEAD cambió; un commit con algo no revisado vuelve a la 1', () => {
+  const dir = repo({ '.gitignore': '.tmp/\n' });
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const a = 2;\n');
+  assert.equal(review(dir, ['input']).status, 0);
+  report(dir, 0);
+  review(dir, ['mark', '--blockers', '0']);
+  h.git(dir, 'add', 'src/a.ts');
+  h.git(dir, 'commit', '-q', '-m', 'lo revisado');
+  fs.writeFileSync(path.join(dir, 'src/a.ts'), 'const a = 3;\n');
+  let r = review(dir, ['input']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ronda 2 de 3 · acotada: el diff desde la ronda 1, que terminó sin bloqueantes/);
+  assert.match(fs.readFileSync(harness(dir, 'review', 'input.md'), 'utf8'), /-const a = 2;\n.*\+const a = 3;/s);
+  report(dir, 0);
+  review(dir, ['mark', '--blockers', '0']);
+  h.write(dir, 'src/otro.ts', 'nunca revisado\n');
+  h.git(dir, 'add', 'src/otro.ts');
+  h.git(dir, 'commit', '-q', '-m', 'algo que nadie revisó');
+  r = review(dir, ['input']);
+  assert.match(r.stdout, /ronda 1 de 3 · completa\n/);
 });
 
 test('input: un nuevo sin trackear que pasa del tope queda fuera con su nota, y uno que no es código se lee aparte', () => {

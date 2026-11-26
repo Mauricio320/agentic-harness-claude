@@ -77,7 +77,7 @@ export const isQuestion = (text: string) => QUESTION.test(text)
 export const isYes = (reply: string) => /^[^\p{L}]*s[ií](?!\p{L})/iu.test(reply.trim())
 
 // Lo que el mod lee del resumen de la timeline del plugin base.
-export type Summary = { file: string; turn: string; plan: { open: boolean }; prep: string | null }
+export type Summary = { file: string; turn: string; plan: { open: boolean; delivered?: boolean }; prep: string | null }
 
 export function parseSummary(stdout: string): Summary | null {
   try {
@@ -88,8 +88,10 @@ export function parseSummary(stdout: string): Summary | null {
   }
 }
 
-// ¿Se pregunta a haiku? Solo con un proyecto del arnés, sin plan en curso y sin init ni setup en curso.
-export const asks = (s: Summary | null) => Boolean(s && !s.plan.open && !s.prep)
+// ¿Se pregunta a haiku? Solo con un proyecto del arnés, sin plan en curso ni entregado (después de
+// entregar, un retoque de lo entregado no pide plan, y un pedido nuevo lo pide el guard al escribir) y
+// sin init ni setup en curso.
+export const asks = (s: Summary | null) => Boolean(s && !s.plan.open && !s.plan.delivered && !s.prep)
 
 export const slash = (p: string) => p.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')
 

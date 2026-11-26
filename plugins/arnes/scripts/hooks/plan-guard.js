@@ -28,7 +28,7 @@ const path = require('path');
 const { run, deny } = require('../lib/hook.js');
 const { loadProject, resolveWorkspace, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { read, planState } = require('../lib/timeline.js');
+const { read, planState, retouchable, append } = require('../lib/timeline.js');
 const { projectFor } = require('../worktree-ledger.js');
 const { configRoot, configHome, prepAt, missingManifest, AJUSTE } = require('../lib/configuracion.js');
 const { planOwner, claudePid } = require('../lib/sesiones.js');
@@ -87,6 +87,22 @@ function planGuard(input) {
     return deny(`arnes guard: el plan aprobado en este checkout es de otra sesión de Claude que sigue abierta: no escribas código bajo el plan de la otra. Si este pedido cambia código, carga arnes:plan, que lo planifica en tu propio worktree. ${hit.rel} es código de ${hit.ws.name}.`);
   }
   if (p.approved) return null;
+  // Un retoque de lo que el issue ya entregó no pide plan nuevo (lib/timeline.js retouchable): se
+  // verifica y se entrega igual, con ship. La primera edición del retoque lo anota en la timeline.
+  if (p.delivered) {
+    const entries = read(project.root);
+    const r = retouchable(entries);
+    const mine = r && r.files[hit.ws.name];
+    if (mine && mine.has(hit.rel)) {
+      const lastShip = entries.map((e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok').lastIndexOf(true);
+      if (!entries.slice(lastShip + 1).some((e) => e.stage === 'plan' && e.result === 'retoque')) append(project.root, { event: 'note', stage: 'plan', result: 'retoque', ws: hit.ws.name, detail: hit.rel });
+      return null;
+    }
+    const list = mine ? [...mine].slice(0, 5).join(', ') : '';
+    return deny(
+      `arnes guard: el plan de este worktree ya se entregó. Sin plan nuevo solo se retoca lo que el issue entregó${list ? ` en ${hit.ws.name} (${list}${mine.size > 5 ? ', …' : ''})` : ''}, y ${hit.rel} no está entre eso: es un pedido nuevo, carga /arnes:plan.`,
+    );
+  }
   return deny(
     `arnes guard: no hay plan aprobado (${whyNoPlan(p)}): carga /arnes:plan, o /arnes:plan --trivial si el cambio es mínimo, que lo escribe la persona. ` +
       `${hit.rel} es código de ${hit.ws.name}.`,
@@ -94,7 +110,7 @@ function planGuard(input) {
 }
 
 // Por qué no hay plan aprobado, según planState. La usa también el Stop.
-const whyNoPlan = (p) => (p.written ? 'el plan está escrito y espera la aprobación de la persona' : p.open ? 'el plan todavía no está escrito' : 'esta corrida no tiene plan');
+const whyNoPlan = (p) => (p.written ? 'el plan está escrito y espera la aprobación de la persona' : p.open ? 'el plan todavía no está escrito' : p.delivered ? 'el plan de este worktree ya se entregó, y esto no es un retoque de lo entregado' : 'esta corrida no tiene plan');
 
 module.exports = { planGuard, whyNoPlan };
 

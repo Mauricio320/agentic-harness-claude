@@ -78,12 +78,13 @@ const { requireProject, loadProject, harnessDir, planConfig, posix } = require('
 const { matchAny } = require('./lib/glob.js');
 const { planOwner, fromEnv } = require('./lib/sesiones.js');
 const { append, read, planState, tasks, personYes } = require('./lib/timeline.js');
-const { readPlan, section, mentionAt, planPath, slugOf } = require('./lib/plan.js');
+const { readPlan, section, mentionAt, planPath, slugOf, itemFile } = require('./lib/plan.js');
 const { git, lines, help, die } = require('./lib/exec.js');
 const branch = require('./issue-branch.js');
 const { nativeRoot, nativeWorktree, key } = require('./lib/worktree-nativo.js');
 const issues = require('./lib/issues.js');
 const { declarados } = require('./lib/ejemplos.js');
+const { ahead } = require('./touched-files.js');
 
 const pad =(n) => String(n).padStart(2, '0');
 const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -168,6 +169,11 @@ async function start(project, detail, checkout) {
   append(project.root, { event: 'start', stage: 'plan', detail, session: fromEnv().session || undefined });
   console.log(`proyecto: ${project.name} · ${project.kind === 'folder' ? 'carpeta' : 'repo'} · raíz ${posix(project.root)}`);
   for (const ws of project.workspaces) console.log(workspaceLine(ws));
+  // Lo que la rama ya trae commiteado sin llegar a su destino también cuenta como zona de riesgo.
+  for (const ws of project.workspaces.filter((w) => w.adoptable)) {
+    const risk = ahead(ws, project).filter((f) => matchAny(ws.riskPaths, f));
+    if (risk.length) console.log(`- ${ws.name}: la rama ya trae commiteadas zonas de riesgo que no llegaron a su destino (${risk.slice(0, 5).join(', ')}${risk.length > 5 ? ', …' : ''}); van en «## Zonas de riesgo» del plan`);
+  }
   const prev = readPlan(project);
   if (prev && !closed) console.log(`plan anterior: «${(prev.match(/^# (?:Plan: )?(.+)$/m) || [, 'sin título'])[1].trim()}» en ${posix(planPath(project))}; si es de otro issue, pregunta antes de pisarlo`);
   console.log('ramas:');
@@ -289,9 +295,9 @@ const NO_API = /^\s*[-*]?\s*(sin (cambios?|api|contrato)|no (hay|cambia|expone|c
 function plannedFiles(plan) {
   return section(plan, /^archivos previstos/i)
     .split('\n')
-    .map((l) => l.match(/^\s*[-*]\s+`?([^`\s:]+\.[\w]+)`?/))
+    .map(itemFile)
     .filter(Boolean)
-    .map((m) => m[1].replace(/\\/g, '/').replace(/^\.\//, ''));
+    .map((f) => f.replace(/\\/g, '/').replace(/^\.\//, ''));
 }
 
 // El workspace adoptable de una ruta del plan: en una carpeta va con el repo delante; en un repo solo,

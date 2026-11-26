@@ -7,7 +7,7 @@ description: Revisar el cambio antes de commitearlo. La carga /arnes:ship una ve
 
 Los scripts viven en `${CLAUDE_PLUGIN_ROOT}/scripts`. Córrelos con `node` y la ruta entre comillas, desde el directorio donde se abrió la sesión. Abajo, `S` es esa carpeta. Corre cada comando solo, sin `&&`, `;` ni `echo`: el código de salida ya lo da la herramienta, y un comando encadenado pide permiso aparte. La lista de tareas de la sesión (docs/PLAN.md §6.3): cuando un script imprime `tareas: [...]`, pásale esa lista a TodoWrite si la sesión lo tiene (con TaskCreate y TaskUpdate, el mismo estado); si no tiene ninguna, sigue sin ella.
 
-La revisión va después de verify, sobre el árbol que se va a entregar, y se paga una vez: la carga ship antes de commitear, o la persona con `/arnes:review`. Build termina en verify y no la carga. Si cambias algo después, la revisión deja de valer, y ship la repite solo sobre lo que cambió.
+La revisión va después de verify, sobre el árbol que se va a entregar, y se paga una vez: la carga ship antes de commitear, o la persona con `/arnes:review`. Build termina en verify y no la carga. Si cambias algo después, la revisión deja de valer, y ship la repite solo sobre lo que cambió; también después de commitear lo revisado, con un retoque: la ronda va acotada al retoque. En el carril corto no hay revisión: ship no la pide. La configuración bajo `.claude/` no entra a la revisión.
 
 ## Pasos
 

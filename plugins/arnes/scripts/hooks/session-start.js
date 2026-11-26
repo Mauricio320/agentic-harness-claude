@@ -36,7 +36,7 @@ const carpeta = require('../worktree-carpeta.js');
 const { nativeRoot } = require('../lib/worktree-nativo.js');
 const issues = require('../lib/issues.js');
 const { append } = require('../lib/timeline.js');
-const { LOCK_MAX_MS, claudePid, alive } = require('../lib/sesiones.js');
+const { LOCK_MAX_MS, claudePid, alive, remember } = require('../lib/sesiones.js');
 const compat = require('../lib/compat.js');
 const { AJUSTE } = require('../lib/configuracion.js');
 
@@ -197,6 +197,7 @@ function lockSession(project, input, cwd, now = new Date()) {
     /* primera vez */
   }
   fs.writeFileSync(own, JSON.stringify({ pid: me, session: input.session_id || null, cwd: posix(cwd), at }, null, 2) + '\n');
+  remember(input.session_id, cwd);
 }
 
 function unlockSession(input) {

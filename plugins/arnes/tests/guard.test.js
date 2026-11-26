@@ -332,6 +332,20 @@ test('red team: la configuración no se borra, mueve ni escribe por el shell; le
     assert.ok(!denied(guard(api, cmd)), cmd);
   }
   assert.ok(denied(guard(root, 'rm .claude/harness.json')), 'la composición de la carpeta también');
+  // Comparar, recorrer en un bucle que solo lee y guardar o devolver con git stash también es leer.
+  for (const cmd of [
+    'cmp .claude/harness.json ../otra/.claude/harness.json && echo igual',
+    'for f in .claude/rules/*; do echo "== $f"; cat "$f"; done',
+    'git stash push -m respaldo -- .claude/harness.json',
+    'git stash pop',
+    'git stash list',
+  ]) {
+    assert.ok(!denied(guard(api, cmd)), cmd);
+  }
+  assert.ok(!denied(guard(api, 'Compare-Object (Get-Content .claude/harness.json) (Get-Content ../x.json)', { tool: 'PowerShell' })), 'Compare-Object');
+  for (const cmd of ['for f in .claude/rules/*; do rm "$f"; done', 'for f in .claude/rules/*; do cat "$f" > /tmp/x; done']) {
+    assert.match(reason(guard(api, cmd)), /configuración del proyecto/, cmd);
+  }
   tl.append(root, { event: 'start', stage: 'init' });
   assert.ok(!denied(guard(api, 'rm .claude/harness.json')), 'init en curso en la carpeta');
 });

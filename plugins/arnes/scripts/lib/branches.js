@@ -29,6 +29,13 @@ function mergeTargets(dir, defaultBranch) {
   return { branch: branch || 'main', refs: candidates.filter((r) => refExists(dir, r)) };
 }
 
+// La rama a la que llega el trabajo de un workspace: integration.targetBranch con la entrega push
+// (docs/PLAN.md §7), o su defaultBranch. null sin ninguna de las dos: quien llama cae en mergeTargets.
+function targetBranch(project, ws) {
+  const i = (project && project.integration) || {};
+  return (i.merge === 'push' && i.targetBranch) || (ws && ws.defaultBranch) || null;
+}
+
 // Hashes cortos de los commits de `ref` que no están en ninguna de las `targets`, o null si
 // `ref` no existe.
 function unmerged(dir, ref, targets) {
@@ -68,4 +75,4 @@ function adoptionElsewhere(dir, name, where) {
   return `${name} está en ${where.branch}, sin la configuración del arnés; ${pick.ref} sí la trae${who}. No me cambio a esa rama: adopto desde cero aquí, en ${where.branch}, porque la adopción tiene que salir de main.`;
 }
 
-module.exports = { refExists, mergeTargets, unmerged, manifestElsewhere, missingManifest, adoptionElsewhere };
+module.exports = { refExists, mergeTargets, targetBranch, unmerged, manifestElsewhere, missingManifest, adoptionElsewhere };

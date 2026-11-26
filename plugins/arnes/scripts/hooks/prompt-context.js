@@ -31,10 +31,10 @@ const path = require('path');
 const { run, context } = require('../lib/hook.js');
 const { loadProject, harnessDir } = require('../lib/manifest.js');
 const { matchAny } = require('../lib/glob.js');
-const { touched } = require('../touched-files.js');
+const { touched, ahead } = require('../touched-files.js');
 const { checkFlag, writeTurn, takeOrigin } = require('../gate-flag.js');
 const { append, read, planState, prepOpen } = require('../lib/timeline.js');
-const { planOwner, claudePid } = require('../lib/sesiones.js');
+const { planOwner, claudePid, remember, recall } = require('../lib/sesiones.js');
 const { AJUSTE } = require('../lib/configuracion.js');
 
 // El aviso con que un agente en segundo plano reabre el turno del hilo principal también pasa por
@@ -66,7 +66,8 @@ function state(project, ws) {
   const t = touched(ws, 'HEAD', project);
   if (t.error || !t.files.length) return { text: null, code: 0 };
   const code = t.files.filter((f) => matchAny(ws.codeGlobs, f) && fs.existsSync(path.join(ws.dir, f)));
-  const risk = t.files.filter((f) => matchAny(ws.riskPaths, f));
+  // También lo que la rama ya trae commiteado y no llegó a su destino (touched-files.js ahead).
+  const risk = [...new Set([...t.files, ...ahead(ws, project)])].filter((f) => matchAny(ws.riskPaths, f));
   if (!code.length && !risk.length) return { text: null, code: 0 };
   const parts = [`${t.files.length} tocado(s), ${code.length} de código`];
   if (code.length) {
@@ -100,8 +101,21 @@ function invalid(project, input) {
   return out.length ? out.join('\n') : null;
 }
 
+// El proyecto de la sesión: el del directorio actual, o, si un cd del modelo lo dejó fuera de todo
+// proyecto, el de la carpeta donde la sesión trabaja (lib/sesiones.js recall).
+function sessionProject(input) {
+  const cwd = path.resolve(input.cwd || process.cwd());
+  const here = loadProject(cwd);
+  if (here) {
+    remember(input.session_id, cwd);
+    return here;
+  }
+  const dir = recall(input.session_id);
+  return dir ? loadProject(dir) : null;
+}
+
 function promptContext(input) {
-  const project = loadProject(path.resolve(input.cwd || process.cwd()));
+  const project = sessionProject(input);
   if (!project) return null;
   if (project.errors.length) return invalid(project, input);
   const adoptable = project.workspaces.filter((ws) => ws.adoptable);
@@ -134,7 +148,10 @@ function promptContext(input) {
   const rows = other ? [] : adoptable.map((ws) => state(project, ws));
   const status = rows.map((r) => r.text).filter(Boolean);
   const entries = read(project.root);
-  if (person && origin === 'texto' && !rows.some((r) => r.code) && !planState(entries).open && !prepOpen(entries) && !PREP.test(text)) status.unshift(PLAN_FIRST);
+  const plan = planState(entries);
+  // Con el plan entregado no se empuja a planificar: un retoque de lo entregado no lo necesita, y un
+  // pedido nuevo lo pide el guard al escribir (plan-guard.js).
+  if (person && origin === 'texto' && !rows.some((r) => r.code) && !plan.open && !plan.delivered && !prepOpen(entries) && !PREP.test(text)) status.unshift(PLAN_FIRST);
   else if (person && other) status.unshift(OTHER_PLAN);
   const out = unsaid(project, input.session_id, status);
   return out.length ? out.join('\n') : null;

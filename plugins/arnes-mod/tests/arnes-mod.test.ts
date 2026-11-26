@@ -154,6 +154,7 @@ test('lib: qué se pregunta, cómo se lee la respuesta, el resumen y dónde est�
   expect(parseSummary('sin manifiesto')).toBe(null)
   expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: false }, prep: null })))).toBe(true)
   expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: true }, prep: null })))).toBe(false)
+  expect(asks(parseSummary(JSON.stringify({ file: TIMELINE, turn: TURN, plan: { open: false, delivered: true }, prep: null })))).toBe(false)
   expect(parseSummary(JSON.stringify({ file: TIMELINE, plan: { open: false }, prep: null }))).toBe(null)
   expect(asks(null)).toBe(false)
   expect(baseCandidates('C:/repo/plugins/arnes-mod')[0]).toBe('C:/repo/plugins/arnes')

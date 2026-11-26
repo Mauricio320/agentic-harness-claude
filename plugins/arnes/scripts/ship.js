@@ -59,10 +59,15 @@
 //           issue (issues.js clean --actual --write; el worktree de la sesión se borra saliendo de él)
 //           y cierra los issues anteriores cuyo MR ya se mergeó (issues.js cerrar --mergeados). El MR
 //           de GitLab se abre con --remove-source-branch: la rama remota la borra GitLab al mergear.
-//           Con --dejar no borra lo del issue: la persona pidió conservar el worktree
+//           Con --dejar no borra lo del issue: la persona pidió conservar el worktree.
+//           Sin MR (integration.merge "push", o --sin-mr y --a <rama> cuando la persona lo pide en su
+//           mensaje): sube la rama del issue o, con destino (--a, o integration.targetBranch), la lleva
+//           a esa rama como avance directo; no abre MR, el issue queda subido con lo que se hizo y lo
+//           del issue se queda. El end ship ok anota los archivos entregados (entregados), que después
+//           se retocan sin plan nuevo (lib/timeline.js retouchable)
 //   deliver --sin-push
 //           la persona no quiso subir: end ship ok, "commit sin push"
-// Uso: node ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] | deliver --sin-push
+// Uso: node ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] [--sin-mr] [--a <rama>] | deliver --sin-push
 //      node ship.js check
 //      node ship.js branch <rama>
 //      node ship.js stage <ws>
@@ -82,7 +87,7 @@ const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
 const { refExists, unmerged } = require('./lib/branches.js');
 const { list: worktreeList } = require('./lib/worktree-nativo.js');
-const { touched, deleted } = require('./touched-files.js');
+const { touched, deleted, ahead } = require('./touched-files.js');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const { checkFlag, flagPath, readLast } = require('./gate-flag.js');
@@ -116,6 +121,11 @@ function trackedIn(dir, rel) {
   return git(dir, ['ls-files', '--error-unmatch', '--', rel]).status === 0;
 }
 
+// Lo que no entra a un commit: un .env o un log que el repo no versiona. Uno que el repo ya versiona
+// (el .env.public.development de Next.js, que no lleva secretos) sí entra: quedaba fuera, y la persona
+// lo commiteaba a mano (sesión del 2026-11-23 en academico). Leerlo sigue enmascarado.
+const outOfCommit = (ws, f) => suspicious(f) && !trackedIn(ws.dir, f);
+
 function approvedConfigAt(project, gitRoot, absPath) {
   const set = approvedAjusteSet(project);
   return set.has(key(absPath)) && trackedIn(gitRoot, posix(path.relative(gitRoot, absPath)));
@@ -130,7 +140,7 @@ const COMMITLINT = ['commitlint.config.js', 'commitlint.config.cjs', 'commitlint
 // base y las fallas conocidas, más lo que nunca entra a un commit (.env, logs).
 function harnessFile(ws, f, project = null) {
   const rel = (p) => posix(path.relative(ws.dir, p));
-  return isConfig(ws, f, project) || f === '.worktreeinclude' || f === rel(baselinePath(ws)) || f === rel(knownPath(ws)) || suspicious(f);
+  return isConfig(ws, f, project) || f === '.worktreeinclude' || f === rel(baselinePath(ws)) || f === rel(knownPath(ws)) || outOfCommit(ws, f);
 }
 
 // Workspaces adoptables con tocados, en orden de commit: proveen contrato (back) → sin contrato →
@@ -197,6 +207,28 @@ function unpushed(project) {
 const hasOrigin = (ws) => git(ws.gitRoot, ['remote', 'get-url', 'origin']).status === 0;
 
 const mergeMode = (project) => (project.integration && project.integration.merge) || 'mr';
+// Con la entrega push (integration.merge "push"), la rama a la que se sube: targetBranch, o null para
+// subir la rama del issue.
+const pushTarget = (project) => (mergeMode(project) === 'push' && project.integration.targetBranch) || null;
+
+// Cómo llega lo entregado, en la línea «entrega:» de check.
+function deliveryLine(project) {
+  const mode = mergeMode(project);
+  if (mode === 'local') return 'merge local en la rama por defecto, sin MR (integration.merge)';
+  if (mode === 'push') return `push sin MR (integration.merge), ${pushTarget(project) ? `a ${pushTarget(project)} como avance directo` : 'de la rama del issue'}; el worktree se queda`;
+  return 'push y MR';
+}
+
+// La pregunta del push, que hace el modelo después del commit. Con MR, el sí también borra el worktree;
+// sin MR (la entrega push, o lo que la persona pida en su mensaje: --sin-mr o --a <rama>), se queda.
+function pushQuestion(project, shown = '') {
+  const tail = 'si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship.js deliver; con un no, ship.js deliver --sin-push';
+  if (mergeMode(project) === 'push') {
+    const to = pushTarget(project) ? `a ${pushTarget(project)}, como avance directo` : 'la rama del issue';
+    return `siguiente: pregunta a la persona, en un solo mensaje, si subes ${to}, sin MR${shown}, y dile que el worktree se queda para seguir; con su sí, ship.js deliver --push; si pide otro destino («súbelo a dev»), ship.js deliver --push --a <rama>; ${tail}`;
+  }
+  return `siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR${shown}, y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); si pide subir sin MR, ship.js deliver --push --sin-mr, y si nombra otra rama a la que llevarlo («súbelo a base-main»), ship.js deliver --push --a <rama>: las dos dejan el worktree; ${tail}`;
+}
 
 // La revisión humana de una zona de riesgo, cuando la entrega va sin MR: la persona escribe
 // /arnes:ship --revisado <nombre> después de la última revisión, y UserPromptSubmit lo anota.
@@ -214,12 +246,22 @@ function reviewedBy(project) {
 // Un plan que se aprobó solo, en el carril corto (plan-state.js corto), cuyo cambio real salió de él:
 // más de un workspace, más archivos de los que admite, o una zona de riesgo. No frena: la persona lo
 // lee en la pregunta del push, que es su sí. → la frase, o null
+// Las riskPaths de lo que se entrega: los tocados y lo que la rama ya trae commiteado sin llegar a su
+// destino (touched-files.js ahead), que antes pasaba como «ninguna».
+const riskFiles = (project, ws, files) => [...new Set([...files, ...ahead(ws, project)])].filter((f) => matchAny(ws.riskPaths, f)).sort();
+
 const CORTO_MAX = 5;
+const NO_REVIEW = 'no hace falta: el plan es del carril corto y el cambio sigue dentro de él';
+function shortLane(project) {
+  const entries = read(project.root);
+  const start = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  const note = entries.slice(start + 1).filter((e) => e.stage === 'plan' && e.result === 'aprobado').pop();
+  return Boolean(note && /^carril corto/.test(note.detail || ''));
+}
 function shortOverflow(project, list) {
-  const note = read(project.root).filter((e) => e.stage === 'plan' && e.result === 'aprobado').pop();
-  if (!note || !/^carril corto/.test(note.detail || '')) return null;
+  if (!shortLane(project)) return null;
   const files = list.reduce((n, x) => n + x.files.length + x.gone.length, 0);
-  const risk = list.flatMap((x) => x.files.filter((f) => matchAny(x.ws.riskPaths, f)));
+  const risk = list.flatMap((x) => riskFiles(project, x.ws, x.files));
   const why = [list.length > 1 && `tocó ${list.length} workspaces`, files > CORTO_MAX && `tocó ${files} archivos`, risk.length && `tocó zonas de riesgo (${risk.join(', ')})`].filter(Boolean);
   return why.length ? why.join(', ') : null;
 }
@@ -249,13 +291,24 @@ function check(project) {
       return 1;
     }
     for (const x of up.filter((y) => y.remote || toMerge.includes(y))) console.log(`- ${x.ws.name} · rama ${x.branch} · ${x.n} commit(s) sin ${x.remote ? 'subir' : 'mergear'}`);
-    console.log(`entrega: ${mergeMode(project) === 'local' ? 'merge local en la rama por defecto, sin MR (integration.merge)' : 'push y MR'}`);
+    console.log(`entrega: ${deliveryLine(project)}`);
     if (toMerge.length) console.log('resultado: LISTO PARA MERGEAR\n  no hay nada que commitear: entregar es el merge local en la rama por defecto');
     else console.log('resultado: LISTO PARA SUBIR\n  no hay nada que commitear: entregar es el push, con el sí de la persona');
     return 0;
   }
   // La revisión que cuenta es la de lo que se entrega: un repo que quedó fuera no la pide.
   const reviews = new Map(checkReview(project).filter((r) => list.some((x) => x.ws.name === r.ws)).map((r) => [r.ws, r]));
+  // El carril corto no pasa por el revisor (decisión de la persona del 2026-11-26): un repo, pocos
+  // archivos y ninguna zona de riesgo, con la verificación igual. En los cambios de una línea de esa
+  // semana el revisor no encontró nada y costó minutos. Si el cambio salió del carril, se revisa como
+  // siempre; una revisión con bloqueantes de este contenido sigue deteniendo.
+  const corto = shortOverflow(project, list);
+  if (shortLane(project) && !corto) {
+    for (const { ws } of list) {
+      const r = reviews.get(ws.name);
+      if (!r || (!r.ok && !/bloqueante/.test(r.reason))) reviews.set(ws.name, { ws: ws.name, ok: true, reason: NO_REVIEW });
+    }
+  }
   const fix = [];
   const stops = [];
   const local = mergeMode(project) === 'local';
@@ -266,9 +319,9 @@ function check(project) {
     const last = flag.ok ? null : readLast(project, ws);
     const red = last && last.current && last.result === 'fail';
     const rev = reviews.get(ws.name) || { ok: false, reason: 'sin revisión' };
-    const bad = files.filter(suspicious);
+    const bad = files.filter((f) => outOfCommit(ws, f));
     const config = [...files, ...gone].filter((f) => isConfig(ws, f, project));
-    const risk = files.filter((f) => matchAny(ws.riskPaths, f));
+    const risk = riskFiles(project, ws, files);
     const baseline = files.includes(posix(path.relative(ws.dir, baselinePath(ws))));
     const conv = convention(ws);
     if (red) stops.push(entrega.gateStop(ws, last));
@@ -279,7 +332,7 @@ function check(project) {
     console.log(`    revisión: ${rev.ok ? rev.reason : `falta: ${rev.reason}`}`);
     if (bad.length) console.log(`    se quedan fuera del commit: ${bad.join(', ')}`);
     if (config.length) console.log(`    ${CONFIG_OUT}: ${config.join(', ')}`);
-    console.log(`    riskPaths tocadas: ${risk.length ? `${risk.join(', ')} → ${local ? (revisado ? `revisadas por ${revisado}` : 'sin revisión humana, y la entrega va sin MR') : `${RISK} en el MR`}` : 'ninguna'}`);
+    console.log(`    riskPaths tocadas: ${risk.length ? `${risk.join(', ')} → ${local ? (revisado ? `revisadas por ${revisado}` : 'sin revisión humana, y la entrega va sin MR') : mergeMode(project) === 'push' ? `${RISK} en la pregunta del push, que es la revisión: la entrega va sin MR` : `${RISK} en el MR`}` : 'ninguna'}`);
     console.log(`    línea base de tests: ${baseline ? 'cambia → el asunto del commit empieza con gates:' : 'no cambia'}`);
     console.log(`    convención: ${conv.commitlint.length ? `commitlint en ${conv.commitlint.join(', ')}` : 'sin commitlint'} · CLAUDE.md ${conv.claude || 'no hay'}`);
     console.log(`    últimos asuntos de ${conv.ref}:`);
@@ -308,9 +361,9 @@ function check(project) {
   console.log(`worktrees abiertos del issue: ${open.length || 'ninguno'}`);
   for (const p of open) console.log(`    ${ledger.describe(p)}`);
   const folder = project.kind === 'folder' ? nativeRoot(project) : null;
-  if (folder) console.log(`worktree nativo ${folder.name} de la carpeta: cada repo commitea en su rama del issue (${list.map((x) => `${branchOf(x.ws)} en ${x.ws.name}`).join(', ')}), y entregar es el push y el MR, no un merge local`);
+  if (folder) console.log(`worktree nativo ${folder.name} de la carpeta: cada repo commitea en su rama del issue (${list.map((x) => `${branchOf(x.ws)} en ${x.ws.name}`).join(', ')}), y entregar es ${mergeMode(project) === 'push' ? 'el push, sin MR' : 'el push y el MR'}, no un merge local`);
   else for (const w of [...new Set(list.map((x) => x.ws.gitRoot))].map(nativeWorktree).filter(Boolean)) {
-    console.log(`worktree nativo ${w.name}: la rama del issue es ${w.branch}; se commitea ahí, y entregar es el push y el MR, no un merge local`);
+    console.log(`worktree nativo ${w.name}: la rama del issue es ${w.branch}; se commitea ahí, y entregar es ${mergeMode(project) === 'push' ? 'el push, sin MR' : 'el push y el MR'}, no un merge local`);
   }
   console.log(`orden de commit: ${list.map((x) => x.ws.name).join(' → ')}`);
   if (list.length > 1 && !project.workspaces.some((w) => w.contract && (w.contract.provides || w.contract.consumes))) {
@@ -321,9 +374,8 @@ function check(project) {
   const ej = ejemplosDe(project, list.map((x) => x.ws));
   if (ej.length) console.log(`ejemplos: ${ej.filter((e) => e.ok).length} de ${ej.length} del plan se comprobaron corriéndolos`);
   for (const e of ej.filter((x) => !x.ok)) console.log(`aviso: el ejemplo ${e.id} no está comprobado (${e.note}): ${e.text}; va en la pregunta del push, para que la persona lo pruebe o lo acepte antes de subir`);
-  const corto = shortOverflow(project, list);
   if (corto) console.log(`aviso: el plan se aprobó por reglas, en el carril corto, pero el cambio ${corto}; va en la pregunta del push, para que la persona lo sepa antes de subir`);
-  console.log(`entrega: ${local ? `merge local en la rama por defecto, sin MR (integration.merge)` : 'push y MR'}`);
+  console.log(`entrega: ${deliveryLine(project)}`);
   const prefix = prefixOf(project);
   console.log(`prefijo de rama: ${prefix ? `${prefix} (integration.branchPrefix)` : 'sin integration.branchPrefix en el manifiesto'}`);
   const current = [...new Set(list.map((x) => branchOf(x.ws)).filter((b, k) => b && b !== 'HEAD' && b !== defaultOf(list[k].ws)))];
@@ -394,9 +446,9 @@ function stage(project, wsName) {
   const [ws] = selectWorkspaces(project, [wsName]);
   const item = shipping(project).find((x) => x.ws.name === ws.name);
   if (!item) die(`ship: ${ws.name} no tiene cambios que commitear`, 1);
-  const bad = item.files.filter(suspicious);
+  const bad = item.files.filter((f) => outOfCommit(ws, f));
   const config = [...item.files, ...item.gone].filter((f) => isConfig(ws, f, project));
-  const keep = item.files.filter((f) => !suspicious(f) && !isConfig(ws, f, project));
+  const keep = item.files.filter((f) => !outOfCommit(ws, f) && !isConfig(ws, f, project));
   const gone = item.gone.filter((f) => !isConfig(ws, f, project));
   if (bad.length) console.log(`${ws.name}: se quedan fuera del commit, porque no deben entrar: ${bad.join(', ')}`);
   if (!keep.length && !gone.length) die(`ship: ${ws.name} no tiene nada que commitear fuera de lo que no debe entrar`, 1);
@@ -559,8 +611,16 @@ function addToReport(file, title, text) {
   fs.appendFileSync(file, `\n## ${title}\n\n\`\`\`\n${String(text).trimEnd()}\n\`\`\`\n`);
 }
 
+// Los archivos que esta entrega commiteó o sube, por workspace: el end ship ok los anota, y son lo que
+// después se puede retocar sin plan nuevo (lib/timeline.js retouchable).
+function delivered(d, name, files) {
+  if (!files.length) return;
+  d.entregados = { ...(d.entregados || {}), [name]: [...new Set([...((d.entregados || {})[name] || []), ...files])].sort() };
+}
+
 function finish(project, d, result, detail, say, shown = false) {
-  append(project.root, { event: 'end', stage: 'ship', result, detail });
+  const entregados = result === 'ok' && d && d.entregados && Object.keys(d.entregados).length ? d.entregados : undefined;
+  append(project.root, { event: 'end', stage: 'ship', result, detail, entregados });
   if (d && d.informe && !shown) say(`informe: ${posix(d.informe)}`);
   if (d && d.informe) say(d.frase ? 'frase: dila' : 'frase: ya se dijo en esta corrida');
   const list = tasks(read(project.root));
@@ -616,7 +676,7 @@ function deliverPrepare(project, o, say) {
       finish(project, d, 'ok', 'nada que commitear', say, true);
       return 0;
     }
-    say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR, y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship.js deliver; con un no, ship.js deliver --sin-push');
+    say(pushQuestion(project));
     return 0;
   }
   const list = shipping(project);
@@ -640,8 +700,8 @@ function deliverPrepare(project, o, say) {
       return 1;
     }
   }
-  const risk = Object.fromEntries(list.map(({ ws, files }) => [ws.name, files.filter((f) => matchAny(ws.riskPaths, f))]));
-  save({ order: list.map((x) => x.ws.name), risk });
+  const risk = Object.fromEntries(list.map(({ ws, files }) => [ws.name, riskFiles(project, ws, files)]));
+  save({ order: list.map((x) => x.ws.name), risk, sinRevisor: c.out.includes(NO_REVIEW) || undefined });
   const order = list.map((x) => `"${x.ws.name}"`).join(', ');
   say(`siguiente: escribe con Write ${posix(messagesFile(project))} con un mensaje por workspace (${order}): { "<ws>": { "asunto": "…", "cuerpo": "…"${o.soloCommit ? '' : ', "mr": { "titulo": "…", "descripcion": "qué cambia" }'} } }, con la convención de commits de arriba, y corre ship.js deliver --commit`);
   return 0;
@@ -696,6 +756,7 @@ function deliverCommit(project, say) {
       return 1;
     }
     commits[name] = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
+    delivered(d, name, lines(git(ws.dir, ['diff-tree', '--no-commit-id', '--name-only', '-r', '--relative', 'HEAD']).stdout));
     fs.writeFileSync(deliveryFile(project), JSON.stringify({ ...d, commits }, null, 2) + '\n');
     done.push(name);
   }
@@ -713,17 +774,22 @@ function deliverCommit(project, say) {
     finish(project, d, 'ok', `commit, sin remoto: ${done.join(', ')}`, say);
     return 0;
   }
+  const push = mergeMode(project) === 'push';
   for (const name of done) {
     const ws = project.workspaces.find((w) => w.name === name);
     const url = git(ws.gitRoot, ['remote', 'get-url', 'origin']);
-    say(`${name}: rama ${branchOf(ws)} → ${url.status === 0 ? cleanUrl(url.stdout.trim()) : 'sin remoto origin'}`);
+    const to = push && pushTarget(project) ? ` → ${pushTarget(project)}, como avance directo y sin MR` : push ? ', sin MR' : '';
+    say(`${name}: rama ${branchOf(ws)}${to} → ${url.status === 0 ? cleanUrl(url.stdout.trim()) : 'sin remoto origin'}`);
   }
-  const bodies = mrBodies(project, d, msgs, {});
-  for (const [name, b] of Object.entries(bodies)) addToReport(d.informe, `MR de ${name}: ${b.title}`, b.body);
-  say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
+  if (!push) {
+    const bodies = mrBodies(project, d, msgs, {});
+    for (const [name, b] of Object.entries(bodies)) addToReport(d.informe, `MR de ${name}: ${b.title}`, b.body);
+    say(`MR: ${Object.entries(bodies).map(([name, b]) => `${name} «${b.title}»`).join(' · ')}; los cuerpos están en el informe`);
+  }
+  for (const [name, list] of Object.entries(d.risk || {}).filter(([, l]) => push && l.length)) say(`aviso: ${name} toca zonas de riesgo (${list.join(', ')}) y la entrega va sin MR: ${RISK}, y el sí de la persona es esa revisión`);
   for (const l of unconfirmed(readPlan(project))) say(`aviso: el dev decidió algo que el plan no decía y nadie confirmó: ${l.replace(DEV, '').trim()}`);
-  for (const l of (readJsonFile(path.join(harnessDir(project), 'review.json')) || {}).defectos || []) say(`aviso: la revisión vio un posible defecto de lógica, que no bloquea: ${l}`);
-  say('siguiente: pregunta a la persona, en un solo mensaje, si subes las ramas y abres los MR (lo de arriba), y dile que con su sí también se borra el worktree de este issue (todo queda en origin); con su sí, ship.js deliver --push (con --dejar si pidió conservarlo); si en vez del sí pide una corrección, no cierres la entrega: corrige, que el plan sigue aprobado, y vuelve a ship.js deliver; con un no, ship.js deliver --sin-push');
+  for (const l of (d.sinRevisor ? {} : readJsonFile(path.join(harnessDir(project), 'review.json')) || {}).defectos || []) say(`aviso: la revisión vio un posible defecto de lógica, que no bloquea: ${l}`);
+  say(pushQuestion(project, mergeMode(project) === 'push' ? '' : ' (lo de arriba)'));
   return 0;
 }
 
@@ -754,8 +820,8 @@ function mrBodies(project, d, msgs, links) {
         'Verificado por el arnés: typecheck, convenciones, lint y tests de lo tocado contra la línea base. Verde significa que cumple convenciones y compila/testea; nunca que sea correcto en el negocio.',
         '',
         '## Revisión',
-        `Revisión del arnés sin bloqueantes${rv.round ? ` (ronda ${rv.round}, ${rv.mode || 'completa'})` : ''}.`,
-        ...((rv.defectos || []).length ? ['', '## Posibles defectos de lógica, para mirar', ...rv.defectos.map((l) => `- ${l}`)] : []),
+        d.sinRevisor ? 'Sin revisión del arnés: es un cambio del carril corto (un repo, pocos archivos y ninguna zona de riesgo), verificado igual.' : `Revisión del arnés sin bloqueantes${rv.round ? ` (ronda ${rv.round}, ${rv.mode || 'completa'})` : ''}.`,
+        ...(!d.sinRevisor && (rv.defectos || []).length ? ['', '## Posibles defectos de lógica, para mirar', ...rv.defectos.map((l) => `- ${l}`)] : []),
         ...(others.length ? ['', '## En los otros repos', ...others] : []),
       ].join('\n'),
     };
@@ -795,9 +861,18 @@ function updateMr(cli, ws, ref, body) {
 // cuando su worktree ya no existe.
 const mainOf = (ws) => posix(ledger.mainCheckout(ws.gitRoot));
 
-function deliverPush(project, say, keep = false) {
+// opts: { sinMr, a }. Sin MR, por la entrega push del manifiesto o porque la persona lo pidió en su
+// mensaje («solo sube sin MR», «súbelo a base-main»): sube la rama del issue, o con un destino (--a, o
+// integration.targetBranch) la lleva a esa rama como avance directo, nunca con force; no abre MR, el
+// issue queda subido con lo que se hizo y el worktree se queda. La rama destino no se anota como rama
+// del issue: el cierre de lo mergeado borra de origin las ramas anotadas, y feature/base-main es de
+// todos (el incidente de la 0.8.7 fue eso con la rama de la sesión).
+function deliverPush(project, say, keep = false, opts = {}) {
   const d = readJsonFile(deliveryFile(project));
   if (!d || !d.committedAt || !Array.isArray(d.order)) die('ship: no hay commits de esta entrega; corre ship.js deliver y deliver --commit');
+  const target = opts.a || pushTarget(project);
+  const noMr = Boolean(opts.sinMr || opts.a || mergeMode(project) === 'push');
+  if (target && git(project.root, ['check-ref-format', '--branch', target]).status !== 0) die(`ship: "${target}" no es un nombre de rama válido`);
   const answered = read(project.root).some((e) => e.stage === 'turno' && e.result === 'respuesta' && Date.parse(e.at) > Date.parse(d.committedAt));
   if (!answered) die('ship: el push y los MR necesitan el sí de la persona en un mensaje suyo, después del commit; pregúntale y espera su respuesta', 1);
   const msgs = readJsonFile(messagesFile(project)) || {};
@@ -814,7 +889,8 @@ function deliverPush(project, say, keep = false) {
   d.risk = d.risk || {};
   for (const ws of wss) {
     const sent = lines(git(ws.dir, ['log', '--format=', '--name-only', '--relative', 'HEAD', '--not', '--remotes', '--']).stdout);
-    d.risk[ws.name] = [...new Set([...(d.risk[ws.name] || []), ...sent.filter((f) => matchAny(ws.riskPaths, f))])];
+    d.risk[ws.name] = [...new Set([...(d.risk[ws.name] || []), ...riskFiles(project, ws, sent)])];
+    delivered(d, ws.name, sent);
   }
   for (const ws of wss.filter((w) => !msgs[w.name])) {
     const [asunto, ...cuerpo] = git(ws.gitRoot, ['log', '--reverse', '--format=%s%n%b%x00', 'HEAD', '--not', '--remotes', '--']).stdout.split('\0')[0].trim().split('\n');
@@ -822,17 +898,34 @@ function deliverPush(project, say, keep = false) {
   }
   const seen = new Set();
   for (const ws of wss.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot))) {
-    const p = git(ws.gitRoot, ['push', '-u', 'origin', branchOf(ws)]);
+    const p = git(ws.gitRoot, target ? ['push', 'origin', `HEAD:refs/heads/${target}`] : ['push', '-u', 'origin', branchOf(ws)]);
     addToReport(d.informe, `Push de ${ws.name}`, `${p.stdout}${p.stderr}`);
     if (p.status !== 0) {
       const why = lines(p.stderr).find((l) => /rejected|error:|fatal:/i.test(l)) || firstLine(p.stderr);
       say(`FALLA ${ws.name}: el push no salió: ${why.trim()}`);
-      if (/rejected|non-fast-forward|fetch first/i.test(p.stderr)) say('siguiente: la rama de origin tiene commits que esta no: dile a la persona que escriba /arnes:sync para traerla, y después /arnes:ship otra vez');
+      if (/rejected|non-fast-forward|fetch first/i.test(p.stderr)) {
+        say(target
+          ? `siguiente: origin/${target} tiene commits que esta rama no trae: díselo a la persona y, con su sí, trae origin/${target} a la rama del issue (git fetch y git merge origin/${target}), verifica y vuelve a /arnes:ship`
+          : 'siguiente: la rama de origin tiene commits que esta no: dile a la persona que escriba /arnes:sync para traerla, y después /arnes:ship otra vez');
+      }
       finish(project, d, 'fail', `el push de ${ws.name} falló`, say);
       return 1;
     }
+    if (target) {
+      say(`${ws.name}: ${branchOf(ws)} subida a origin/${target}, como avance directo y sin MR`);
+      continue;
+    }
     I.record(project, { pushed: [{ repo: mainOf(ws), branch: branchOf(ws), sha: git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim() }] });
-    say(`${ws.name}: ${branchOf(ws)} subida a origin`);
+    say(`${ws.name}: ${branchOf(ws)} subida a origin${noMr ? ', sin MR' : ''}`);
+  }
+  const issues = (args) => (spawnSync(process.execPath, [path.join(__dirname, 'issues.js'), ...args], { cwd: process.cwd(), encoding: 'utf8' }).stdout || '').trimEnd();
+  if (noMr) {
+    const how = target ? `push a ${target}, sin MR` : 'push sin MR';
+    I.setState(project, 'subido', how);
+    finish(project, d, 'ok', how, say);
+    say('lo que se creó para este issue se queda: la entrega va sin MR, y el worktree sigue para un retoque o el próximo pedido; /arnes:cerrar lo borra cuando la persona quiera');
+    say(issues(['cerrar', '--mergeados', '--write']).replace(/^ningún issue mergeado.*$/m, ''));
+    return 0;
   }
   I.setState(project, 'subido', 'push');
   const links = {};
@@ -849,7 +942,7 @@ function deliverPush(project, say, keep = false) {
     }
     const r = openMr(cli, ws, b.title, b.body);
     const same = (p) => p.branch === branchOf(ws) && path.resolve(p.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase();
-    const prior = r.error && /already exists|ya existe|\b409\b/i.test(r.error) && I.list(project).filter((o) => o.slug !== (I.current(project) || {}).slug).find((o) => o.state === 'subido' && [...(o.pushed || []), ...(o.branches || [])].some(same) && (o.mr || []).some((m) => path.resolve(m.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase()));
+    const prior = r.error && /already exists|ya existe|\b409\b/i.test(r.error) && I.list(project).find((o) => o.state === 'subido' && [...(o.pushed || []), ...(o.branches || [])].some(same) && (o.mr || []).some((m) => path.resolve(m.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase()));
     const priorRef = prior ? prior.mr.find((m) => path.resolve(m.repo).toLowerCase() === path.resolve(mainOf(ws)).toLowerCase()).ref : null;
     if (prior && I.mrState({ repo: mainOf(ws), ref: priorRef }) === 'open') {
       const ref = priorRef;
@@ -880,7 +973,6 @@ function deliverPush(project, say, keep = false) {
   finish(project, d, 'ok', opened.length ? `MR ${opened.map((o) => o.ref).join(', ')}` : 'push sin MR: cuerpos para pegar', say);
   // El sí del push cierra también lo local: subir es donde termina la sesión, y volver después a
   // escribir /arnes:cerrar era un paso que nadie daba.
-  const issues = (args) => (spawnSync(process.execPath, [path.join(__dirname, 'issues.js'), ...args], { cwd: process.cwd(), encoding: 'utf8' }).stdout || '').trimEnd();
   // Con un MR por pegar a mano, su cuerpo está en el informe: borrarlo ahora dejaría a la persona sin él.
   if (toPaste) say('lo que se creó para este issue se queda por ahora: el cuerpo del MR está en el informe, para pegarlo; /arnes:cerrar lo borra después');
   else if (keep) say('lo que se creó para este issue se queda, como pidió la persona; /arnes:cerrar lo borra cuando quiera');
@@ -895,7 +987,7 @@ function deliver(project, o) {
     if (l) console.log(l);
   };
   if (o.commit) return deliverCommit(project, say);
-  if (o.push) return deliverPush(project, say, o.dejar);
+  if (o.push) return deliverPush(project, say, o.dejar, { sinMr: o.sinMr, a: o.a });
   if (o.sinPush) {
     finish(project, readJsonFile(deliveryFile(project)), 'ok', 'commit sin push', say);
     return 0;
@@ -909,17 +1001,17 @@ function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) help(__filename);
   const [mode, arg, extra] = argv;
-  const usage = 'uso: ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] | deliver --sin-push | check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
+  const usage = 'uso: ship.js deliver [--rama <r>] [--solo-commit] | deliver --commit | deliver --push [--dejar] [--sin-mr] [--a <rama>] | deliver --sin-push | check | branch <rama> | stage <ws> | committed <ws> | merge start|finish|abort';
   if (mode === 'deliver') {
     let o;
     try {
-      o = parseArgs({ args: argv.slice(1), options: { rama: { type: 'string' }, 'solo-commit': { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' }, 'sin-push': { type: 'boolean' }, dejar: { type: 'boolean' } } }).values;
+      o = parseArgs({ args: argv.slice(1), options: { rama: { type: 'string' }, 'solo-commit': { type: 'boolean' }, commit: { type: 'boolean' }, push: { type: 'boolean' }, 'sin-push': { type: 'boolean' }, dejar: { type: 'boolean' }, 'sin-mr': { type: 'boolean' }, a: { type: 'string' } } }).values;
     } catch {
       die(usage);
     }
     const phases = [o.commit, o.push, o['sin-push']].filter(Boolean).length;
-    if (phases > 1 || (phases && (o.rama || o['solo-commit'])) || (o.dejar && !o.push)) die(usage);
-    process.exit(deliver(requireProject(), { rama: o.rama, soloCommit: o['solo-commit'], commit: o.commit, push: o.push, sinPush: o['sin-push'], dejar: o.dejar }));
+    if (phases > 1 || (phases && (o.rama || o['solo-commit'])) || ((o.dejar || o['sin-mr'] || o.a !== undefined) && !o.push) || o.a === '') die(usage);
+    process.exit(deliver(requireProject(), { rama: o.rama, soloCommit: o['solo-commit'], commit: o.commit, push: o.push, sinPush: o['sin-push'], dejar: o.dejar, sinMr: o['sin-mr'], a: o.a }));
   }
   if (mode === 'merge') {
     if (extra || !['start', 'finish', 'abort'].includes(arg)) die(usage);

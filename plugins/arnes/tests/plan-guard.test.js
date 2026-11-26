@@ -45,6 +45,21 @@ test('con el plan escrito sin aprobar niega; con el plan aprobado permite; despu
   assert.ok(denied(edit(dir, 'src/a.ts')), 'la corrida entregada pide un plan nuevo');
 });
 
+test('después de entregar, retocar lo que el issue entregó no pide plan; otro archivo sí, y lo dice', () => {
+  const dir = repo();
+  for (const e of [{ event: 'start', stage: 'plan' }, { event: 'end', stage: 'plan', result: 'ok' }, { event: 'note', stage: 'plan', result: 'aprobado' }]) note(dir, e);
+  note(dir, { event: 'end', stage: 'ship', result: 'ok', entregados: { api: ['src/a.ts', 'src/categorias.tsx'] } });
+  assert.equal(edit(dir, 'src/categorias.tsx').out, null, 'retoque de lo entregado');
+  assert.equal(edit(dir, path.join(dir, 'src', 'a.ts')).out, null, 'con la ruta absoluta también');
+  assert.equal(tl.read(dir).filter((e) => e.result === 'retoque').length, 1, 'el retoque se anota una vez');
+  const r = edit(dir, 'src/otro.ts', 'Write');
+  assert.ok(denied(r));
+  assert.match(reason(r), /el plan de este worktree ya se entregó\. Sin plan nuevo solo se retoca lo que el issue entregó en api \(src\/a\.ts, src\/categorias\.tsx\), y src\/otro\.ts no está entre eso: es un pedido nuevo, carga \/arnes:plan\./);
+  assert.equal(tl.planState(tl.read(dir)).delivered, true);
+  note(dir, { event: 'start', stage: 'plan' });
+  assert.ok(denied(edit(dir, 'src/a.ts')), 'un plan nuevo sin aprobar no deja retocar');
+});
+
 test('lo que no es código, lo de .claude o .tmp, fuera de todo workspace o sin manifiesto, no se juzga', () => {
   const dir = repo();
   for (const f of ['README.md', 'docs/nota.md', '.claude/commands/x.md', '.tmp/harness/plan.md']) {

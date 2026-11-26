@@ -55,6 +55,34 @@ function planWorkspaces(workspaces, plan) {
   return list.filter((w) => !seen.has(w.gitRoot) && seen.add(w.gitRoot));
 }
 
+// Los archivos que nombra una línea del plan (antes en build.js): las rutas con carpeta, lo que va entre
+// comillas invertidas y el primer término de un ítem de lista (- middleware.ts: …). Un archivo en la raíz
+// del repo lleva extensión (middleware.ts), un punto al inicio (.env.example) o es uno de los nombres sin
+// extensión de siempre (Dockerfile).
+const FILE_RE = /[\w@.[\]()-]+(?:\/[\w@.[\]()-]+)+\.[A-Za-z]{1,10}\b/g;
+const ROOT_FILE = /^(?:[\w@-][\w@.-]*\.[A-Za-z][A-Za-z0-9]{0,9}|\.[\w.-]+|Dockerfile|Containerfile|Makefile|Procfile|Jenkinsfile|Gemfile|Rakefile|Justfile)$/;
+const fileLike = (t) => (t.includes('/') ? /\/[^/]+$/.test(t) && !/\s/.test(t) : ROOT_FILE.test(t));
+const ITEM = /^\s*(?:[-*+]|\d+[.)])\s+`?([^\s:`,;]+)/;
+
+function filesIn(line) {
+  const out = new Set(line.match(FILE_RE) || []);
+  for (const m of line.matchAll(/`([^`\s]+)`/g)) if (fileLike(m[1])) out.add(m[1]);
+  const item = ITEM.exec(line);
+  if (item && fileLike(item[1])) out.add(item[1]);
+  return [...out];
+}
+
+// El archivo de un ítem de «## Archivos previstos»: su primer término, o el primero entre comillas
+// invertidas. Con carpeta (api-academico/Dockerfile) o en la raíz (Dockerfile): el carril corto
+// contaba solo lo que traía extensión, y el Dockerfile de un repo, el cambio chico más común, nunca
+// entraba (sesiones del 2026-11-23 y 25 en academico). → la ruta, o null
+function itemFile(line) {
+  const item = ITEM.exec(line);
+  if (!item) return null;
+  if (fileLike(item[1])) return item[1];
+  return [...line.matchAll(/`([^`\s]+)`/g)].map((m) => m[1]).find(fileLike) || null;
+}
+
 // Las desviaciones que el dev declaró y build copió a "## Decisiones" con la marca DEV: decisiones que
 // nadie aprobó (un parámetro que viaja por la URL porque el contrato no lo trae, un plazo que eligió
 // el dev). El reviewer las juzga como decisiones, no como criterios sin implementar, y ship las pone
@@ -67,4 +95,4 @@ function unconfirmed(plan) {
     .map((l) => l.replace(/^\s*[-*]\s*/, '').trim());
 }
 
-module.exports = { DEV, planPath, readPlan, slugOf, section, planWorkspaces, mentions, mentionAt, unconfirmed };
+module.exports = { DEV, planPath, readPlan, slugOf, section, planWorkspaces, mentions, mentionAt, unconfirmed, filesIn, itemFile, fileLike };

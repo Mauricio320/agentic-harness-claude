@@ -57,7 +57,7 @@ const { parseArgs } = require('util');
 const { requireProject, harnessDir, posix } = require('./lib/manifest.js');
 const { matchAny } = require('./lib/glob.js');
 const { git, lines, firstLine, help, die } = require('./lib/exec.js');
-const { touched, added, deleted } = require('./touched-files.js');
+const { touched, added, deleted, ahead } = require('./touched-files.js');
 const { stateOf, movedElsewhere } = require('./lib/huella.js');
 const { append, read: readTimeline, tasks } = require('./lib/timeline.js');
 const { informe } = require('./informe.js');
@@ -180,8 +180,14 @@ function numbered(text) {
 }
 
 // El diff contra HEAD o, en una ronda acotada, el del cambio: del árbol revisado al actual.
+// La configuración del arnés y de Claude Code (lo que va bajo .claude/) no es parte de la revisión: es
+// del arnés, que la lleva al worktree y la ajusta con la aprobación de la persona. El reviewer la
+// marcaba como cambio fuera del plan (sesiones del 2026-11-25), y el protocolo dice que no se comenta.
+const NOT_REVIEWED = ['.', ':(exclude,glob)**/.claude/**'];
+const notReviewed = (f) => /(^|\/)\.claude\//.test(f);
+
 function cappedDiff(ws, refs = ['HEAD']) {
-  const r = git(ws.dir, ['diff', '--no-color', '--no-ext-diff', '--relative', ...refs, '--']);
+  const r = git(ws.dir, ['diff', '--no-color', '--no-ext-diff', '--relative', ...refs, '--', ...NOT_REVIEWED]);
   if (r.status !== 0) return { error: `git diff falló en ${ws.name}` };
   const blocks = r.stdout.split(/^(?=diff --git )/m).filter(Boolean);
   return {
@@ -227,7 +233,9 @@ function riskOf(ws, files) {
 
 // corr, en una ronda acotada: { from, refs, files } con la ronda anterior, los dos árboles y lo que
 // cambió la corrección.
-function section(project, ws, files, corr) {
+function section(project, ws, all, corr0) {
+  const files = all.filter((f) => !notReviewed(f));
+  const corr = corr0 && { ...corr0, files: corr0.files.filter((f) => !notReviewed(f)) };
   const fresh = added(ws, 'HEAD', project);
   const gone = deleted(ws, 'HEAD');
   const diff = cappedDiff(ws, corr ? corr.refs : ['HEAD']);
@@ -235,7 +243,8 @@ function section(project, ws, files, corr) {
   if (failed) return failed;
   const untracked = new Set(lines(git(ws.dir, ['ls-files', '--others', '--exclude-standard']).stdout));
   const base = git(ws.gitRoot, ['rev-parse', 'HEAD']).stdout.trim();
-  const risk = riskOf(ws, files);
+  // Las zonas de riesgo, también de lo que la rama ya trae commiteado sin llegar a su destino.
+  const risk = riskOf(ws, [...new Set([...files, ...ahead(ws, project)])]);
   const contract = ws.contract ? [ws.contract.provides && `provee ${ws.contract.provides.join(', ')}`, ws.contract.consumes && `consume ${ws.contract.consumes.join(', ')}`].filter(Boolean).join(' · ') : '';
   const claude = [...new Set([ws.repo, ws.dir].map((d) => path.join(d, 'CLAUDE.md')))].filter((f) => fs.existsSync(f));
   const rl = rulesBlock(ws, files);
@@ -257,7 +266,7 @@ function section(project, ws, files, corr) {
     ...rl.lines,
     `Tocados (${files.length}), rutas relativas a la carpeta:`,
     ...files.map((f) => `- ${f} · ${tag(f)}`),
-    ...(gone.files.length ? ['Borrados:', ...gone.files.map((f) => `- ${f}`)] : []),
+    ...(gone.files.some((f) => !notReviewed(f)) ? ['Borrados:', ...gone.files.filter((f) => !notReviewed(f)).map((f) => `- ${f}`)] : []),
     ...(corr ? [`Cambió desde la ronda ${corr.from} (${corr.files.length}):`, ...corr.files.map((f) => `- ${f}`)] : []),
     '',
   ];
@@ -314,6 +323,21 @@ function treeOf(project, ws, paths) {
   return tree.status === 0 ? { tree: tree.stdout.trim() } : { error: `no se pudo guardar el árbol revisado de ${ws.name}: ${firstLine(tree.stderr)}` };
 }
 
+// El HEAD cambió porque se commiteó lo revisado (ship, y después un retoque): el HEAD anterior es
+// antepasado del actual y cada archivo que traen esos commits quedó igual que en el árbol revisado.
+// Entonces lo que cambió después se revisa acotado, como si el HEAD no hubiera cambiado. Un HEAD que
+// trajo otra cosa (un merge de main, un rebase, un commit a mano de algo no revisado) vuelve a la 1.
+function committedReviewed(ws, p, head) {
+  if (!p || !p.tree || !p.head || !head) return false;
+  if (git(ws.gitRoot, ['merge-base', '--is-ancestor', p.head, head]).status !== 0) return false;
+  const brought = git(ws.dir, ['diff', '--name-only', '--relative', p.head, head, '--']);
+  if (brought.status !== 0) return false;
+  const files = lines(brought.stdout);
+  if (!files.length) return true;
+  const d = git(ws.dir, ['diff', '--name-only', p.tree, head, '--', ...files]);
+  return d.status === 0 && !d.stdout.trim();
+}
+
 // La ronda que toca, a partir de review.json. now: { <ws>: { ws, files, head, tree } }.
 // Después de una ronda con bloqueantes, la siguiente es de corrección. Después de una sin
 // bloqueantes, un cambio que no sale de lo ya revisado (las sugerencias aplicadas) también va
@@ -325,7 +349,7 @@ function roundOf(project, now, full) {
   if (full || !prev || !(prev.blockers >= 0) || !Number.isInteger(prev.round)) return first;
   const names = Object.keys(now);
   const before = (n) => (prev.workspaces || {})[n];
-  if (names.some((n) => before(n) && before(n).head !== now[n].head)) return first;
+  if (names.some((n) => before(n) && before(n).head !== now[n].head && !committedReviewed(now[n].ws, before(n), now[n].head))) return first;
   const clean = prev.blockers === 0;
   if (prev.round >= MAX_ROUNDS) {
     if (clean) return first;

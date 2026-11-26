@@ -41,7 +41,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { run, deny } = require('../lib/hook.js');
-const { pieces, command, nestedCommand, tokenize } = require('../lib/shell.js');
+const { pieces, command, nestedCommand, tokenize, exeName } = require('../lib/shell.js');
 const { loadProject, resolveWorkspace } = require('../lib/manifest.js');
 const { git, lines } = require('../lib/exec.js');
 const { mergeTargets, unmerged, refExists } = require('../lib/branches.js');
@@ -395,8 +395,32 @@ function judgeSecrets(cmd, piece, dir, namesOnly = false, line = { calm: false, 
 // la lee; la redirección de salida hacia ella nunca. Uno que borra o mueve la carpeta que la tiene
 // (el repo o su .claude/), tampoco. Un commit no la lleva: ni lo staged, ni lo modificado con -a.
 
-const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'rg', 'select-string', 'sls', 'findstr', 'jq', 'wc', 'diff', 'ls', 'dir', 'get-childitem', 'gci', 'stat', 'test-path', 'echo', 'printf', 'write-output', 'nl', 'cut', 'file', 'test', '[', 'get-item', 'gi']);
+// Comparar la configuración con la del checkout principal (cmp, fc, Compare-Object, un hash) o
+// recorrerla en un bucle (for f in r/.claude/rules/*) también es leerla: el guard lo negaba, y el
+// modelo lo contaba como un error del arnés (sesiones del 2026-11-25).
+const READERS = new Set(['cat', 'type', 'get-content', 'gc', 'head', 'tail', 'less', 'more', 'grep', 'egrep', 'rg', 'select-string', 'sls', 'findstr', 'jq', 'wc', 'diff', 'ls', 'dir', 'get-childitem', 'gci', 'stat', 'test-path', 'echo', 'printf', 'write-output', 'nl', 'cut', 'file', 'test', '[', 'get-item', 'gi', 'cmp', 'fc', 'compare-object', 'sha256sum', 'md5sum', 'get-filehash', 'for', 'foreach']);
 const GIT_READS = new Set(['diff', 'log', 'show', 'status', 'blame', 'ls-files', 'cat-file', 'grep']);
+// git stash que guarda o devuelve lo que hay (push, pop, apply) o lo muestra: la copia que el arnés
+// lleva al worktree no se pierde, y frenaba cambiar de rama para llevar el trabajo a develop. drop y
+// clear los juzga judgeStash.
+const STASH_KEEPS = new Set(['', 'push', 'save', 'list', 'show', 'pop', 'apply']);
+// Un bucle (for f in .claude/rules/*) cuenta como lectura solo si todo lo demás de la línea lee: su
+// cuerpo ve la configuración por una variable ($f), así que un rm "$f" adentro no la nombra.
+const LOOPS = new Set(['for', 'foreach']);
+const KEYWORDS = new Set(['do', 'done', 'then', 'else', 'elif', 'fi', '{', '}']);
+const SINKS = /^(\/dev\/null|\$null|nul)$/i;
+function readsOnly(all, dir, dialect) {
+  return all.every((p) => {
+    const c = command(p.text, dialect);
+    if (!c) return true;
+    let { exe, args } = c;
+    while (KEYWORDS.has(exe) && args.length) [exe, args] = [exeName(args[0]), args.slice(1)];
+    if (KEYWORDS.has(exe)) return true;
+    if (redirectTargets(args).some((t) => !SINKS.test(t))) return false;
+    if (exe === 'git') return GIT_READS.has(splitGit(args, dir).sub);
+    return READERS.has(exe) || CD.has(exe);
+  });
+}
 const MOVERS = new Set(['rm', 'rmdir', 'del', 'erase', 'rd', 'remove-item', 'ri', 'mv', 'move', 'move-item', 'mi', 'ren', 'rename', 'rename-item', 'rni']);
 
 // Los destinos de las redirecciones de salida (> f, >> f, 2>f), sin los de un descriptor (2>&1).
@@ -441,11 +465,13 @@ const samePath = (a, b) => path.resolve(a).replace(/\\/g, '/').toLowerCase() ===
 const MANIFEST_JS = path.join(__dirname, '..', 'lib', 'manifest.js');
 const isAjuste = (cmd, dir) => cmd.exe === 'node' && Boolean(cmd.args[0]) && [AJUSTE_JS, MANIFEST_JS].some((f) => samePath(toPath(dir, cmd.args[0]), f));
 
-function judgeConfig(cmd, dir, piece = { text: '' }) {
+function judgeConfig(cmd, dir, piece = { text: '' }, line = { readsOnly: false }) {
   const out = liveConfig(redirectTargets(cmd.args), dir);
   if (out) return `${cmd.raw} > ${out}: ${CONFIG_WHY}`;
-  const gitSub = cmd.exe === 'git' ? splitGit(cmd.args, dir).sub : '';
-  const reads = cmd.exe === 'git' ? GIT_READS.has(gitSub) : READERS.has(cmd.exe) || isAjuste(cmd, dir);
+  const g = cmd.exe === 'git' ? splitGit(cmd.args, dir) : null;
+  const gitSub = g ? g.sub : '';
+  const keeps = gitSub === 'stash' && STASH_KEEPS.has(g.rest.find((a) => !a.startsWith('-')) || '');
+  const reads = g ? GIT_READS.has(gitSub) || keeps : (READERS.has(cmd.exe) && (!LOOPS.has(cmd.exe) || line.readsOnly)) || isAjuste(cmd, dir);
   // El mensaje de un commit o el cuerpo de un MR que nombra la configuración no la toca.
   const texted = ['git', 'gh', 'glab'].includes(cmd.exe) && !expands(piece.text);
   const hit = reads ? null : liveConfig(namedPaths(cmd.args, texted ? cmd.exe : '', gitSub), dir);
@@ -521,7 +547,7 @@ function judgeForbidden(cmd, dir) {
 function judge(text, dir, depth = 0, dialect = 'bash') {
   let cwd = dir;
   const all = [...pieces(text, dialect)];
-  const line = { calm: !/\$/.test(text) && !expands(text), alone: all.length === 1 };
+  const line = { calm: !/\$/.test(text) && !expands(text), alone: all.length === 1, readsOnly: readsOnly(all, dir, dialect) };
   for (let n = 0; n < all.length; n++) {
     const piece = all[n];
     const cmd = command(piece.text, dialect);
@@ -543,7 +569,7 @@ function judge(text, dir, depth = 0, dialect = 'bash') {
       if (why) return why;
       continue;
     }
-    const why = judgeSecrets(cmd, piece, cwd, namesOnly, line) || judgeConfig(cmd, cwd, piece) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
+    const why = judgeSecrets(cmd, piece, cwd, namesOnly, line) || judgeConfig(cmd, cwd, piece, line) || judgeForbidden(cmd, cwd) || (cmd.exe === 'git' ? judgeGit(cmd.args, cwd) : null);
     if (why) return why;
   }
   return null;

@@ -31,7 +31,7 @@ test('sin plan en curso ni código tocado, una sola línea: un pedido de código
   assert.equal(h.run('lib/timeline.js', ['start', 'plan'], { cwd: dir }).status, 0);
   assert.equal(prompt(dir).out, null, 'con un plan en curso no lo repite');
   h.run('lib/timeline.js', ['end', 'ship', '--result', 'ok'], { cwd: dir });
-  assert.equal(ctx(prompt(dir)), PLAN_FIRST, 'después de ship, el plan ya no está en curso');
+  assert.equal(prompt(dir).out, null, 'después de entregar no empuja a planificar: un retoque no lo pide, y un pedido nuevo lo pide el guard al escribir');
   fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
   assert.doesNotMatch(ctx(prompt(dir)), /primera acción es cargar arnes:plan/, 'con código tocado ya no es un pedido nuevo');
 });
@@ -168,4 +168,15 @@ test('riskPaths tocadas piden revisión humana; nunca bloquea', () => {
 
 test('sin manifiesto no dice nada', () => {
   assert.equal(prompt(h.tmp('prompt-nada')).out, null);
+});
+
+test('la respuesta de la persona se anota aunque un cd del modelo haya dejado la sesión fuera del proyecto', () => {
+  const dir = repo();
+  const fuera = h.tmp('prompt-scratchpad');
+  const session = `s-fuera-${process.pid}-${Date.now()}`;
+  h.hook('session-start', { hook_event_name: 'SessionStart', source: 'startup', session_id: session, cwd: dir });
+  h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'Sí, levántalo', cwd: fuera, session_id: session });
+  const hash = crypto.createHash('sha256').update('Sí, levántalo').digest('hex');
+  assert.ok(tl.read(dir).some((e) => e.stage === 'turno' && e.result === 'respuesta' && e.hash === hash), 'quedó en la timeline del proyecto de la sesión');
+  assert.equal(h.hook('prompt-context', { hook_event_name: 'UserPromptSubmit', prompt: 'sí', cwd: fuera, session_id: 'otra-sesion-sin-carpeta' }).out, null, 'una sesión sin carpeta conocida no anota nada');
 });

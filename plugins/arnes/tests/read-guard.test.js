@@ -13,7 +13,7 @@ const reason = (r) => r.out.hookSpecificOutput.permissionDecisionReason;
 test('sin manifiesto deniega leer .env y variantes, llaves, credenciales y tokens; .env.example sí', () => {
   const dir = h.tmp('read-libre');
   for (const f of ['.env', '.env.local', 'config/.env.production', '.envrc', 'id_rsa', 'deploy/id_ed25519', 'certs/server.key',
-    'certs/ca.pem', 'firma.p12', '.netrc', '.git-credentials', 'gcp/credentials.json', 'github.token', 'token.json']) {
+    'certs/server.pem', 'firma.p12', '.netrc', '.git-credentials', 'gcp/credentials.json', 'github.token', 'token.json']) {
     assert.ok(denied(read(dir, 'Read', { file_path: path.join(dir, f) })), f);
   }
   for (const f of ['.env.example', 'src/env.ts', 'id_ed25519.pub', 'package.json', 'docs/llaves.md', 'src/token-service.ts']) {
@@ -21,6 +21,20 @@ test('sin manifiesto deniega leer .env y variantes, llaves, credenciales y token
   }
   const r = read(dir, 'Read', { file_path: path.join(dir, '.env.local') });
   assert.match(reason(r), /^arnes guard: Read sobre .*\.env\.local denegado: es un archivo \.env\. Los secretos no entran al transcript/);
+});
+
+test('un certificado público se lee y se nombra; una llave privada con el mismo nombre, no', () => {
+  const dir = h.tmp('read-cert');
+  h.write(dir, '.tmp/server-ca.pem', '-----BEGIN CERTIFICATE-----\nMIIDfzCC\n-----END CERTIFICATE-----\n');
+  h.write(dir, 'certs/oauth-signing-key.pem', '-----BEGIN PRIVATE KEY-----\nMIIEvQ\n-----END PRIVATE KEY-----\n');
+  h.write(dir, 'certs/mixto.pem', '-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n-----BEGIN RSA PRIVATE KEY-----\ny\n');
+  assert.ok(!denied(read(dir, 'Read', { file_path: path.join(dir, '.tmp/server-ca.pem') })), 'el CA público');
+  assert.ok(denied(read(dir, 'Read', { file_path: path.join(dir, 'certs/oauth-signing-key.pem') })), 'la llave privada');
+  assert.ok(denied(read(dir, 'Read', { file_path: path.join(dir, 'certs/mixto.pem') })), 'un certificado con su llave adentro');
+  const guard = (cmd, tool = 'Bash') => h.hook('guard', { hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { command: cmd }, cwd: dir });
+  assert.ok(!denied(guard('cat .tmp/server-ca.pem')));
+  assert.ok(!denied(guard('gcloud sql instances describe x --format="value(serverCaCert.cert)" > .tmp/academico-server-ca.pem')), 'crear uno que por su nombre es un CA');
+  assert.ok(denied(guard('node certs/oauth-signing-key.pem')));
 });
 
 test('todo lo de ~/.ssh y ~/.aws queda fuera, con ~ o con la ruta completa', () => {

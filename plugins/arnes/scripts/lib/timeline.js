@@ -87,14 +87,36 @@ function duration(ms) {
 // si después de ese start hay una nota "aprobado", que solo escribe plan-state.js. Un plan que se
 // llevó a un worktree nativo (nota "movido", issue-branch.js) ya no está en curso en este checkout.
 // Lo leen el guard de Edit y Write (plan-guard) y UserPromptSubmit. → { open, approved, written, at? }
+const shipped = (e) => e.stage === 'ship' && e.event === 'end' && e.result === 'ok';
+const dropped = (e) => e.stage === 'plan' && e.event === 'note' && (e.result === 'movido' || e.result === 'cancelado');
+
 function planState(entries) {
   const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
   if (i < 0) return { open: false, approved: false, written: false };
   const after = entries.slice(i + 1);
-  const closed = (e) => (e.stage === 'ship' && e.event === 'end' && e.result === 'ok') || (e.stage === 'plan' && e.event === 'note' && (e.result === 'movido' || e.result === 'cancelado'));
-  if (after.some(closed)) return { open: false, approved: false, written: false };
+  if (after.some(dropped)) return { open: false, approved: false, written: false };
+  // Entregado: lo que sigue, si toca lo mismo, es un retoque (retouchable), no un pedido nuevo.
+  if (after.some(shipped)) return { open: false, approved: false, written: false, delivered: true };
   const is = (e, event, result) => e.stage === 'plan' && e.event === event && (!result || e.result === result);
   return { open: true, approved: after.some((e) => is(e, 'note', 'aprobado')), written: after.some((e) => is(e, 'end')), at: entries[i].at };
+}
+
+// Lo que se puede retocar sin plan nuevo (decisión de la persona del 2026-11-26): con el último plan
+// entregado (un end ship ok después de su start, sin cancelarlo ni moverlo), los archivos que el issue
+// ya entregó, que ship anota en cada end ship ok (entregados: { <ws>: [rutas relativas al workspace] }).
+// Un retoque («sin color se ve feo») pedía un plan entero: el guard negaba la edición tres veces y el
+// modelo armaba un plan para una línea (sesiones del 2026-11-23 al 26 en academico y renova365).
+// → { files: { <ws>: Set } } o null
+function retouchable(entries) {
+  const i = entries.map((e) => e.stage === 'plan' && e.event === 'start').lastIndexOf(true);
+  if (i < 0) return null;
+  const after = entries.slice(i + 1);
+  if (after.some(dropped) || !after.some(shipped)) return null;
+  const files = {};
+  for (const e of after.filter((x) => shipped(x) && x.entregados)) {
+    for (const [ws, list] of Object.entries(e.entregados)) for (const f of list) (files[ws] = files[ws] || new Set()).add(f);
+  }
+  return { files };
 }
 
 // Las etapas que preparan un proyecto. Mientras una está en curso (su último start sin un end ni un
@@ -284,7 +306,7 @@ function summary(root, { sessionStart = 0, since } = {}) {
   };
 }
 
-module.exports = { FILE, PREP, STAGES, RED_CAP, personYes, append, read, format, planState, prepOpen, stageOpen, redStreak, prepInTurn, tasks, corrida, summary };
+module.exports = { FILE, PREP, STAGES, RED_CAP, personYes, append, read, format, planState, retouchable, prepOpen, stageOpen, redStreak, prepInTurn, tasks, corrida, summary };
 
 function main() {
   let args;

@@ -183,6 +183,21 @@ test('carril corto: un plan trivial se aprueba por reglas, sin la persona; si no
   no(CORTO(['src/a.ts']).replace('Sin cambios.', 'POST /cuotas: nuevo campo.'), /^- «## Contrato de API» no dice que queda sin cambios$/m);
 });
 
+test('carril corto: un archivo sin extensión (el Dockerfile) cuenta, en la raíz o con carpeta', () => {
+  const { itemFile } = require('../scripts/lib/plan.js');
+  assert.equal(itemFile('- api-academico/Dockerfile (modificado)'), 'api-academico/Dockerfile');
+  assert.equal(itemFile('- `Dockerfile`: el pin de chromium'), 'Dockerfile');
+  assert.equal(itemFile('- api: los dos archivos de abajo'), null);
+  assert.equal(itemFile('- src/'), null, 'una carpeta no es un archivo');
+  assert.equal(itemFile('- src/a.ts (modificado)'), 'src/a.ts');
+  const { dir } = cloned();
+  run(dir, 'plan-state.js', ['start', '--detail', 'pin de chromium', '--en-checkout']);
+  h.write(dir, '.tmp/harness/plan.md', CORTO(['`Dockerfile`']));
+  const c = run(dir, 'plan-state.js', ['corto']);
+  assert.equal(c.status, 0, c.stdout + c.stderr);
+  assert.match(c.stdout, /^carril corto: sí · api · 1 archivo\(s\)/m);
+});
+
 function approved(over, extra, files) {
   const c = cloned(over, extra, files);
   h.git(c.dir, 'switch', '-q', '-c', 'feature/cobros');
@@ -363,6 +378,116 @@ test('ship.js deliver: comprueba, deja la rama y el stage; --commit commitea con
   assert.match(informe, /## MR de api, para pegar: Cobros\n\n```\nAgrega los cobros\.\n\n## Criterios\n- C1 \[literal\] un coordinador crea un taller\n\n## Ejemplos\n- E1 \(C1\) el coordinador crea «Robótica» y lo ve en la lista · SIN COMPROBAR: nadie lo corrió\n\n## Prueba manual\n1\. \(C1\)/);
   assert.match(informe, /Verde significa que cumple convenciones y compila\/testea; nunca que sea correcto en el negocio\./);
   assert.equal(events(dir).pop(), 'end ship ok');
+  assert.deepEqual(tl.read(dir).filter((e) => e.stage === 'ship' && e.event === 'end').pop().entregados, { api: ['src/a.ts'] }, 'lo entregado queda anotado');
+});
+
+// academico, 2026-11-25: se sube a feature/base-main, que despliega dev, como avance directo y sin MR.
+// El modelo lo hacía a mano en cada entrega, y el arnés quedaba creyendo que faltaba subir.
+test('entrega push: con targetBranch, el sí sube a esa rama como avance directo, sin MR, sin force y sin borrar nada', () => {
+  const push = { integration: { branchPrefix: 'feature/', merge: 'push', targetBranch: 'feature/base-main' } };
+  const { dir, bare } = approved({}, push);
+  const ready = () => {
+    assert.equal(run(dir, 'verify.js', ['run']).status, 0);
+    assert.equal(run(dir, 'review.js', ['round']).status, 0);
+    assert.equal(run(dir, 'review.js', ['round', '--marca', '--limpio']).status, 0);
+  };
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
+  ready();
+  let r = run(dir, 'ship.js', ['deliver']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^entrega: push sin MR \(integration\.merge\), a feature\/base-main como avance directo; el worktree se queda$/m);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros' } }));
+  r = run(dir, 'ship.js', ['deliver', '--commit']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /^MR: /m, 'sin MR no arma cuerpos');
+  assert.match(r.stdout, /si subes a feature\/base-main, como avance directo, sin MR, y dile que el worktree se queda para seguir/);
+  person(dir, 'sí, súbelo');
+  r = run(dir, 'ship.js', ['deliver', '--push']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: feature\/cobros subida a origin\/feature\/base-main, como avance directo y sin MR$/m);
+  assert.equal(h.git(bare, 'rev-parse', 'feature/base-main'), h.git(dir, 'rev-parse', 'HEAD'));
+  assert.throws(() => h.git(bare, 'rev-parse', '--verify', '--quiet', 'refs/heads/feature/cobros'), 'la rama del issue no se sube');
+  assert.match(r.stdout, /lo que se creó para este issue se queda/);
+  assert.ok(fs.existsSync(path.join(dir, '.tmp', 'harness', 'plan.md')), 'no borra nada');
+  const issueDir = path.join(dir, '.tmp', 'harness', 'issues');
+  const issue = JSON.parse(fs.readFileSync(path.join(issueDir, fs.readdirSync(issueDir)[0]), 'utf8'));
+  assert.equal(issue.state, 'subido');
+  assert.ok(![...(issue.pushed || []), ...(issue.branches || [])].some((b) => b.branch === 'feature/base-main'), 'la rama destino nunca queda anotada como rama del issue: el cierre la borraría de origin');
+  assert.equal(events(dir).pop(), 'end ship ok');
+
+  // Otra sesión subió a feature/base-main: el push no la pisa.
+  const otro = path.join(h.tmp('fachadas-otro'), 'api');
+  h.git(path.dirname(otro), 'clone', '-q', '-b', 'feature/base-main', bare, 'api');
+  h.write(otro, 'src/otro.ts', 'de otra sesión\n');
+  h.commitAll(otro, 'feat: otra sesión');
+  h.git(otro, 'push', '-q', 'origin', 'feature/base-main');
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'retoque\n');
+  ready();
+  assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'fix: retoque' } }));
+  assert.equal(run(dir, 'ship.js', ['deliver', '--commit']).status, 0);
+  person(dir, 'sí');
+  r = run(dir, 'ship.js', ['deliver', '--push']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /^siguiente: origin\/feature\/base-main tiene commits que esta rama no trae/m);
+  assert.notEqual(h.git(bare, 'rev-parse', 'feature/base-main'), h.git(dir, 'rev-parse', 'HEAD'), 'lo de la otra sesión sigue en origin');
+});
+
+test('deliver --push --sin-mr sube la rama del issue sin MR; --a <rama> la lleva a otra rama; los dos dejan lo del issue', () => {
+  let { dir, bare } = shippable();
+  const commit = () => {
+    assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+    h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
+    const c = run(dir, 'ship.js', ['deliver', '--commit']);
+    assert.equal(c.status, 0, c.stdout + c.stderr);
+    assert.match(c.stdout, /si pide subir sin MR, ship\.js deliver --push --sin-mr/);
+    person(dir, 'solo súbelo, sin MR');
+  };
+  commit();
+  let r = run(dir, 'ship.js', ['deliver', '--push', '--sin-mr']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: feature\/cobros subida a origin, sin MR$/m);
+  assert.doesNotMatch(r.stdout, /sin glab ni gh|MR \d/);
+  assert.equal(h.git(bare, 'rev-parse', 'feature/cobros'), h.git(dir, 'rev-parse', 'HEAD'));
+  assert.ok(fs.existsSync(path.join(dir, '.tmp', 'harness', 'plan.md')));
+
+  ({ dir, bare } = shippable());
+  commit();
+  r = run(dir, 'ship.js', ['deliver', '--push', '--a', 'dev']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^api: feature\/cobros subida a origin\/dev, como avance directo y sin MR$/m);
+  assert.equal(h.git(bare, 'rev-parse', 'dev'), h.git(dir, 'rev-parse', 'HEAD'));
+  for (const args of [['deliver', '--sin-mr'], ['deliver', '--a', 'dev'], ['deliver', '--push', '--a', '']]) assert.equal(run(dir, 'ship.js', args).status, 2, args.join(' '));
+});
+
+// academico, 2026-11-26: después de entregar, «sin color se ve feo» sobre un archivo recién subido. El
+// guard negó la edición tres veces y el modelo armó un plan nuevo para una línea.
+test('un retoque después de entregar: edita sin plan nuevo, la revisión va acotada y se entrega con un commit aparte', () => {
+  const { dir, bare } = shippable();
+  assert.equal(run(dir, 'ship.js', ['deliver']).status, 0);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'feat: cobros', mr: { titulo: 'Cobros', descripcion: 'Agrega los cobros.' } } }));
+  assert.equal(run(dir, 'ship.js', ['deliver', '--commit']).status, 0);
+  person(dir, 'sí, súbela');
+  assert.equal(run(dir, 'ship.js', ['deliver', '--push', '--dejar']).status, 0);
+  const first = h.git(dir, 'rev-parse', 'HEAD');
+  person(dir, 'sin color se ve feo');
+  const edit = h.hook('plan-guard', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(dir, 'src/a.ts') }, cwd: dir });
+  assert.equal(edit.out, null, `retoque de lo entregado: ${JSON.stringify(edit.out)}`);
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'color\n');
+  assert.equal(run(dir, 'verify.js', ['run']).status, 0);
+  let r = run(dir, 'review.js', ['round']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^ronda 2 de 3 · acotada/m, 'el commit llevó lo revisado: solo se revisa el retoque');
+  assert.equal(run(dir, 'review.js', ['round', '--marca', '--limpio']).status, 0);
+  r = run(dir, 'ship.js', ['deliver']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  h.write(dir, '.tmp/harness/ship/mensajes.json', JSON.stringify({ api: { asunto: 'fix: color de las categorías' } }));
+  assert.equal(run(dir, 'ship.js', ['deliver', '--commit']).status, 0);
+  assert.equal(h.git(dir, 'rev-parse', 'HEAD^'), first, 'un commit aparte, sobre lo entregado');
+  person(dir, 'sí');
+  r = run(dir, 'ship.js', ['deliver', '--push', '--dejar']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(h.git(bare, 'rev-parse', 'feature/cobros'), h.git(dir, 'rev-parse', 'HEAD'));
 });
 
 // renova365, 2026-11-19: a la pregunta del push la persona respondió «corrige primero». El modelo cerró la

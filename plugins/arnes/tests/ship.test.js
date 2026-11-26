@@ -151,6 +151,18 @@ test('stage agrega tocados y borrados del workspace; un .env se queda fuera', ()
   assert.doesNotMatch(bad.stdout, /\t\.env\.local/, 'no entra al stage');
 });
 
+test('stage: un .env que el repo ya versiona (el .env.public de Next.js) entra al commit; uno sin versionar, no', () => {
+  const { root, api } = folder();
+  h.write(api, '.env.public.development', 'NEXT_PUBLIC_API_URL=https://dev\n');
+  h.commitAll(api, 'el env público, versionado');
+  h.write(api, '.env.public.development', 'NEXT_PUBLIC_API_URL=https://dev-api\n');
+  h.write(api, '.env.local', 'SECRETO=x\n');
+  const r = ship(root, ['stage', 'api']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /M\t\.env\.public\.development/);
+  assert.match(r.stdout, /se quedan fuera del commit, porque no deben entrar: \.env\.local$/m);
+});
+
 test('stage y check: la configuración del proyecto se queda fuera del commit, también la que ya estaba en el stage', () => {
   const { root, api } = folder();
   h.write(api, 'src/nuevo.ts', 'n\n');
@@ -269,6 +281,42 @@ test('check: un plan del carril corto cuyo cambio salió de él lo avisa para la
   const r = ship(root, ['check']);
   assert.equal(r.status, 0, r.stdout);
   assert.match(r.stdout, /^aviso: el plan se aprobó por reglas, en el carril corto, pero el cambio tocó 2 workspaces, tocó zonas de riesgo \(src\/auth\/login\.ts\); va en la pregunta del push/m);
+});
+
+test('check: en el carril corto, con el cambio dentro, no hace falta el revisor; si el cambio salió, sí', () => {
+  const dir = h.tmp('ship-corto');
+  h.repo(dir, { '.claude/harness.json': h.repoManifest('api'), 'src/a.ts': 'a\n' });
+  const tl = require('../scripts/lib/timeline.js');
+  tl.append(dir, { event: 'start', stage: 'plan' });
+  tl.append(dir, { event: 'note', stage: 'plan', result: 'aprobado', detail: 'carril corto: aprobado por reglas (api, 1 archivo(s))' });
+  fs.appendFileSync(path.join(dir, 'src/a.ts'), 'b\n');
+  assert.equal(h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: dir }).status, 0);
+  let r = ship(dir, ['check']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /revisión: no hace falta: el plan es del carril corto/);
+  assert.match(r.stdout, /resultado: LISTO$/m);
+  for (const n of [1, 2, 3, 4, 5, 6]) h.write(dir, `src/n${n}.ts`, 'x\n');
+  assert.equal(h.run('gate-flag.js', ['write', 'api', '--result', 'pass'], { cwd: dir }).status, 0);
+  r = ship(dir, ['check']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stdout, /tocó 7 archivos/);
+  assert.match(r.stdout, /resultado: FALTA RESOLVER\n  revisar/);
+});
+
+test('check, el turno y el revisor: una zona de riesgo que la rama ya trae commiteada, sin llegar a su destino, cuenta', () => {
+  const { root, api } = folder();
+  h.git(api, 'switch', '-q', '-c', 'feature/x');
+  h.write(api, 'src/auth/guard.ts', 'g\n');
+  h.git(api, 'add', 'src/auth/guard.ts');
+  h.git(api, 'commit', '-q', '-m', 'trae el guard por avance directo');
+  ready(root);
+  const r = ship(root, ['check']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.match(r.stdout, /riskPaths tocadas: src\/auth\/guard\.ts → REVISIÓN HUMANA OBLIGATORIA en el MR/);
+  const p = h.hook('prompt-context', { cwd: root, prompt: 'qué falta', session_id: 's-riesgo' });
+  assert.match(JSON.stringify(p.out), /riskPaths tocadas: src\/auth\/guard\.ts → REVISIÓN HUMANA OBLIGATORIA/);
+  assert.equal(h.run('review.js', ['input', '--completa'], { cwd: root }).status, 0);
+  assert.match(fs.readFileSync(path.join(root, '.tmp/harness/review/input.md'), 'utf8'), /src\/auth\/guard\.ts/);
 });
 
 test('sin tocados no hay nada que entregar → 1; usos inválidos → 2', () => {
