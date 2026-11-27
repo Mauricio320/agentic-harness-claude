@@ -174,13 +174,19 @@ function bring(f, state, ws, branch) {
 // ¿Las dependencias del checkout principal no sirven para este worktree? Si el lockfile de la rama no
 // es el del principal, enlazarlas deja paquetes de otra versión: en academico, informes-front no pudo
 // regenerar su registry hasta instalarlas adentro (2026-11-25). Instalar dentro del arranque puede
-// pasar el tiempo del hook, así que no se enlaza y se dice. → true si difieren
+// pasar el tiempo del hook, así que no se enlaza y se dice. Tampoco sirven si el principal no las
+// instaló después de su último pull: pnpm deja en node_modules/.pnpm/lock.yaml el lockfile que
+// instaló, y si no es el del repo faltan paquetes (academico, 2026-11-27: informes-front enlazó un
+// node_modules sin radix-ui, con el mismo lockfile en los dos lados, y el typecheck dio 59 errores).
+// → el porqué, o null si sirven
 const LOCKFILES = ['pnpm-lock.yaml', 'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'bun.lock', 'bun.lockb'];
 function staleDeps(mainDir, wtDir) {
   const text = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n') : null);
-  return LOCKFILES.some((f) => text(path.join(mainDir, f)) !== text(path.join(wtDir, f)));
+  if (LOCKFILES.some((f) => text(path.join(mainDir, f)) !== text(path.join(wtDir, f)))) return 'su lockfile no es el de esta rama y quedarían paquetes de otra versión';
+  const installed = text(path.join(mainDir, 'node_modules', '.pnpm', 'lock.yaml'));
+  return installed !== null && installed !== text(path.join(mainDir, 'pnpm-lock.yaml')) ? 'allá no se instalaron después del último cambio de su lockfile y faltarían paquetes' : null;
 }
-const staleLine = (name) => `${name}: no enlacé las dependencias del checkout principal, porque su lockfile no es el de esta rama y quedarían paquetes de otra versión; instálalas aquí antes de verificar (build.js deps --ws ${name} --write)`;
+const staleLine = (name, why) => `${name}: no enlacé las dependencias del checkout principal, porque ${why}; instálalas aquí antes de verificar (build.js deps --ws ${name} --write)`;
 
 // node_modules enlazado y .env* copiados en cada workspace del repo traído. Cada enlace se anota en
 // el registro antes de crearlo, para que nunca quede uno sin registrar.
@@ -195,8 +201,9 @@ function equipRepo(f, state, entry) {
     const dir = path.join(entry.path, path.relative(ws.repo, ws.dir));
     const src = path.join(ws.dir, 'node_modules');
     const dst = path.join(dir, 'node_modules');
+    const stale = fs.existsSync(src) && !present(dst) && staleDeps(ws.dir, dir);
     if (!fs.existsSync(src)) out.push(`${ws.name}: el checkout principal no tiene las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
-    else if (!present(dst) && staleDeps(ws.dir, dir)) out.push(staleLine(ws.name));
+    else if (stale) out.push(staleLine(ws.name, stale));
     else if (!present(dst)) {
       entry.links.push(posix(dst));
       writeState(f.project, state);
@@ -484,8 +491,9 @@ function equip(w) {
       lines.push(`${ws.name}: ni este worktree ni el checkout principal tienen las dependencias instaladas; hay que instalarlas aquí antes de verificar`);
       continue;
     }
-    if (staleDeps(path.dirname(src), ws.dir)) {
-      lines.push(staleLine(ws.name));
+    const stale = staleDeps(path.dirname(src), ws.dir);
+    if (stale) {
+      lines.push(staleLine(ws.name, stale));
       continue;
     }
     if (link(src, dst) === 'copy') lines.push(`${ws.name}: copié las dependencias del checkout principal, porque no se pudieron enlazar`);

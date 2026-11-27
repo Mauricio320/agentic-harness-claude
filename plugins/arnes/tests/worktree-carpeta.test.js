@@ -518,6 +518,25 @@ test('con un lockfile distinto al del checkout principal no enlaza node_modules 
   assert.ok(isLink(path.join(wt, 'api', 'node_modules')), 'api, con el mismo lockfile, se enlaza como siempre');
 });
 
+// academico, 2026-11-27: el lockfile era el mismo en los dos lados, pero el principal no había
+// instalado después de su último pull, y el worktree heredó un node_modules sin radix-ui.
+test('si el checkout principal no instaló después de cambiar su lockfile de pnpm, no enlaza node_modules', () => {
+  const lock = "lockfileVersion: '9.0'\npackages:\n  radix-ui@1.4.3: {}\n";
+  const root = folder({ web: { 'pnpm-lock.yaml': lock } });
+  h.write(root, 'web/node_modules/.pnpm/lock.yaml', "lockfileVersion: '9.0'\npackages: {}\n");
+  const wt = h.nativeWorktree(root, 'deps-viejas');
+  const ctx = start(wt);
+  assert.match(ctx, /^- web: no enlacé las dependencias del checkout principal, porque allá no se instalaron después del último cambio de su lockfile y faltarían paquetes; instálalas aquí antes de verificar/m);
+  assert.ok(!fs.existsSync(path.join(wt, 'web', 'node_modules')), 'web sin enlace');
+  assert.ok(isLink(path.join(wt, 'api', 'node_modules')), 'api, sin lockfile de pnpm, se enlaza como siempre');
+
+  const alDia = folder({ web: { 'pnpm-lock.yaml': lock } });
+  h.write(alDia, 'web/node_modules/.pnpm/lock.yaml', lock.replace(/\n/g, '\r\n'));
+  const wt2 = h.nativeWorktree(alDia, 'deps-al-dia');
+  assert.doesNotMatch(start(wt2), /web: no enlacé/);
+  assert.ok(isLink(path.join(wt2, 'web', 'node_modules')), 'instaló lo que dice su lockfile: se enlaza, aunque cambie el fin de línea');
+});
+
 test('con la entrega push y targetBranch, cada repo llega al worktree desde origin/<targetBranch>', () => {
   const root = folder({ composition: { merge: 'push', targetBranch: 'feature/base-main' } });
   for (const name of ['api', 'web']) {
