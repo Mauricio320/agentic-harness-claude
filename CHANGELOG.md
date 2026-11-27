@@ -2,6 +2,19 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versionado semver: un tag `vX.Y.Z` cubre `arnes`, `arnes-ui` y `arnes-mod`.
 
+## [0.8.11] - 2026-11-27
+
+Sale de una sesión real en academico (2026-11-27). La persona escribió `/arnes:sync` como primer mensaje y la sesión nació dentro de un worktree. No lo abrió el arnés: la app de escritorio, con su interruptor Worktree encendido, arranca cada sesión en uno propio antes del primer mensaje, sea cual sea el pedido, y el arnés le trae adentro todos los repos. En academico pasó en las doce sesiones abiertas desde el 23 de noviembre, también en las de consulta; en renova365, con el interruptor apagado, no. Adentro, sync creó cuatro ramas de respaldo para no traer nada, y el cambio chico que siguió heredó dependencias viejas.
+
+### Cambiado
+- `/arnes:sync` mira primero si hay algo que traer. Con todas las ramas al día lo dice en una línea y termina: sin ramas de respaldo, sin informe y sin verificación. En un worktree recién creado es lo normal, y lo dice. Antes creaba el respaldo en cada repo y después descubría que no había nada.
+
+### Corregido
+- Un checkout principal que no instaló después de cambiar su lockfile ya no presta sus dependencias. Con pnpm, si el lockfile que quedó instalado (`node_modules/.pnpm/lock.yaml`) no es el del repo, el worktree no enlaza `node_modules` y el arranque dice que hay que instalar adentro. Con el mismo lockfile en los dos lados, informes-front heredó un `node_modules` sin radix-ui y el typecheck dio 59 errores ajenos al cambio. Con npm y yarn sigue comparándose solo el lockfile de cada lado.
+
+### Notas
+- En la app de escritorio, el interruptor Worktree va apagado para trabajar con el arnés. Apagado, la sesión nace en la carpeta del proyecto y el arnés abre el worktree solo cuando un pedido cambia código, con el nombre del pedido. La nota de la 0.8.8 que esperaba probarlo encendido queda sin efecto: en los datos de la app (6.28899), las sesiones de renova365 que el arnés movió a un worktree siguen anotadas en la carpeta del proyecto.
+
 ## [0.8.10] - 2026-11-26
 
 Lo chico sin ceremonia y la entrega como la usan. Sale de auditar doce sesiones reales del 23 al 26 de noviembre, ocho en renova365 y cuatro en academico, que corrieron todas con la 0.8.8 (la 0.8.9 no se había instalado). La persona resumió: los cambios chicos son engorrosos. Un Dockerfile de una línea pasó por plan completo, dev, revisor en opus y dos síes; un retoque después de entregar pidió un plan entero tras tres negaciones del guard. Y en academico las cuatro sesiones de código terminaron el push a mano, porque allí se sube sin MR: a `dev`, a la rama del issue o a `feature/base-main`.

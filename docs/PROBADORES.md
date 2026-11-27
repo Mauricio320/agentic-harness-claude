@@ -1,6 +1,6 @@
 # Probar el arnés: guía para probadores
 
-Versión 0.8.10, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
+Versión 0.8.11, desde `main`: cada versión se publica mergeando a main. Probada con Claude Code 2.1.316 y Node 24 en Windows; la 0.5.2 corrió también en Mac. Si tu sesión corre una versión de Claude Code más nueva, el arnés lo dice al arrancar: una falla rara puede ser de la versión, y conviene anotarlo en el reporte (§9). El diseño está en `docs/PLAN.md`, y `docs/como-funciona.html` lo explica desde cero.
 
 Hay dos caminos:
 - **Llegas a un proyecto ya adoptado** (academico, por ejemplo): instala los plugins (§1) y corre `/arnes:setup` con la url del repo de carpeta (§2). Es el camino normal.
@@ -17,7 +17,7 @@ claude plugin install arnes-mod@agentic-harness
 claude plugin list
 ```
 
-El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.10`.
+El primero agrega a tu `settings.json` de usuario el marketplace `agentic-harness`, fijado a la rama, e instala `arnes`. Los otros dos instalan los mods desde ese mismo marketplace: `arnes-ui`, la interfaz, y `arnes-mod`, que necesita Claude Code 2.1.305 o más. `claude plugin list` muestra los tres con `Version: 0.8.11`.
 
 ## 2. Preparar un proyecto ya adoptado: `/arnes:setup`
 
@@ -173,7 +173,7 @@ Sin el mod también hay avisos: el Stop dice `verificado, falta review` cuando c
 **¿Cuándo se crea la rama del issue?** No al abrir la sesión ni mientras se planifica: la crea el arnés al aprobar el plan, en todos los repos del plan con el mismo nombre. ship la reutiliza al entregar, y solo la crea él si nadie la creó antes.
 
 **¿Cuándo uso un worktree, y cómo?** Siempre, para cada issue, y no tienes que hacer nada: al aprobar el plan, el arnés mueve la sesión a un worktree nuevo, desde main al día, y tus checkouts quedan como estaban, aunque tengan cambios a medias o vayan atrás. Lo dice en la pregunta de aprobación; si prefieres la rama en tu checkout, pídelo ahí.
-- **En un repo solo y en una carpeta multi-repo** funciona igual. En una carpeta, el arnés trae adentro del worktree cada repo del plan, en la rama del issue (`feature/<nombre>`), con las dependencias enlazadas y los puertos corridos. También puedes abrir la sesión tú con `claude --worktree <nombre>`, o el escritorio en modo worktree.
+- **En un repo solo y en una carpeta multi-repo** funciona igual. En una carpeta, el arnés trae adentro del worktree cada repo del plan, en la rama del issue (`feature/<nombre>`), con las dependencias enlazadas y los puertos corridos. También puedes abrir la sesión tú con `claude --worktree <nombre>`. En la app de escritorio deja apagado el interruptor Worktree: encendido, cada sesión nace en un worktree con todos los repos antes de tu primer mensaje, también una consulta o un `/arnes:sync`; apagado, el arnés lo abre solo cuando el pedido cambia código, con el nombre del pedido.
 - **El árbol que miras es el del worktree, no la raíz.** Mientras la sesión trabaja en un worktree, los cambios están en `<carpeta>/.claude/worktrees/<nombre>`, no en tu checkout: si abres la raíz en el editor, no los vas a ver. Al mudarse, el arnés te dice la ruta exacta y, si tienes VS Code en el PATH, te ofrece abrirla con `code -r "<ruta>"`. La banda dice `en worktree <nombre>` mientras dure.
 - **Para probar la app**, "inicia la app": arranca desde el worktree, con sus puertos.
 - **Al terminar**, `/arnes:ship` desde esa sesión. Al salir, Claude Code pregunta si conservar o borrar el worktree: con "remove" el arnés quita primero los enlaces y el worktree de cada repo, y las ramas del issue quedan en los repos. Si un repo tiene cambios sin commitear, no deja borrar. Y si cierras la sesión y eliges borrar, o el escritorio la borra, lo que no estaba commiteado no se pierde: el arnés lo guarda después de cada turno en el propio repo, y mientras haya algo pendiente deja en el worktree un archivo `.arnes-trabajo-pendiente`, por el que Claude Code pregunta antes de borrar. Al abrir otra sesión, el arnés te avisa ("rescate talleres de api: 2 archivo(s) sin commitear … que quedaron sin su worktree"), y `/arnes:cerrar` lo recupera: vuelve el worktree de la carpeta entero, con sus repos adentro y los cambios como estaban. Nunca borres el worktree de la carpeta con `git worktree remove`: en Windows, git sigue los enlaces de adentro y vaciaría el `node_modules` de tus checkouts; el arnés lo niega.
